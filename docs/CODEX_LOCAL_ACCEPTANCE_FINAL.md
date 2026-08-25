@@ -61,6 +61,7 @@ ASR persistent worker
  -> ControlDeck SSE LLM
  -> speakable clause chunker
  -> persistent TTS
+ -> ordered bounded audio-delivery queue
  -> progressive WebSocket audio
 ```
 
@@ -68,7 +69,9 @@ Required evidence:
 
 - first speakable chunk is emitted before the full LLM response is complete;
 - multiple TTS chunks preserve order;
-- backpressure does not grow memory without bound;
+- chunk N+1 TTS generation proceeds while chunk N audio is being delivered;
+- the bounded text/audio queues apply backpressure instead of allowing memory growth without bound;
+- client-facing JSON/binary frame order is serialized by the audio-delivery stage;
 - turn 2+ reuses ASR/TTS process/model when capacity permits;
 - LLM remains warm while residency hold is healthy;
 - live session does not call `ai.release` after every turn while hold is active;
@@ -134,55 +137,51 @@ manifest.json
 
 Verify package Asset/provenance, SHA-256 and HTTP content route.
 
-## G. M5 CoreS3 firmware
+## G. Existing M5 / edge client API compatibility
 
-Before hardware testing:
+M5 firmware is **not part of the SonicForge repository acceptance scope**. The user already owns the device-side implementation. Do not add, build, or gate merge on a SonicForge-maintained firmware project.
 
-```bash
-cd firmware/m5-sonic-edge
-cp include/config.example.h include/config.h
-pio run
-```
+Validate the published server contracts against the existing client instead.
 
-Compilation failure is a merge blocker for the M5 baseline.
-
-Then test real CoreS3:
-
-### Direct mode
+### Direct trusted-LAN path
 
 ```text
-SONIC_USE_CONTROLDECK_RELAY=0
-SONIC_PRESET=m5-dictation
+existing M5 client
+ -> ws://<sonicforge-host>:9140/addon/v1/live/ws
+ -> sonic-edge/1
 ```
-
-Verify trusted-LAN use without user-facing authentication.
-
-### Relay voice-agent
-
-Create one ControlDeck pairing, connect with the code once, confirm the firmware stores a device token in NVS, then remove the pairing code from local config.
 
 Verify:
 
-- subsequent reconnect uses stored token;
-- ControlDeck returns a different/refreshed device token;
-- token is scoped to SonicForge `voice` relay;
-- device does not receive the upstream Add-on service token;
-- ordinary reboot does not require re-pairing;
-- current design uses 30-day rolling device credential, refreshed on successful reconnect;
-- explicit pair reset clears NVS credential.
+- trusted-LAN basic ASR/TTS/PTT path requires no user-facing authentication;
+- `hello` capability negotiation succeeds;
+- PCM input/output rate negotiation matches the existing client;
+- `ptt.start` / binary mic frames / `ptt.stop` produce expected transcript/audio events;
+- sequence gaps/duplicates are reported without corrupting later turns;
+- repeated turns keep warm models when resources allow;
+- SonicForge restart and Wi-Fi/client reconnect recover cleanly.
 
-Real audio checks:
+### Optional ControlDeck relay path
 
-- effective mic rate near 16 kHz;
-- 20 ms frame cadence / sequence gaps;
-- no old M5 analog-ADC slow-capture behavior;
-- speaker playback without underrun/noise;
-- second voice turn avoids unnecessary model cold loads;
-- Wi-Fi drop/reconnect;
-- SonicForge restart;
-- ControlDeck restart in relay mode.
+If the existing M5 client uses ControlDeck-hosted LLM voice/translation:
 
-Wake/VAD/AEC/barge-in are not v1 blockers unless the user explicitly promotes them.
+```text
+existing M5 client
+ -> ControlDeck Device Relay
+ -> SonicForge live API
+```
+
+Verify:
+
+- one-time pairing is required only for first relay registration;
+- reconnect uses the stored device credential and receives a rotated credential;
+- current design uses a 30-day rolling device credential;
+- device credential is scoped to the declared SonicForge relay;
+- the device never receives the upstream Add-on service token or browser cookie;
+- ordinary reconnect/reboot does not require repeated pairing;
+- disabled Add-on/revoked relay is rejected on the next connection.
+
+Wake/VAD/AEC/barge-in remain client-side/optional enhancements and are not SonicForge v1 merge blockers unless a server contract change is required.
 
 ## H. Final merge rule
 

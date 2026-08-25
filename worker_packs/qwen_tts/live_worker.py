@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+from contextlib import redirect_stdout
 import json
 import os
 import signal
@@ -26,9 +27,10 @@ def _parent_death_guard() -> None:
 
 _parent_death_guard()
 
-import soundfile as sf  # noqa: E402
-import torch  # noqa: E402
-from qwen_tts import Qwen3TTSModel  # noqa: E402
+with redirect_stdout(sys.stderr):
+    import soundfile as sf  # noqa: E402
+    import torch  # noqa: E402
+    from qwen_tts import Qwen3TTSModel  # noqa: E402
 
 MODELS: dict[str, Qwen3TTSModel] = {}
 
@@ -46,11 +48,12 @@ def model(model_id: str) -> Qwen3TTSModel:
         return cached
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
-    value = Qwen3TTSModel.from_pretrained(
-        model_id,
-        device_map=device,
-        dtype=dtype,
-    )
+    with redirect_stdout(sys.stderr):
+        value = Qwen3TTSModel.from_pretrained(
+            model_id,
+            device_map=device,
+            dtype=dtype,
+        )
     MODELS[model_id] = value
     return value
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+from contextlib import redirect_stdout
 import json
 import os
 import signal
@@ -31,8 +32,9 @@ def _emit(value: dict) -> None:
 
 
 def _model(model_id: str):
-    import torch
-    from qwen_tts import Qwen3TTSModel
+    with redirect_stdout(sys.stderr):
+        import torch
+        from qwen_tts import Qwen3TTSModel
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
@@ -41,11 +43,12 @@ def _model(model_id: str):
     if cached is not None:
         return cached
     _emit({"type": "progress", "progress": 0.1, "message": "Loading Qwen3-TTS"})
-    value = Qwen3TTSModel.from_pretrained(
-        model_id,
-        device_map=device,
-        dtype=dtype,
-    )
+    with redirect_stdout(sys.stderr):
+        value = Qwen3TTSModel.from_pretrained(
+            model_id,
+            device_map=device,
+            dtype=dtype,
+        )
     _MODELS[key] = value
     return value
 

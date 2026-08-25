@@ -142,6 +142,17 @@ def _close_process_transport(proc: asyncio.subprocess.Process) -> None:
         transport.close()
 
 
+def _worker_environment(settings: Settings) -> dict[str, str]:
+    ace_project_root = settings.cache_dir / "ace-step"
+    return {
+        **os.environ,
+        "PYTHONPATH": str(settings.repo_root),
+        "HF_HOME": str(settings.models_dir / "huggingface"),
+        "ACESTEP_PROJECT_ROOT": str(ace_project_root),
+        "ACESTEP_CHECKPOINTS_DIR": str(settings.models_dir / "ace-step"),
+    }
+
+
 async def _stderr_tail(stream: asyncio.StreamReader | None) -> bytes:
     if stream is None:
         return b""
@@ -174,14 +185,7 @@ async def execute(
         argv = [str(python)] + ([str(script)] if str(script) else [])
     else:
         argv = [str(python), str(script)]
-    env = {
-        **os.environ,
-        "PYTHONPATH": str(settings.repo_root),
-        "HF_HOME": str(settings.models_dir / "huggingface"),
-        # ACE-Step honors this upstream variable before project_root/checkpoints.
-        # Keeping it under SonicForge avoids hidden writes to ~/.cache/ace-step.
-        "ACESTEP_CHECKPOINTS_DIR": str(settings.models_dir / "ace-step"),
-    }
+    env = _worker_environment(settings)
     proc = await asyncio.create_subprocess_exec(
         *argv,
         stdin=asyncio.subprocess.PIPE,

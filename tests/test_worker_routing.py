@@ -1,7 +1,7 @@
 import pytest
 
 from sonicforge.config import load_settings
-from sonicforge.workers import WorkerError, route
+from sonicforge.workers import WorkerError, _worker_environment, route
 
 
 def test_external_worker_command_rejects_unrepresented_extra_args(env, monkeypatch):
@@ -28,3 +28,15 @@ def test_external_worker_command_supports_executable_and_script(env, monkeypatch
     assert engine == "external"
     assert str(executable) == "/usr/bin/python3"
     assert str(script) == "/tmp/worker.py"
+
+
+def test_worker_environment_keeps_ace_step_writes_out_of_source(env):
+    settings = load_settings()
+
+    worker_env = _worker_environment(settings)
+
+    assert worker_env["ACESTEP_PROJECT_ROOT"] == str(settings.cache_dir / "ace-step")
+    assert worker_env["ACESTEP_CHECKPOINTS_DIR"] == str(
+        settings.models_dir / "ace-step"
+    )
+    assert worker_env["ACESTEP_PROJECT_ROOT"] != str(settings.repo_root)

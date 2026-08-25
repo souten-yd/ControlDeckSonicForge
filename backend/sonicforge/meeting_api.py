@@ -559,6 +559,11 @@ def create_meeting_router(base) -> APIRouter:
                         "summary": summary,
                     }
                 )
+                try:
+                    await websocket.close(code=1000)
+                except RuntimeError:
+                    pass
+                transport_open = False
         except WebSocketDisconnect:
             failed = False
             transport_open = False

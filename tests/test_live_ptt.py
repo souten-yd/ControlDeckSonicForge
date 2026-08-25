@@ -112,6 +112,8 @@ def test_half_duplex_ptt_runs_as_durable_turn_and_streams_audio(env):
             ).json()
             assert job["task"] == "live.turn"
             assert job["state"] == "succeeded"
+            socket.send_json({"type": "close"})
+            assert socket.receive()["type"] == "websocket.close"
 
 
 def test_live_v1_rejects_host_ai_without_control_deck_identity(env):

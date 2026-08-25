@@ -106,7 +106,9 @@ class LiveWorkerPool:
 
     async def _evict(self, key: str) -> None:
         worker = self._workers.pop(key, None)
-        if worker is not None:
+        try:
+            if worker is None:
+                return
             try:
                 if worker.proc.stdin is not None:
                     worker.proc.stdin.close()
@@ -117,8 +119,12 @@ class LiveWorkerPool:
             if worker.proc.stdout is not None:
                 await worker.proc.stdout.read()
             await asyncio.gather(worker.stderr_task, return_exceptions=True)
-            _close_process_transport(worker.proc)
-        await self.host_session.release_worker_lease(key)
+        finally:
+            if worker is not None:
+                if not worker.stderr_task.done():
+                    worker.stderr_task.cancel()
+                _close_process_transport(worker.proc)
+            await self.host_session.release_worker_lease(key)
 
     async def _admit(self, key: str, request: dict) -> None:
         try:

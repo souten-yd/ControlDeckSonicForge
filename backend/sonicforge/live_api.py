@@ -436,6 +436,12 @@ def create_live_router(base) -> APIRouter:
                             input_path.unlink(missing_ok=True)
                         continue
                     if kind == "close":
+                        if worker_pool is not None:
+                            await worker_pool.close()
+                            worker_pool = None
+                        if host_session is not None:
+                            await host_session.close(failed=session_failed)
+                            host_session = None
                         await websocket.close(code=1000)
                         return
                     raise EdgeProtocolError(

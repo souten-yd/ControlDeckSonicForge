@@ -206,7 +206,7 @@ Current target-machine evidence on 2026-08-25:
 SonicForge:
   python -m compileall -q backend worker_packs tests
   pytest -q
-  71 passed; 3 warnings (1 TestClient deprecation, 2 delayed subprocess transport warnings)
+  71 passed; 1 warning (TestClient deprecation only)
 
 ControlDeck combined local Host (#239 + #240):
   ./deck.sh test

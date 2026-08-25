@@ -11,6 +11,9 @@ It is deliberately isolated from ControlDeck core and from MediaForge runtime en
 - game-oriented SFX, ambience, UI sound and voice-pack generation
 - local music generation, remix, extension and loop workflows
 - Localization Studio for bilingual dialogue batches and project export
+- typed media pipelines such as ASR -> ControlDeck LLM -> TTS with selectable start/end stages
+- OpenCode/agent-driven BGM, SFX, voice and pipeline generation through ControlDeck Agent MCP
+- PC/mobile/game delivery profiles for durable assets, project export and live audio sessions
 - durable jobs, cancellation, reconnect/resume, progress and provenance
 - ControlDeck Add-on Platform v2 / AI Resource Broker integration
 - **Easy / Customize / Expert** progressive settings instead of exposing model knobs by default
@@ -28,6 +31,8 @@ It is deliberately isolated from ControlDeck core and from MediaForge runtime en
 - forcing users to install every SFX/music model before they can use speech
 - trusting a release solely because a checksum appears in mutable metadata
 - hiding an unavailable Add-on instead of explaining its state
+- creating a parallel SonicForge MCP server when ControlDeck already exposes Add-on agent tools to OpenCode
+- holding one GPU lease across heterogeneous ASR -> LLM -> TTS pipelines
 
 ## Documentation map
 
@@ -49,9 +54,10 @@ Read in this order:
 14. [Release distribution and publisher signing](docs/13-release-distribution-and-signing.md)
 15. [Bilingual UX and critical design review](docs/14-bilingual-ux-and-critical-review.md)
 16. [Music and SFX researched implementation plan](docs/15-music-and-sfx-generation-plan.md)
-17. [Implementation status / evidence ledger](docs/implementation-status.md)
-18. [Draft Add-on manifest](docs/contracts/addon.example.json)
-19. [Draft capability document](docs/contracts/capabilities.example.json)
+17. [Typed media pipeline, agent and delivery architecture](docs/16-pipeline-agent-and-delivery-architecture.md)
+18. [Implementation status / evidence ledger](docs/implementation-status.md)
+19. [Draft Add-on manifest](docs/contracts/addon.example.json)
+20. [Draft capability document](docs/contracts/capabilities.example.json)
 
 `AGENTS.md` is normative for developers and coding agents.
 
@@ -63,6 +69,8 @@ SonicForge must track the actual ControlDeck contract rather than copying stale 
 - `souten-yd/ControlDeck/docs/plugin-sdk.md`
 - `souten-yd/ControlDeck/backend/app/addons/schema.py`
 - `souten-yd/ControlDeck/backend/app/features/release_bundle.py`
+- `souten-yd/ControlDeck/backend/app/addons/agent_mcp.py`
+- `souten-yd/ControlDeck/backend/app/addon_runtime/ai.py`
 - `souten-yd/ControlDeck/tools/fake-addon/`
 - `souten-yd/ControlDeckMediaForge/docs/controldeck-integration-plan.md`
 - `souten-yd/ControlDeckMediaForge/AGENTS.md`
@@ -82,9 +90,11 @@ When these disagree with this repository, stop implementation, identify which co
 - primary speech content languages: Japanese and English, with explicit/auto language routing
 - local-first; remote providers are outside v1 scope
 - GPU jobs must obtain a ControlDeck Resource Broker lease when running as a ControlDeck Add-on
+- heterogeneous pipelines acquire/release resources per stage; ControlDeck owns LLM admission
 - release authorization uses a trusted publisher Ed25519 key; artifact SHA-256 is bound inside the signed manifest
 - Game Audio baseline: Stable Audio 3 Small-SFX on CPU, pending target validation
 - Music baseline: ACE-Step 1.5 on an accelerator with Stable Audio 3 Small-Music planned as CPU fallback, pending target validation
+- v1 live audio transport: WebSocket through the existing Host proxy; WebRTC remains an optional later generic design
 
 ## UX baseline
 
@@ -100,6 +110,6 @@ Studio contains Speech / Transcribe / SFX / Music / Localization task tabs, whil
 
 ## Implementation direction
 
-The implementation branch contains the lightweight core, durable jobs/assets/setup, Host runtime integration, initial speech/audio/music workers, Localization rendering, embedded UI and signed release tooling. The normative implementation order remains in [the roadmap](docs/09-roadmap.md); Music/Game Audio model selection and promotion details are in [the researched Music/SFX plan](docs/15-music-and-sfx-generation-plan.md).
+The implementation branch contains the lightweight core, durable jobs/assets/setup, Host runtime integration, initial speech/audio/music workers, Localization rendering, embedded UI and signed release tooling. The normative implementation order remains in [the roadmap](docs/09-roadmap.md); Music/Game Audio model selection and promotion details are in [the researched Music/SFX plan](docs/15-music-and-sfx-generation-plan.md), while composed agent/live workflows and delivery profiles are defined in [the Typed Media Pipeline design](docs/16-pipeline-agent-and-delivery-architecture.md).
 
 Heavy-model code existing in the tree does **not** mean target hardware has passed. Actual evidence is tracked in [docs/implementation-status.md](docs/implementation-status.md).

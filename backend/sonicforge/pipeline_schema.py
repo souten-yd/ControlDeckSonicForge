@@ -68,9 +68,7 @@ class PipelineInput(BaseModel):
             raise ValueError(f"{self.kind} pipeline input requires {expected}")
         for key, value in fields.items():
             if key != expected and value is not None:
-                raise ValueError(
-                    f"{self.kind} pipeline input cannot include {key}"
-                )
+                raise ValueError(f"{self.kind} pipeline input cannot include {key}")
         return self
 
 
@@ -150,8 +148,6 @@ def compile_pipeline(request: "PipelineRequest") -> CompiledPipeline:
         raise ValueError("text delivery requires text output")
     if request.delivery.mode in {"asset", "project", "http", "package"} and current_type != "audio":
         raise ValueError(f"{request.delivery.mode} delivery requires audio output")
-    # WebSocket is a transport rather than a media type. Live v1 can return
-    # text-only ASR/dictation events or stream audio frames for TTS/SFX/music.
 
     return CompiledPipeline(
         start_index=start_index,
@@ -219,6 +215,9 @@ class LiveSessionCreate(BaseModel):
         "m5-dictation",
         "m5-ask-text",
         "voice-assistant",
+        "simultaneous-translation",
+        "meeting",
+        "dictation",
     ] = "voice-assistant"
     pipeline: PipelineRequest
     device: EdgeDeviceDescriptor | None = None
@@ -226,6 +225,12 @@ class LiveSessionCreate(BaseModel):
     save_transcript: bool = False
     save_input_audio: bool = False
     save_output_audio: bool = False
+    keep_warm: bool = True
+    streaming_response: bool = True
+    target_language: Literal["ja", "en"] | None = None
+    # None means no arbitrary product duration limit. Implementations must spool
+    # or chunk rather than accumulating unbounded audio in RAM.
+    max_utterance_seconds: int | None = Field(default=None, ge=1, le=86_400)
 
     @model_validator(mode="after")
     def validate_live_contract(self):
@@ -233,4 +238,6 @@ class LiveSessionCreate(BaseModel):
             raise ValueError("live session pipeline must use websocket delivery")
         if self.pipeline.input.kind not in {"audio_stream", "text"}:
             raise ValueError("live session input must be audio_stream or text")
+        if self.preset == "simultaneous-translation" and self.target_language is None:
+            raise ValueError("simultaneous-translation requires target_language")
         return self

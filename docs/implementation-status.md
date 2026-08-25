@@ -40,9 +40,9 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | LLM residency hold | IMPLEMENTED ON CONTROLDECK #240 | 120 s TTL + 30 s heartbeat; dead SonicForge stops heartbeat and hold expires |
 | Host AI streaming | IMPLEMENTED ON CONTROLDECK #240 | provider-neutral SSE `text.generate`; reasoning/private chunks suppressed |
 | Local unauthenticated media API | IMPLEMENTED, REAL JA TTS PASS | trusted-local work remains independent of Host-owned Jobs/Broker credentials; real Japanese Qwen TTS passed without user-facing authentication, while Host-managed executions still acquire Broker leases before GPU work |
-| TTS | CUSTOMVOICE JA PASS, CLONE/DESIGN NOT TESTED | real Qwen3-TTS CustomVoice 0.6B generated a 24 kHz mono Japanese WAV with `Ono_Anna` on R9700 through Host Job/Broker; Clone Base and VoiceDesign remain NOT TESTED |
+| TTS | CUSTOMVOICE/CLONE/DESIGN REAL PASS | real Qwen3-TTS CustomVoice, rights-confirmed Base clone and VoiceDesign all generated assets on the R9700; hosted CustomVoice used Host Job/Broker and direct-local variants required no user-facing auth |
 | ASR Japanese | REAL MODEL PASS | Kotoba-Whisper v2 transcribed the generated Japanese fixture through scoped `grant:` + Host Job/Broker in 10.057 s; recognition was usable but rendered “SonicForge” imperfectly |
-| ASR multilingual/English | IMPLEMENTED, REAL MODEL NOT TESTED | Whisper large-v3-turbo path |
+| ASR multilingual/English | EN/AUTO PASS, MIXED FAIL | Whisper large-v3-turbo accurately transcribed the generated English fixture for explicit `en` and `auto`; a concatenated JA+EN fixture omitted the Japanese portion and blocks mixed-language promotion |
 | Speech Essentials provisioning | CLEAN ROCM INSTALL PASS | isolated `speech-rocm` runtime activated only after all five model snapshots completed; exact revisions recorded in runtime metadata |
 | SFX | IMPLEMENTED, REAL MODEL NOT TESTED | Stable Audio 3 Small-SFX CPU-first; fixed upstream API inspected; model snapshot prefetched only after Stability terms acceptance |
 | Japanese SFX conditioning | IMPLEMENTED | ControlDeck LLM may normalize JP intent to English acoustic prompt; both prompts kept in provenance |
@@ -224,6 +224,10 @@ Real setup/runtime evidence:
 - real Japanese CustomVoice TTS completed through a ControlDeck Host Job and Resource Broker lease and produced a 4.320 s, 24 kHz, mono PCM WAV;
 - real Kotoba-Whisper Japanese ASR consumed that WAV through a scoped `grant:` and completed through a Host Job/Broker lease in 10.057 s;
 - the initial direct trusted-network TTS attempt incorrectly required a Host identity for GPU work; after removing that unconditional guard, real Japanese Qwen TTS completed without user-facing authentication as `asset:6df66bb1-32c0-4513-b852-622c10389683`; hosted executions still acquire Broker leases before worker launch;
+- real English Qwen TTS produced a 13.040 s, 24 kHz mono WAV and Whisper Turbo returned the intended sentence for both explicit `en` and `auto` requests;
+- a concatenated Japanese/English `auto` fixture returned only the English sentence, so mixed-language ASR remains FAIL rather than being inferred from separate-language success;
+- real Qwen Base voice clone completed from a rights-confirmed scoped `grant:` reference as `asset:f5e6a7f3-f943-4359-a41c-6d16c7139d66`, and real VoiceDesign completed from a textual instruction as `asset:c4f59fbc-4a4f-4654-9b96-478404152d4b`;
+- a direct trusted-local two-turn PTT session kept the real ASR/TTS worker processes scoped to one WebSocket: turn 1 completed in 52.266 s and turn 2 in 25.581 s with ordered audio delivery, demonstrating reuse without an avoidable second cold load;
 - release bundle build produced a 24,288,632-byte linux-x86_64 artifact; disposable Ed25519 signing/CLI verification passed and appended-byte tampering was rejected;
 - real execution exposed and fixed Qwen third-party stdout pollution of the JSON worker protocol and the greedy asset-content route shadowing bug.
 

@@ -50,6 +50,13 @@ def _model(model_id: str):
     return value
 
 
+def _default_speaker(content_language: str | None) -> str:
+    # Qwen3-TTS' official speaker catalog contains native Japanese Ono_Anna and
+    # native English Ryan. Prefer the language-native default instead of always
+    # using an English speaker for Japanese content.
+    return "Ono_Anna" if content_language == "ja" else "Ryan"
+
+
 def handle(payload: dict) -> None:
     import soundfile as sf
 
@@ -62,8 +69,9 @@ def handle(payload: dict) -> None:
     if not text:
         raise ValueError("TTS input.text is required")
 
+    content_language = request.get("content_language")
     language = {"ja": "Japanese", "en": "English"}.get(
-        request.get("content_language"), "Auto"
+        content_language, "Auto"
     )
     voice = inp.get("_internal_voice") if isinstance(inp.get("_internal_voice"), dict) else None
     recipe = dict(voice.get("recipe") or {}) if voice else {}
@@ -112,7 +120,7 @@ def handle(payload: dict) -> None:
             or recipe.get("model_id")
             or os.environ.get(
                 "SONICFORGE_QWEN_TTS_DESIGN_MODEL",
-                "Qwen/Qwen3-TTS-12Hz-0.6B-VoiceDesign",
+                "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
             )
         )
         design_instruction = str(recipe.get("design_instruction") or instruct).strip()
@@ -144,7 +152,8 @@ def handle(payload: dict) -> None:
                 if not str(inp.get("voice_id") or "").startswith("voice:")
                 else None
             )
-            or os.environ.get("SONICFORGE_QWEN_TTS_SPEAKER", "Ryan")
+            or os.environ.get("SONICFORGE_QWEN_TTS_SPEAKER")
+            or _default_speaker(content_language)
         )
         tts = _model(model_id)
         _emit({"type": "progress", "progress": 0.55, "message": "Synthesizing"})
@@ -167,7 +176,7 @@ def handle(payload: dict) -> None:
             "model_license_id": "Apache-2.0",
             "output_path": str(output),
             "payload": {
-                "language": request.get("content_language"),
+                "language": content_language,
                 "voice_mode": mode,
                 "voice_id": voice.get("id") if voice else None,
                 "speaker": speaker,

@@ -138,7 +138,7 @@ Validate:
 - `auto|ja|en` language contract;
 - capability document shape;
 - setup checklist `core/speech-essentials/game-audio/music`;
-- four workflow executors/five initial agent tools;
+- four workflow executors/six initial agent tools;
 - frozen-contract old fixtures after SF1.
 
 ### Fake worker

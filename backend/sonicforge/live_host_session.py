@@ -18,18 +18,7 @@ class _SessionLease:
 
 
 class LiveHostSession:
-    """Own Host-side state whose lifetime matches one live voice/meeting socket.
-
-    A live session may keep three independent pieces warm at once:
-    - the Host-selected LLM through a short renewable residency hold;
-    - SonicForge ASR through a normal Resource Broker lease;
-    - SonicForge TTS through another Resource Broker lease.
-
-    Nothing here is a permanent lock. ControlDeck LLM holds expire after their
-    Host TTL when heartbeats stop, while Resource Broker leases expire when their
-    renew loop stops. A killed SonicForge therefore converges back to ordinary
-    Host policy without a cleanup callback from the dead process.
-    """
+    """Own Host-side state whose lifetime matches one live voice/meeting socket."""
 
     def __init__(
         self,
@@ -47,6 +36,7 @@ class LiveHostSession:
         self.hold_id: str | None = None
         self.hold_interval = 30
         self._hold_task: asyncio.Task | None = None
+        self._job_heartbeat_task: asyncio.Task | None = None
         self._leases: dict[str, _SessionLease] = {}
         self._identity_lock = asyncio.Lock()
         self._closed = False
@@ -73,8 +63,30 @@ class LiveHostSession:
             host_job_id = raw.get("id") if isinstance(raw, dict) else None
             if isinstance(host_job_id, str) and host_job_id:
                 self.host_job_id = host_job_id
+                self._job_heartbeat_task = asyncio.create_task(
+                    self._job_credential_heartbeat(),
+                    name=f"sonicforge-live-job-credential-{host_job_id}",
+                )
         if keep_llm_warm and "ai.inference" in identity.granted_capabilities:
             await self._start_llm_hold()
+
+    async def _job_credential_heartbeat(self) -> None:
+        """Make the short service-token TTL invisible during long sessions."""
+        while not self._closed and self.host_job_id:
+            await asyncio.sleep(30)
+            identity = await self.identity()
+            if identity is None or self.host_job_id is None:
+                return
+            if identity.expires_at - int(time.time()) >= 120:
+                continue
+            try:
+                refreshed = await self.host_client.refresh_job_identity(
+                    identity, self.host_job_id
+                )
+                await self._set_identity(refreshed)
+            except HostApiError as exc:
+                if exc.status_code in {404, 401, 403, 409}:
+                    return
 
     async def _start_llm_hold(self) -> None:
         identity = await self.identity()
@@ -88,8 +100,6 @@ class LiveHostSession:
             value, refreshed = await self.host_client.ai_residency_create(identity)
             await self._set_identity(refreshed)
         except HostApiError as exc:
-            # Older Hosts remain usable; residency is an optimization, not a
-            # correctness requirement for a voice turn.
             if exc.status_code in {404, 409, 503}:
                 return
             raise
@@ -120,8 +130,6 @@ class LiveHostSession:
                     return
             except HostApiError as exc:
                 if exc.status_code == 404:
-                    # Event-loop stalls or temporary Host loss can let the short
-                    # hold expire. Recreate it instead of silently running cold.
                     self.hold_id = None
                     try:
                         await self._start_llm_hold()
@@ -130,8 +138,6 @@ class LiveHostSession:
                     return
                 if exc.status_code in {401, 403, 409}:
                     return
-                # Network/5xx failures are allowed to retry until the Host TTL
-                # naturally expires; no permanent state can be stranded.
 
     async def acquire_worker_lease(self, key: str, request: dict[str, Any]) -> None:
         """Hold one SonicForge GPU worker residency for the live session."""
@@ -139,7 +145,6 @@ class LiveHostSession:
             return
         identity = await self.identity()
         if identity is None:
-            # Standalone trusted-local mode has no cross-application broker.
             return
         if self.host_job_id is None:
             raise WorkerError("Live GPU residency requires a ControlDeck Host Job")
@@ -148,9 +153,6 @@ class LiveHostSession:
                 "ControlDeck resources.acquire is required for live GPU residency"
             )
         payload = self.jobs._resource_estimate(request, self.host_job_id)
-        # Voice ASR/TTS are deliberately co-resident when capacity permits.
-        # Broker accounting, rather than a hidden process convention, decides
-        # whether both reservations fit the selected device(s).
         payload["compute_mode"] = "shared-safe"
         payload["priority"] = 30
         payload["class"] = "interactive"
@@ -223,10 +225,12 @@ class LiveHostSession:
         if self._closed:
             return
         self._closed = True
-        if self._hold_task is not None:
-            self._hold_task.cancel()
-            await asyncio.gather(self._hold_task, return_exceptions=True)
-            self._hold_task = None
+        for task_name in ("_hold_task", "_job_heartbeat_task"):
+            task = getattr(self, task_name)
+            if task is not None:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                setattr(self, task_name, None)
         for key in list(self._leases):
             await self.release_worker_lease(key)
         identity = await self.identity()

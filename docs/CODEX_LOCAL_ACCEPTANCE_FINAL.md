@@ -173,12 +173,11 @@ existing M5 client
 
 Verify:
 
-- one-time pairing is required only for first relay registration;
-- reconnect uses the stored device credential and receives a rotated credential;
-- current design uses a 30-day rolling device credential;
+- pairing code is used for initial registration or after a stored credential has expired;
+- reconnect with a still-valid credential receives a rotated same-scope credential;
+- device credentials follow the normal ControlDeck Add-on maximum TTL of 8 hours; there is no 30-day exception;
 - device credential is scoped to the declared SonicForge relay;
 - the device never receives the upstream Add-on service token or browser cookie;
-- ordinary reconnect/reboot does not require repeated pairing;
 - disabled Add-on/revoked relay is rejected on the next connection.
 
 Wake/VAD/AEC/barge-in remain client-side/optional enhancements and are not SonicForge v1 merge blockers unless a server contract change is required.

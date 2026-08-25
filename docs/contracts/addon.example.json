@@ -1,0 +1,225 @@
+{
+  "api_version": "2",
+  "id": "sonic-forge",
+  "name": "SonicForge",
+  "version": "0.1.0",
+  "description": "Japanese-first speech, audio and music generation",
+  "publisher": "souten-yd",
+  "requires": {
+    "addon_contract": ">=2.0 <3.0"
+  },
+  "runtime": {
+    "kind": "external-service",
+    "base_url": "http://127.0.0.1:9140",
+    "health_path": "/health"
+  },
+  "host_capabilities": [
+    "context.read",
+    "theme.read",
+    "route.open",
+    "files.pick",
+    "files.export",
+    "projects.pick",
+    "jobs.read",
+    "jobs.write",
+    "notifications.show",
+    "resources.acquire",
+    "ai.inference"
+  ],
+  "contributions": {
+    "navigation": [
+      {
+        "id": "workspace",
+        "label": {
+          "en": "Audio",
+          "ja": "Audio"
+        },
+        "route": "/x/sonic-forge/workspace",
+        "icon": "audio",
+        "permission": "apps.view"
+      }
+    ],
+    "embedded_views": [
+      {
+        "id": "workspace",
+        "label": "SonicForge",
+        "route": "/x/sonic-forge/workspace",
+        "path": "/",
+        "mobile": "companion",
+        "permission": "apps.view"
+      }
+    ],
+    "commands": [
+      {
+        "id": "create-audio",
+        "label": {
+          "en": "Create audio",
+          "ja": "音声・音楽を作成"
+        },
+        "endpoint": "/addon/v1/commands/create",
+        "permission": "apps.view"
+      }
+    ],
+    "quick_actions": [],
+    "settings": [
+      {
+        "id": "settings",
+        "label": "SonicForge",
+        "route": "/x/sonic-forge/workspace/settings",
+        "permission": "settings.manage"
+      }
+    ],
+    "workflow_executors": [
+      {
+        "id": "sonic.speech.synthesize",
+        "label": {
+          "en": "Synthesize speech",
+          "ja": "音声合成"
+        },
+        "endpoint": "/addon/v1/workflow/speech/synthesize",
+        "input_schema_path": "/schemas/speech-synthesize-request.json",
+        "output_schema_path": "/schemas/job-reference.json",
+        "permission": "workflows.run"
+      },
+      {
+        "id": "sonic.speech.transcribe",
+        "label": {
+          "en": "Transcribe audio",
+          "ja": "音声文字起こし"
+        },
+        "endpoint": "/addon/v1/workflow/speech/transcribe",
+        "input_schema_path": "/schemas/speech-transcribe-request.json",
+        "output_schema_path": "/schemas/job-reference.json",
+        "permission": "workflows.run"
+      },
+      {
+        "id": "sonic.audio.generate",
+        "label": {
+          "en": "Generate audio",
+          "ja": "効果音・環境音生成"
+        },
+        "endpoint": "/addon/v1/workflow/audio/generate",
+        "input_schema_path": "/schemas/audio-generate-request.json",
+        "output_schema_path": "/schemas/job-reference.json",
+        "permission": "workflows.run"
+      },
+      {
+        "id": "sonic.music.generate",
+        "label": {
+          "en": "Generate music",
+          "ja": "音楽生成"
+        },
+        "endpoint": "/addon/v1/workflow/music/generate",
+        "input_schema_path": "/schemas/music-generate-request.json",
+        "output_schema_path": "/schemas/job-reference.json",
+        "permission": "workflows.run"
+      }
+    ],
+    "agent_tools": [
+      {
+        "id": "sonic.capabilities",
+        "label": "Inspect SonicForge capabilities",
+        "endpoint": "/addon/v1/agent/capabilities",
+        "schema_path": "/schemas/empty-input.json",
+        "permission": "workflows.run"
+      },
+      {
+        "id": "sonic.generate",
+        "label": "Generate speech, sound or music",
+        "endpoint": "/addon/v1/agent/generate",
+        "schema_path": "/schemas/generate-request.json",
+        "permission": "workflows.run"
+      },
+      {
+        "id": "sonic.transcribe",
+        "label": "Transcribe audio",
+        "endpoint": "/addon/v1/agent/transcribe",
+        "schema_path": "/schemas/speech-transcribe-request.json",
+        "permission": "workflows.run"
+      },
+      {
+        "id": "sonic.inspect",
+        "label": "Inspect a SonicForge audio asset",
+        "endpoint": "/addon/v1/agent/inspect",
+        "schema_path": "/schemas/asset-reference.json",
+        "permission": "workflows.run"
+      },
+      {
+        "id": "sonic.pack",
+        "label": "Place a SonicForge asset in the current project",
+        "endpoint": "/addon/v1/agent/pack",
+        "schema_path": "/schemas/project-asset-placement.json",
+        "permission": "workflows.run"
+      }
+    ],
+    "context_actions": [
+      {
+        "id": "transcribe-audio",
+        "label": {
+          "en": "Transcribe in SonicForge",
+          "ja": "SonicForgeで文字起こし"
+        },
+        "endpoint": "/addon/v1/context/transcribe-audio",
+        "contexts": [
+          "file"
+        ],
+        "permission": "project_lab.view"
+      },
+      {
+        "id": "open-audio",
+        "label": {
+          "en": "Open in SonicForge",
+          "ja": "SonicForgeで開く"
+        },
+        "endpoint": "/addon/v1/context/open-audio",
+        "contexts": [
+          "file",
+          "project"
+        ],
+        "permission": "project_lab.view"
+      }
+    ],
+    "setup_checklist": [
+      {
+        "id": "core",
+        "label": {
+          "en": "SonicForge core",
+          "ja": "SonicForge本体"
+        },
+        "permission": "settings.manage"
+      },
+      {
+        "id": "recommended-speech",
+        "label": {
+          "en": "Japanese speech synthesis",
+          "ja": "日本語音声合成"
+        },
+        "permission": "settings.manage"
+      },
+      {
+        "id": "recommended-asr",
+        "label": {
+          "en": "Japanese speech recognition",
+          "ja": "日本語文字起こし"
+        },
+        "permission": "settings.manage"
+      },
+      {
+        "id": "recommended-audio",
+        "label": {
+          "en": "Sound effect generation",
+          "ja": "効果音生成"
+        },
+        "permission": "settings.manage"
+      },
+      {
+        "id": "recommended-music",
+        "label": {
+          "en": "Music generation",
+          "ja": "音楽生成"
+        },
+        "permission": "settings.manage"
+      }
+    ]
+  }
+}

@@ -148,8 +148,10 @@ def compile_pipeline(request: "PipelineRequest") -> CompiledPipeline:
 
     if request.delivery.mode == "text" and current_type != "text":
         raise ValueError("text delivery requires text output")
-    if request.delivery.mode == "websocket" and current_type != "audio":
-        raise ValueError("websocket delivery v1 requires audio output")
+    if request.delivery.mode in {"asset", "project", "http", "package"} and current_type != "audio":
+        raise ValueError(f"{request.delivery.mode} delivery requires audio output")
+    # WebSocket is a transport rather than a media type. Live v1 can return
+    # text-only ASR/dictation events or stream audio frames for TTS/SFX/music.
 
     return CompiledPipeline(
         start_index=start_index,

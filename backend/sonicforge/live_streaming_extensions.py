@@ -19,11 +19,10 @@ AudioQueueItem = tuple[int, str, WorkerResult, dict[str, Any]]
 def install_live_streaming_extensions() -> None:
     """Enable overlapped LLM -> TTS -> audio delivery for live voice turns.
 
-    The base runtime already streams LLM output into bounded TTS chunks. This
-    extension separates synthesis from network/audio delivery so chunk N+1 may
-    be synthesized while chunk N is being transmitted/played. asyncio.TaskGroup
-    owns all three stages so any failure cancels the other stages instead of
-    leaving a producer blocked forever on a bounded queue.
+    LLM token intake, TTS synthesis and client audio delivery run as three
+    bounded stages. Only the delivery stage emits client-facing streaming
+    events, so JSON and binary WebSocket frames never race from independent
+    tasks while TTS generation still overlaps current-chunk playback.
     """
 
     if getattr(LiveTurnRunner, "_sonicforge_streaming_overlap_installed", False):
@@ -102,13 +101,6 @@ def install_live_streaming_extensions() -> None:
                 if not isinstance(fragment, str) or not fragment:
                     continue
                 text_parts.append(fragment)
-                await emit(
-                    {
-                        "type": "turn.response_text.delta",
-                        "job_id": job_id,
-                        "text": fragment,
-                    }
-                )
                 for chunk in chunker.feed(fragment):
                     await text_queue.put(chunk)
             for chunk in chunker.flush():
@@ -122,14 +114,6 @@ def install_live_streaming_extensions() -> None:
                 if chunk is None:
                     await audio_queue.put(None)
                     return
-                await emit(
-                    {
-                        "type": "turn.speech.chunk.started",
-                        "job_id": job_id,
-                        "chunk": index,
-                        "text": chunk,
-                    }
-                )
                 request = self.runtime._worker_request(
                     tts_stage, PipelineValue(kind="text", text=chunk)
                 )
@@ -170,6 +154,24 @@ def install_live_streaming_extensions() -> None:
                     return
                 index, chunk, worker, _request = item
                 assert worker.output_path is not None
+                # This task is the single owner of incremental client output.
+                # It preserves JSON/binary ordering while synthesis continues in
+                # the background for the following chunk.
+                await emit(
+                    {
+                        "type": "turn.response_text.delta",
+                        "job_id": job_id,
+                        "text": chunk,
+                    }
+                )
+                await emit(
+                    {
+                        "type": "turn.speech.chunk.started",
+                        "job_id": job_id,
+                        "chunk": index,
+                        "text": chunk,
+                    }
+                )
                 await emit_audio(worker.output_path, index)
                 await emit(
                     {
@@ -180,9 +182,9 @@ def install_live_streaming_extensions() -> None:
                     }
                 )
 
-        # The producer, synthesis worker and audio sender overlap. TaskGroup
-        # cancellation prevents a failed downstream stage from deadlocking an
-        # upstream producer on a full bounded queue.
+        # Producer, synthesis and delivery overlap. TaskGroup cancellation keeps
+        # a downstream failure from leaving an upstream task blocked on a full
+        # bounded queue.
         async with asyncio.TaskGroup() as group:
             group.create_task(
                 produce_text(), name=f"sonicforge-stream-llm-{job_id}"

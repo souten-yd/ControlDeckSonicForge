@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .client import ADDON_ID, ControlDeckHostClient, HostApiError, HostIdentity
 
@@ -12,6 +12,8 @@ class AiResidencyHold:
     expires_at: int | None
     heartbeat_interval_seconds: int
     reason: str
+    access_token: str | None = field(default=None, repr=False)
+    token_expires_at: int | None = None
 
 
 def _parse(value: dict) -> AiResidencyHold:
@@ -20,13 +22,29 @@ def _parse(value: dict) -> AiResidencyHold:
     expires_at = value.get("expires_at")
     heartbeat = value.get("heartbeat_interval_seconds", 0)
     reason = str(value.get("reason") or "")
+    access_token = value.get("access_token")
+    token_expires_at = value.get("token_expires_at")
     if held and (not isinstance(hold_id, str) or not hold_id.startswith("hold:")):
         raise HostApiError("invalid_host_response", "ControlDeck returned an invalid residency hold")
     if expires_at is not None and not isinstance(expires_at, int):
         raise HostApiError("invalid_host_response", "ControlDeck returned an invalid residency expiry")
     if not isinstance(heartbeat, int) or heartbeat < 0:
         raise HostApiError("invalid_host_response", "ControlDeck returned an invalid residency heartbeat")
-    return AiResidencyHold(held, hold_id if isinstance(hold_id, str) else None, expires_at, heartbeat, reason)
+    if access_token is not None and (
+        not isinstance(access_token, str) or not access_token or " " in access_token
+    ):
+        raise HostApiError("invalid_host_response", "ControlDeck returned an invalid residency credential")
+    if token_expires_at is not None and not isinstance(token_expires_at, int):
+        raise HostApiError("invalid_host_response", "ControlDeck returned an invalid credential expiry")
+    return AiResidencyHold(
+        held,
+        hold_id if isinstance(hold_id, str) else None,
+        expires_at,
+        heartbeat,
+        reason,
+        access_token if isinstance(access_token, str) else None,
+        token_expires_at,
+    )
 
 
 async def create_ai_hold(client: ControlDeckHostClient, identity: HostIdentity) -> AiResidencyHold:
@@ -46,6 +64,27 @@ async def renew_ai_hold(
         json={},
     )
     return _parse(value)
+
+
+async def refreshed_identity_from_hold(
+    client: ControlDeckHostClient,
+    current: HostIdentity,
+    hold: AiResidencyHold,
+) -> HostIdentity:
+    if not hold.access_token:
+        return current
+    refreshed = await client.authenticate(
+        {
+            "Authorization": f"Bearer {hold.access_token}",
+            "X-Control-Deck-Addon-ID": current.addon_id,
+        }
+    )
+    if refreshed.addon_id != current.addon_id or refreshed.subject != current.subject:
+        raise HostApiError(
+            "invalid_host_response",
+            "ControlDeck changed residency credential scope",
+        )
+    return refreshed
 
 
 async def release_ai_hold(

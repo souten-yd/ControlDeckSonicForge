@@ -24,6 +24,8 @@ The planned v1 implementation is now **feature-complete at the code/contract lev
 - generic ControlDeck AI/media gateway, device relay, AI residency and rolling long-job credentials on separate ControlDeck PRs/branch;
 - Ed25519 signed release tooling and generic Host verifier path.
 
+Setup now prepares the heavyweight assets exposed by the selected pack instead of marking a component available while leaving an avoidable first-use model download. Speech Essentials includes the Qwen CustomVoice/Clone/VoiceDesign and ASR model snapshots, Game Audio includes Small-SFX after terms acceptance, and Music invokes the pinned ACE-Step upstream downloader for its selected DiT/LM checkpoints. These setup paths are **IMPLEMENTED BUT NOT YET EXECUTED on the target machine**.
+
 The remaining promotion work is primarily **local execution/benchmarking and merge validation**, not missing architecture.
 
 ## 2. Current implementation matrix
@@ -31,22 +33,23 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Area | State | Evidence / note |
 |---|---|---|
 | Specification / Add-on v2 boundary | COMPLETE | external-service; Host owns generic control plane, Add-on owns domain engines/assets |
-| FastAPI core / health / setup | IMPLEMENTED | durable SQLite state, setup profiles, isolated runtimes |
+| FastAPI core / health / setup | IMPLEMENTED | durable SQLite state, setup profiles, isolated runtimes, staged atomic activation and model-prefetch metadata |
 | Durable Jobs / cancel / restart handling | IMPLEMENTED | local + Host Job projection |
 | Host Job credential lifetime | IMPLEMENTED ON SONICFORGE + CONTROLDECK #240 | short-lived bearer remains internal safety TTL; active Job/lease/AI residency renews credentials so 10 minutes is not a processing limit |
 | Resource Broker | IMPLEMENTED, HOST E2E NOT TESTED | acquire/queue/activate/renew/release; live ASR/TTS may hold session-scoped leases |
 | LLM residency hold | IMPLEMENTED ON CONTROLDECK #240 | 120 s TTL + 30 s heartbeat; dead SonicForge stops heartbeat and hold expires |
 | Host AI streaming | IMPLEMENTED ON CONTROLDECK #240 | provider-neutral SSE `text.generate`; reasoning/private chunks suppressed |
-| Local unauthenticated media API | IMPLEMENTED | `/local/v1/asr`, `/tts`, `/sfx`, `/music`; default `trusted-network`, optional `strict`/`open` |
-| TTS | IMPLEMENTED, REAL MODEL NOT TESTED | Qwen3-TTS CustomVoice / VoiceDesign / Clone + logical voice routing |
+| Local unauthenticated media API | IMPLEMENTED | `/local/v1/asr`, `/tts`, `/sfx`, `/music`; default `trusted-network`, optional `strict`/`open`; local ASR upload uses Adaptive RAM-first spool |
+| TTS | IMPLEMENTED, REAL MODEL NOT TESTED | Qwen3-TTS CustomVoice 0.6B / Clone Base 0.6B / official VoiceDesign 1.7B + logical voice routing; Japanese built-in default uses `Ono_Anna` |
 | ASR Japanese | IMPLEMENTED, REAL MODEL NOT TESTED | Kotoba-Whisper v2 path |
 | ASR multilingual/English | IMPLEMENTED, REAL MODEL NOT TESTED | Whisper large-v3-turbo path |
-| SFX | IMPLEMENTED, REAL MODEL NOT TESTED | Stable Audio 3 Small-SFX CPU-first |
+| Speech Essentials provisioning | IMPLEMENTED, CLEAN INSTALL NOT TESTED | setup prefetches CustomVoice, Clone Base, VoiceDesign, Kotoba-Whisper and Whisper Turbo before component becomes available |
+| SFX | IMPLEMENTED, REAL MODEL NOT TESTED | Stable Audio 3 Small-SFX CPU-first; fixed upstream API inspected; model snapshot prefetched only after Stability terms acceptance |
 | Japanese SFX conditioning | IMPLEMENTED | ControlDeck LLM may normalize JP intent to English acoustic prompt; both prompts kept in provenance |
-| Music/BGM | IMPLEMENTED ADAPTER, REAL MODEL NOT TESTED | ACE-Step 1.5 primary; upstream AMD/ROCm support does not count as SonicForge target validation |
+| Music/BGM | IMPLEMENTED ADAPTER, REAL MODEL NOT TESTED | ACE-Step 1.5 pinned source; setup uses upstream downloader for `acestep-v15-turbo` + `acestep-5Hz-lm-0.6B`; initialization success tuple is checked; upstream AMD/ROCm support does not count as SonicForge target validation |
 | Localization Studio | IMPLEMENTED | JP/EN lines, durable render, `pending/failed/changed/all` retry modes |
 | Typed Pipeline | IMPLEMENTED | type checking, `start_at`, `stop_after`, durable execution |
-| OpenCode / Agent `sonic.pipeline` | IMPLEMENTED CONTRACT, MCP E2E NOT TESTED | same ControlDeck Agent MCP, no second SonicForge MCP |
+| OpenCode / Agent `sonic.pipeline` | IMPLEMENTED CONTRACT, MCP E2E NOT TESTED | same ControlDeck Agent MCP, no second SonicForge MCP; six frozen initial Agent Tools |
 | `audio.process` | IMPLEMENTED, TEST ADDED NOT RUN | fixed-argv ffmpeg trim/duration/gain/loudnorm/resample/channels; no arbitrary args/shell |
 | `package` delivery | IMPLEMENTED, TEST ADDED NOT RUN | canonical audio asset + ZIP containing audio and deterministic manifest |
 | Audio delivery profiles | IMPLEMENTED, REAL FFMPEG NOT TESTED | master/voice/Unity/Unreal/Godot/web-mobile/M5 profiles |
@@ -58,7 +61,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Simultaneous translation | IMPLEMENTED PRESET, REAL E2E NOT TESTED | ASR -> streaming Host translation -> target TTS; source/target language selectable |
 | Meeting / minutes | IMPLEMENTED, FAKE TEST ADDED NOT RUN | unlimited session duration; bounded processing chunks; incremental SQLite transcript; optional translation + hierarchical summary |
 | Meeting disconnect durability | IMPLEMENTED | queued chunks continue processing; finalized segments remain durable even after transport loss |
-| RAM-first audio spool | IMPLEMENTED, TESTS ADDED NOT RUN | `/dev/shm`/runtime tmpfs preferred; soft threshold/free-RAM reserve triggers transparent disk spill; no artificial recording-duration cap |
+| RAM-first audio spool | IMPLEMENTED, TESTS ADDED NOT RUN | `/dev/shm`/runtime tmpfs preferred for live/meeting/local-ASR; soft threshold/free-RAM reserve triggers transparent disk spill; no artificial recording-duration cap |
 | M5/edge binary protocol | IMPLEMENTED | `sonic-edge/1`, sequence/sample clock, bounded frame size and capability negotiation |
 | Existing M5/edge client server API | IMPLEMENTED CONTRACT, REAL CLIENT E2E NOT TESTED | direct trusted-LAN live WS for basic media; optional ControlDeck relay for Host LLM paths; firmware/client code is intentionally outside this repository |
 | ControlDeck paired Device Relay | IMPLEMENTED ON #240, E2E NOT TESTED | one-time code; device-scoped token uses the normal ControlDeck maximum 8-hour TTL and rotates on reconnect; upstream receives Host-minted service identity, never device token |
@@ -66,7 +69,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
 | Release signing | IMPLEMENTED + EARLIER FOCUSED TESTED | Ed25519 canonical manifest; earlier signing focused suite: 4 passed |
 | ControlDeck signed Release Bundle verifier | IMPLEMENTED ON DRAFT PR #239, NOT HOST E2E TESTED | production publisher public key still an operator input |
-| Current branch-wide lightweight tests | NOT RUN | intentionally deferred until the implementation milestone is complete |
+| Current branch-wide lightweight tests | NOT RUN | `pytest-asyncio` is now an explicit test dependency; current-head batch intentionally deferred until local acceptance |
 | Batched GitHub CI | NOT RUN | by explicit project policy, run once only after local acceptance is green |
 
 ## 3. Voice-chat execution model
@@ -129,7 +132,7 @@ Device Relay credentials do not use a special long-lived policy. They are scoped
 
 ## 5. RAM / SSD policy
 
-Temporary live audio is ephemeral:
+Temporary latency-sensitive audio is ephemeral:
 
 ```text
 preferred: operator SONICFORGE_SPOOL_DIR
@@ -147,7 +150,7 @@ SONICFORGE_SPOOL_STREAM_MB=<soft per-stream RAM threshold>
 SONICFORGE_SPOOL_RAM_RESERVE_MB=<free-space reserve>
 ```
 
-The thresholds decide **when to spill**, not when to stop recording. Final Assets, Job state and finalized meeting transcript segments remain durable on disk because their writes are small and recovery value is high.
+The thresholds decide **when to spill**, not when to stop recording. Live/meeting/local-ASR temporary input prefers the spool manager. Ordinary large durable generation work may use SonicForge disk temp so Music/SFX jobs do not opportunistically consume large amounts of RAM. Final Assets, Job state and finalized meeting transcript segments remain durable on disk because recovery value is high.
 
 Shared-memory/zero-copy PCM IPC is deliberately deferred until profiling proves tmpfs serialization is a material bottleneck relative to ASR/TTS inference.
 
@@ -204,11 +207,21 @@ pytest -q tests/test_release_signing.py tests/test_release_signing_negative.py
 4 passed
 ```
 
-Older lightweight results predate substantial live/gateway changes and **do not** prove the current head is green.
+Older lightweight results predate substantial live/gateway/model-setup changes and **do not** prove the current head is green.
+
+Static upstream/API inspection completed during implementation includes:
+
+- Qwen VoiceDesign official model family uses `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign`;
+- pinned Stable Audio 3 `StableAudioModel.from_pretrained(...).generate(...)` contract matches the adapter, including Small-SFX CPU baseline;
+- pinned ACE-Step exposes `AceStepHandler`, `LLMHandler`, `GenerationParams`, `GenerationConfig`, `generate_music`, and `GenerationResult.audios[*]["path"]` as used by the adapter;
+- ACE-Step initialization returns explicit `(message, success)` values and SonicForge now checks them.
+
+These are source/API consistency checks, **not target runtime evidence**.
 
 Current new tests cover contracts for:
 
-- trusted-network access;
+- trusted-network access and local unauthenticated TTS/ASR durable-job flow;
+- setup model lists/prefetch intent and external-command argument rejection;
 - RAM spool and disk spill;
 - persistent worker process reuse/cleanup;
 - PTT/live pipeline foundation;
@@ -228,21 +241,22 @@ The implementation must not be merged merely because the code is feature-complet
 Run `SF受入確認` on the target local machine and prove at least:
 
 1. current full lightweight/static SonicForge + affected ControlDeck suites;
-2. real Japanese/English/mixed ASR;
-3. real Qwen TTS including repeated warm turns;
-4. voice-chat latency: end-of-speech -> ASR -> first LLM token -> first speakable chunk -> first audio;
-5. turn 2+ has no avoidable ASR/TTS/LLM cold reload;
-6. chunk N+1 TTS generation overlaps chunk N audio delivery without client frame-order corruption;
-7. simultaneous JA<->EN translation text + speech;
-8. long meeting capture, incremental transcript, reconnect/interruption behavior and optional summary;
-9. >10-minute CPU-only hosted work survives credential rotation;
-10. SIGKILL SonicForge while voice stack is warm and prove child/lease/hold cleanup;
-11. Stable Audio 3 Small-SFX CPU generation;
-12. ACE-Step AMD/ROCm music generation;
-13. real ffmpeg export/audio.process and ZIP package;
-14. OpenCode `sonic.generate` / `sonic.pipeline` end to end;
-15. existing edge/M5 client direct live API and, if used, paired relay voice-agent path;
-16. signed Release Bundle fresh install/update/failure rollback with real public key setup.
+2. clean Speech Essentials provisioning including all exposed Qwen/ASR model prefetches;
+3. real Japanese/English/mixed ASR;
+4. real Qwen TTS including CustomVoice, Clone and VoiceDesign plus repeated warm turns;
+5. voice-chat latency: end-of-speech -> ASR -> first LLM token -> first speakable chunk -> first audio;
+6. turn 2+ has no avoidable ASR/TTS/LLM cold reload;
+7. chunk N+1 TTS generation overlaps chunk N audio delivery without client frame-order corruption;
+8. simultaneous JA<->EN translation text + speech;
+9. long meeting capture, incremental transcript, reconnect/interruption behavior and optional summary;
+10. >10-minute CPU-only hosted work survives credential rotation;
+11. SIGKILL SonicForge while voice stack is warm and prove child/lease/hold cleanup;
+12. Stable Audio 3 Small-SFX clean pack setup + CPU generation without first-use hidden model download;
+13. ACE-Step AMD/ROCm clean pack setup + music generation using the prepared checkpoints;
+14. real ffmpeg export/audio.process and ZIP package;
+15. OpenCode `sonic.generate` / `sonic.pipeline` end to end;
+16. existing edge/M5 client direct live API and, if used, paired relay voice-agent path;
+17. signed Release Bundle fresh install/update/failure rollback with real public key setup.
 
 After all mandatory local gates pass, run the **single batched milestone CI**, inspect exact PR heads, then use `SF受入マージ`. Merge generic ControlDeck dependencies before SonicForge and run a short post-merge smoke test.
 

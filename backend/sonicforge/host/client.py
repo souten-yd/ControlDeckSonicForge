@@ -121,7 +121,6 @@ class ControlDeckHostClient:
         return refreshed
 
     async def gateway_capabilities(self, identity: HostIdentity) -> dict:
-        """Discover the generic ControlDeck AI/media control plane."""
         try:
             value = await self.request(
                 identity, "GET", f"/{ADDON_ID}/gateway/capabilities"
@@ -168,6 +167,7 @@ class ControlDeckHostClient:
                     "write": "jobs.write" in caps,
                     "durable": True,
                     "cancel_control": "jobs.write" in caps,
+                    "credential_refresh": False,
                 },
                 "resources": {
                     "acquire": "resources.acquire" in caps,
@@ -219,6 +219,23 @@ class ControlDeckHostClient:
         return await self.request(
             identity, "GET", f"/{ADDON_ID}/jobs/{job_id}/control"
         )
+
+    async def refresh_job_identity(
+        self, identity: HostIdentity, job_id: str
+    ) -> HostIdentity:
+        value = await self.request(
+            identity,
+            "POST",
+            f"/{ADDON_ID}/jobs/{job_id}/credential/refresh",
+            json={},
+        )
+        token = value.get("access_token")
+        if value.get("token_type") != "Bearer" or not isinstance(token, str):
+            raise HostApiError(
+                "invalid_host_response",
+                "ControlDeck did not return a refreshed Host Job credential",
+            )
+        return await self._identity_from_access_token(identity, token)
 
     async def request_resource(self, identity: HostIdentity, payload: dict):
         return await self.request(
@@ -350,7 +367,6 @@ class ControlDeckHostClient:
         max_tokens: int = 1024,
         timeout_seconds: int = 120,
     ) -> AsyncIterator[dict]:
-        """Yield provider-neutral SSE events from ControlDeck text.generate."""
         if "ai.inference" not in identity.granted_capabilities:
             raise HostApiError(
                 "capability_not_granted",

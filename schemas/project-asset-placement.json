@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["asset_id","project_output_grant"],"properties":{"asset_id":{"type":"string","pattern":"^asset:"},"project_output_grant":{"type":"string","pattern":"^grant:"}},"additionalProperties":false}

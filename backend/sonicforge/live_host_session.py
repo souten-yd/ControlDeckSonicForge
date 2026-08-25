@@ -71,7 +71,6 @@ class LiveHostSession:
             await self._start_llm_hold()
 
     async def _job_credential_heartbeat(self) -> None:
-        """Make the short service-token TTL invisible during long sessions."""
         while not self._closed and self.host_job_id:
             await asyncio.sleep(30)
             identity = await self.identity()
@@ -139,7 +138,13 @@ class LiveHostSession:
                 if exc.status_code in {401, 403, 409}:
                     return
 
-    async def acquire_worker_lease(self, key: str, request: dict[str, Any]) -> None:
+    async def acquire_worker_lease(
+        self,
+        key: str,
+        request: dict[str, Any],
+        *,
+        fail_fast: bool = False,
+    ) -> None:
         """Hold one SonicForge GPU worker residency for the live session."""
         if key in self._leases or not self.jobs._gpu_required(request):
             return
@@ -158,6 +163,7 @@ class LiveHostSession:
         payload["class"] = "interactive"
         payload["estimated_runtime_sec"] = 3600
         payload["max_wait_sec"] = 300
+        payload["on_insufficient"] = "fail_fast" if fail_fast else "queue"
         status = await self.host_client.request_resource(identity, payload)
         request_id = status.get("request_id")
         if not isinstance(request_id, str):

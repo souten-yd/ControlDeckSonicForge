@@ -14,3 +14,6 @@ runtime-state/
 models/
 assets/
 logs/
+firmware/m5-sonic-edge/include/config.h
+firmware/m5-sonic-edge/.pio/
+firmware/m5-sonic-edge/.vscode/

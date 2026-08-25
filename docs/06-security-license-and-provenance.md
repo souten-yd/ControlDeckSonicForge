@@ -5,26 +5,26 @@ Date: 2026-08-25
 
 ## 1. Threat model
 
-SonicForge handles unusually sensitive and risky inputs:
+SonicForge handles sensitive/high-impact inputs and dependencies:
 
-- user voice recordings
-- voice-clone reference material
+- user voice recordings and clone references
 - arbitrary uploaded audio
-- generated audio that may resemble copyrighted/person-specific material
+- generated audio that may resemble people/copyrighted material
 - third-party model files
-- large local model downloads
+- large local package/model downloads
+- signed product release bundles
 - GPU execution
-- project file exports
+- project exports
 
-Local execution does not eliminate security or rights concerns.
+Local execution does not eliminate security, supply-chain or rights concerns.
 
 ## 2. Trust boundaries
 
 ```text
-Browser embedded view
-   | opaque Host proxy/bridge
-ControlDeck host
-   | short-lived Add-on token + grants
+ControlDeck trusted feature publisher key
+   | verifies signed SonicForge lightweight release
+ControlDeck installed SonicForge feature
+   | Add-on v2 / scoped token + grants
 SonicForge core
    | validated worker protocol
 Heavy workers / third-party ML code
@@ -32,92 +32,182 @@ Heavy workers / third-party ML code
 Generated/imported audio assets
 ```
 
-Treat each boundary as potentially faulty or compromised.
+Treat every boundary as independently fallible.
 
-## 3. ControlDeck identity boundary
+## 3. Publisher-signed release trust
+
+SonicForge follows MediaForge's current direction: **Ed25519 publisher signature over a canonical release manifest**.
+
+The publisher trust anchor is a public key stored by ControlDeck once. The signed manifest binds:
+
+```text
+schema_version
+feature_id
+version
+platform
+architecture
+artifact_name
+sha256
+size_bytes
+```
+
+SHA-256 remains an integrity value, but it is not the per-release authorization mechanism.
+
+Benefits:
+
+- a SonicForge release no longer requires a ControlDeck source edit only to pin a new checksum;
+- artifact bytes are still verified using the signed digest;
+- product/version/platform identity is cryptographically bound;
+- downgrade policy remains a separate Host check.
+
+Detailed contract: `13-release-distribution-and-signing.md`.
+
+## 4. Signing-key security
+
+Publisher private key:
+
+- never committed
+- never bundled
+- not available to ordinary test/build jobs
+- stored as a protected release secret/key with restrictive permissions
+- used only after bundle identity/tests succeed
+
+Public key may be distributed through ControlDeck trusted publisher/catalog metadata.
+
+A key rotation is an explicit trust event. Do not silently regenerate a key because a release script cannot find the original.
+
+## 5. Signed bundle does not imply unlimited trust
+
+A valid publisher signature does not grant arbitrary ControlDeck privileges.
+
+ControlDeck still validates:
+
+- expected feature/add-on identity
+- version/platform/architecture
+- artifact size/digest
+- safe extraction/package structure
+- allowed Host capabilities
+- lifecycle bounds
+- smoke/health before activation
+- downgrade policy
+
+Likewise, a signed SonicForge bundle does **not** automatically authenticate third-party models/packages downloaded later.
+
+## 6. ControlDeck identity boundary
 
 When used as an Add-on:
 
 - ControlDeck is identity authority
 - SonicForge never receives raw ControlDeck session cookies
-- Host Authorization/CSRF headers are not propagated as Add-on credentials
+- Host Authorization/CSRF headers are not Add-on credentials
 - service/request tokens are short-lived and audience-bound
-- SonicForge verifies Host request tokens through supported introspection rather than sharing Host signing secrets
-- add-on id/header/path/audience must agree
-- disable/revocation behavior follows Host contract
+- supported token introspection is used instead of importing Host signing internals
+- Add-on id/header/path/audience must agree
+- disable/revocation follows Host contract
 
-## 4. File boundary
+## 7. File boundary
 
-Host-originated file access uses only scoped IDs/grants.
+Host files arrive only through scoped identifiers/grants.
 
-SonicForge must reject raw absolute Host paths arriving through Add-on endpoints even if they happen to exist locally.
+Reject raw absolute Host paths arriving through Add-on endpoints.
 
-For every local path used internally:
+For internal local paths:
 
 - resolve realpath
-- validate containment under an allowed SonicForge root
+- validate containment
 - reject symlink escape
-- use private staging permissions
-- do not derive filenames by directly concatenating user prompts
+- private staging permissions
+- never derive path directly from prompt text
 
-Archive/model imports require traversal/symlink/bomb-size protections.
+Archive/model imports require traversal, symlink and expansion/size protections.
 
-## 5. Subprocess boundary
+## 8. Subprocess boundary
 
 Forbidden:
 
 - `shell=True`
 - untrusted shell strings
-- prompt text in shell command lines when avoidable
-- unvalidated executable paths from browser requests
+- browser-provided executable/package names passed directly to process launch
+- prompt text concatenated into command lines when avoidable
 
 Allowed:
 
 - fixed/registered executables
 - argv arrays
-- bounded environment variables
-- explicit cwd under permitted roots
-- timeout/cancellation
-- captured bounded logs
+- bounded environment
+- approved cwd
+- timeout/cancel
+- bounded/redacted logs
 
-## 6. Worker isolation
+## 9. Worker isolation
 
-Heavy third-party engine code runs outside the core process.
+Heavy third-party engine code is outside the core process.
 
-Worker rules:
+Workers:
 
 - non-root by default
-- no Host credentials except the minimal task/resource context required
-- no direct ControlDeck DB access
-- no project-root mount/path if a scoped staging copy/grant can be used
+- receive minimal task/resource context
+- no ControlDeck DB access
+- no unrestricted project-root path/mount
 - bounded input/output directories
-- explicit health/version handshake
-- process termination on cancel/timeout when graceful cancel fails
-- crash does not terminate SonicForge core
+- explicit health/version/capability handshake
+- terminate on timeout/cancel if graceful stop fails
+- may crash without killing core
 
-Containerization may be used for a worker when it materially improves dependency/security isolation, but containers are an implementation option rather than the public runtime contract.
+Containerization is optional when it materially improves isolation/dependency compatibility; it is not the public runtime contract.
 
-## 7. Network policy
+## 10. Network policy
 
 Default inference is local-first.
 
-Workers should not make arbitrary outbound requests during inference.
+Workers should not make arbitrary outbound inference-time requests.
 
-Network access is expected for:
+Expected network operations:
 
-- explicit model/package installation
+- explicit setup/package/model downloads
 - update metadata
-- user-configured sources
+- configured sources
 
-Model/package download domains should come from a configured allowlist/catalog rather than arbitrary URLs supplied by normal task requests.
+Normal task requests never carry arbitrary download URLs that setup blindly fetches.
 
-Future remote inference providers require an explicit data-egress policy and separate user-facing configuration.
+Future remote inference requires explicit data-egress policy and configuration.
 
-## 8. Voice cloning rights and consent
+## 11. Runtime/package supply chain
 
-SonicForge cannot determine legal ownership of a voice. It must instead create an auditable workflow.
+- lock runtime-critical dependencies
+- prefer official/known upstream sources
+- pin Git dependencies to immutable revisions for production
+- record engine source tag/commit
+- no `curl | sh`
+- staged environment before activation
+- verify available package/model artifact digest metadata
+- separate release-signing dependencies from shipped core runtime
 
-Before saving a reusable cloned/reference voice profile, require a confirmation such as:
+The signed lightweight release can describe approved SonicForge setup metadata, but runtime installers still verify their own locked sources/artifacts.
+
+## 12. Model acquisition trust
+
+Model catalog records:
+
+```text
+source/repository
+immutable revision if available
+file names/sizes
+digests when available
+license/terms
+gated state
+retrieval timestamp
+adapter compatibility
+tested languages/hardware
+```
+
+Moving references should be resolved to immutable revisions before marking a model reproducibly installed where the source permits it.
+
+A custom imported model can be retained as `unverified`; do not promote it to trusted/recommended merely because it loads.
+
+## 13. Voice cloning rights and consent
+
+Before saving a reusable cloned/reference voice profile require explicit confirmation such as:
 
 ```text
 I have permission/right to use this reference voice for the intended purpose.
@@ -125,34 +215,31 @@ I have permission/right to use this reference voice for the intended purpose.
 
 Store:
 
-- consent confirmation timestamp
-- confirmation version/text id
-- creator/user identity reference when available through the local app context
+- confirmation timestamp
+- confirmation text/version id
+- local user/actor reference when available
 - source asset id/hash
-- optional notes/source attribution
-- intended-use notes if the user supplies them
+- optional attribution/notes/intended use
 
-Do not store unnecessary identity claims about the speaker.
+Do not claim software has legally verified ownership.
 
-A rights confirmation is evidence of a user action, not a legal certification.
+## 14. Voice profile safety UX
 
-## 9. Voice profile safety UX
-
-Visibly distinguish:
+Distinguish visibly:
 
 - built-in licensed voice
 - user-owned/custom-trained voice
-- reference/cloned voice
+- cloned/reference voice
 - voice-design synthetic profile
 - imported unverified model
 
-For cloned/imported voices, surface rights/license status in the library and export details.
+For bilingual profiles, show tested/preferred Japanese/English behavior separately when useful.
 
-## 10. Model licensing
+## 15. Model licensing
 
-Code license and model-weight license are separate fields.
+Code license and model-weight/voice license are distinct records.
 
-Every engine/model catalog entry records:
+Every catalog entry can carry:
 
 ```text
 code_license_id
@@ -167,53 +254,43 @@ commercial_use_note (informational, sourced)
 revision/retrieved_at
 ```
 
-SonicForge must not infer that model weights use the repository's code license.
+Never infer that model weights inherit repository code licensing.
 
-Examples motivating this rule:
-
-- Stable Audio code repository can be MIT while distributed model weights are governed by Stability AI model/community terms.
-- Style-Bert-VITS2 code licensing does not automatically define the terms of a separately distributed voice model.
-- custom GPT-SoVITS/Style-Bert models may inherit dataset/voice-specific obligations.
-
-## 11. License acceptance
+## 16. License acceptance
 
 For gated/terms-required models:
 
-- setup plan identifies the requirement
-- UI shows source and terms link/reference
-- user must explicitly accept where required by the source workflow
-- acceptance is stored with terms/model revision
-- setup resumes only after acceptance
+- setup plan identifies requirement
+- UI shows source/terms before acceptance
+- user explicitly accepts when required
+- acceptance record is bound to model/terms revision where possible
+- setup resumes afterwards
 
-Never fabricate or auto-submit an acceptance on behalf of the user.
+Never auto-submit acceptance on the user's behalf.
 
-## 12. Imported model policy
+## 17. Imported model policy
 
-Imported custom model assets may have unknown provenance.
-
-The import flow asks for/records:
+Ask for/record where available:
 
 - engine/type
-- model files
-- source/reference URL optional
-- license/terms optional
-- author/attribution optional
-- rights note optional
+- files
+- source URL/reference
+- license/terms
+- author/attribution
+- rights note
 
-If unknown, mark:
+Unknown state:
 
 ```text
 license_status = unverified
 provenance_status = unverified
 ```
 
-Do not silently label it safe for commercial use.
+Never label unknown assets safe for commercial use.
 
-## 13. Generated asset provenance
+## 18. Generated asset provenance
 
-Every generated asset gets a provenance record before it becomes `succeeded`.
-
-Required provenance:
+Every succeeded generated asset has provenance including:
 
 ```text
 operation/capability
@@ -223,136 +300,160 @@ engine id/version
 model id/revision
 model-license record id
 input asset ids/hashes
-voice profile id when applicable
+voice profile id
+content language
 normalized generation parameters
 seed when supported
 created_at
 Host job id when present
 ```
 
-Prompt storage policy may be configurable for privacy, but a stable hash should be recorded if raw prompt text is omitted.
+Prompt storage may be privacy-configurable; retain a stable hash if raw prompt is omitted where practical.
 
-## 14. Lineage
+## 19. Lineage
 
-Transform/edit/remix operations form a lineage graph:
+Transforms create new lineage rather than overwriting sources by default:
 
 ```text
-asset A -> remix -> asset B
-asset B -> normalize -> asset C
-voice reference X + text -> TTS -> asset D
+asset A -> remix -> B
+B -> normalize -> C
+voice X + text -> TTS -> D
+D -> ASR QA -> QA record
+JP/EN localization row -> two language assets
 ```
 
-Do not overwrite a source asset and erase lineage as the default behavior.
+## 20. QA honesty
 
-## 15. Export metadata
+A validator may only report checks it actually performed.
 
-When exporting to a project, SonicForge may optionally write a sidecar manifest/profile when requested, e.g.:
+Use states like:
+
+```text
+passed
+warning
+failed
+not_checked
+not_applicable
+```
+
+Do not return an empty warnings array as if semantic constraints were verified when no semantic evaluator ran.
+
+TTS->ASR round-trip is a heuristic for missing/repeated/mismatched content, not proof of natural speech or correct identity/emotion.
+
+## 21. Export metadata
+
+Optional sidecar:
 
 ```text
 sound.wav
 sound.sonicforge.json
 ```
 
-Sidecar contains portable provenance/license attribution but no local absolute paths, tokens or private Host IDs that are meaningless outside the system.
+It may contain portable provenance/license/locale/profile metadata, but never local absolute paths, Host tokens or meaningless private grant IDs.
 
-## 16. Secrets
+## 22. Secrets
 
-Potential secrets include:
+Potential secrets:
 
-- Hugging Face tokens
-- gated model source credentials
-- future remote provider keys
+- SonicForge Ed25519 publisher **private key**
+- Hugging Face/gated source tokens
+- future provider keys
 - ControlDeck service/request tokens
 
 Rules:
 
-- never store in repository/config examples
-- use secret storage/env mechanism appropriate to deployment
+- never in repository/examples
+- least-privilege secret store/environment
 - redact from logs/exceptions
-- do not include in command-line arguments when safer alternatives exist
-- never embed in model URLs
+- avoid command-line exposure where safer options exist
+- never embed in URLs
+- publisher private key never reaches runtime installation
 
-## 17. Logs
+## 23. Logs/privacy
 
 Logs may include:
 
 - engine/runtime ids
 - job/task ids
-- durations/resource estimates
+- duration/resource estimates
 - status/error codes
 
-Avoid logging by default:
+Avoid by default:
 
 - full spoken/transcribed text
-- raw prompt text when privacy setting disables it
-- voice reference content
-- access tokens
+- raw prompts when privacy policy disables them
+- raw voice reference content
+- tokens/signing key material
 - absolute Host project paths
 
-Diagnostics can provide opt-in expanded context with clear warning.
+Expanded diagnostics are explicit and bounded.
 
-## 18. Resource abuse controls
+## 24. Resource abuse controls
 
-Enforce server-side limits:
+Server-side enforce:
 
-- max request/body sizes
-- max audio duration for synchronous endpoints
-- max generation duration per profile
-- max batch/variation count
-- max active jobs/sessions per user/Add-on policy
-- max setup operation concurrency = 1 per installation unless explicitly designed otherwise
-- worker timeouts and cancellation
+- request/body limits
+- synchronous audio-duration limits
+- generation duration limits
+- batch/variation limits
+- active jobs/session limits
+- setup operation concurrency
+- worker timeout/cancel
 
-Do not rely solely on disabled browser controls.
+UI disabled controls are not security enforcement.
 
-## 19. Audio parser safety
+## 25. Audio parser safety
 
-Uploaded/generated audio is untrusted until validated.
+Uploaded/generated audio is untrusted until validated:
 
-Use bounded decoders/probers. Validate:
-
-- file/container type
+- container/type
 - duration
-- channel/sample-rate sanity
-- decoded size limits
-- malformed metadata handling
+- sample/channel sanity
+- decoded size
+- malformed metadata
 
-Prefer running complex third-party decoders out-of-process where practical.
+Complex external decoders may run out of process where practical.
 
-## 20. Dependency/supply-chain policy
+## 26. Release verification tests
 
-- pin critical runtime versions
-- lock runtime dependency sets
-- prefer official upstream sources
-- record engine source commit/tag/release
-- review install scripts before adoption
-- do not execute arbitrary `curl | sh` in automated setup
-- Git repositories used as dependencies should be pinned to a revision, not floating main, in production lock state
-- verify downloaded model artifact metadata/hashes where supported
+Required negative tests include:
 
-## 21. Security review gates
+- signed manifest tamper
+- artifact tamper after signing
+- wrong feature/version/platform/arch/name/size
+- wrong publisher key
+- malformed signature
+- downgrade
+- capability escalation despite valid signature
+- failed provision preserving previous active version
 
-Before enabling a new engine by default, review:
+Do not use the real publisher private key in unit tests.
+
+## 27. Engine security review gate
+
+Before an engine is recommended:
 
 1. license/terms
-2. install behavior
-3. network behavior
-4. filesystem assumptions
-5. privilege assumptions
-6. dependency conflicts
-7. model loading safety
-8. cancellation/termination
-9. output validation
-10. provenance coverage
+2. install/network behavior
+3. filesystem/privilege assumptions
+4. dependency conflicts
+5. model loading behavior
+6. cancel/termination
+7. output validation
+8. provenance
+9. language-specific benchmark
+10. resource estimate correctness
 
-## 22. No security regression for convenience
+## 28. No security regression for convenience
 
-A setup button does not justify:
+A setup button or signed release does not justify:
 
-- executing arbitrary manifest commands in ControlDeck
-- sharing ControlDeck's venv
-- mounting full project roots into third-party workers
-- passing Host cookies to embedded content
-- running the whole service as root
+- arbitrary manifest shell execution
+- shared ControlDeck/MediaForge venv
+- full project-root mounts into third-party workers
+- Host cookie forwarding
+- root service by default
+- skipping third-party model license/digest checks
+- granting new Host capabilities merely because the release signature is valid
 
-If convenience conflicts with these boundaries, redesign the setup mechanism rather than weakening the boundary.
+If convenience conflicts with these boundaries, redesign the mechanism.

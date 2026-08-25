@@ -109,6 +109,45 @@ class LocalizationLine(Base):
     batch: Mapped[LocalizationBatch] = relationship(back_populates="lines")
 
 
+class MeetingSession(Base):
+    __tablename__ = "meeting_sessions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(200), default="Meeting")
+    state: Mapped[str] = mapped_column(String(32), default="recording", index=True)
+    source_language: Mapped[str] = mapped_column(String(16), default="auto")
+    target_language: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    translate: Mapped[bool] = mapped_column(Boolean, default=False)
+    summarize: Mapped[bool] = mapped_column(Boolean, default=False)
+    profile: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    segments: Mapped[list["MeetingSegment"]] = relationship(
+        cascade="all, delete-orphan",
+        back_populates="meeting",
+        order_by="MeetingSegment.sequence",
+    )
+
+
+class MeetingSegment(Base):
+    __tablename__ = "meeting_segments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meeting_sessions.id"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer, index=True)
+    start_ms: Mapped[int] = mapped_column(Integer)
+    end_ms: Mapped[int] = mapped_column(Integer)
+    source_language: Mapped[str] = mapped_column(String(16), default="auto")
+    source_text: Mapped[str] = mapped_column(Text, default="")
+    target_language: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    translated_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    state: Mapped[str] = mapped_column(String(32), default="final")
+    asr_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    translation_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    meeting: Mapped[MeetingSession] = relationship(back_populates="segments")
+
+
 def make_session_factory(settings: Settings):
     engine = create_engine(f"sqlite:///{settings.db_path}", future=True)
     Base.metadata.create_all(engine)

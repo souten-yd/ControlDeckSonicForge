@@ -38,8 +38,11 @@ Read in this order:
 9. [Development process and quality gates](docs/08-development-process-and-quality-gates.md)
 10. [Implementation roadmap](docs/09-roadmap.md)
 11. [Reference repositories and research notes](docs/10-reference-repositories.md)
-12. [Draft Add-on manifest](docs/contracts/addon.example.json)
-13. [Draft capability document](docs/contracts/capabilities.example.json)
+12. [Decisions and open questions](docs/11-decisions-and-open-questions.md)
+13. [Architecture and lifecycle diagrams](docs/12-architecture-diagrams.md)
+14. [Implementation status / evidence ledger](docs/implementation-status.md)
+15. [Draft Add-on manifest](docs/contracts/addon.example.json)
+16. [Draft capability document](docs/contracts/capabilities.example.json)
 
 `AGENTS.md` is normative for developers and coding agents.
 
@@ -67,6 +70,10 @@ When these disagree with this repository, stop implementation, identify which co
 - local-first; remote providers are outside v1 scope
 - GPU jobs must obtain a ControlDeck Resource Broker lease when running as a ControlDeck Add-on
 
+## First implementation slice
+
+Start with `SF0-1 — Lightweight core` in [the roadmap](docs/09-roadmap.md): FastAPI/config/DB baseline, `/health`, capability discovery, `sf.sh`, clean core-environment bootstrap and read-only `doctor`. Do **not** add torch or production speech/music models in that first slice.
+
 ## Status
 
-This repository currently contains the architecture/specification baseline. Implementation should start from `docs/09-roadmap.md` and follow `AGENTS.md`.
+The architecture/specification baseline is complete. Runtime/model behavior remains explicitly `NOT TESTED` until implementation and real target-hardware evidence are recorded in [docs/implementation-status.md](docs/implementation-status.md).

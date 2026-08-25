@@ -44,7 +44,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | ASR Japanese | REAL MODEL PASS | Kotoba-Whisper v2 transcribed the generated Japanese fixture through scoped `grant:` + Host Job/Broker in 10.057 s; recognition was usable but rendered “SonicForge” imperfectly |
 | ASR multilingual/English | EN/AUTO/MIXED REAL PASS | Whisper large-v3-turbo accurately transcribed explicit `en`, single-language `auto`, and a JA+EN fixture; mixed `auto` re-runs language detection across long-silence segments and preserves continuous timestamps |
 | Speech Essentials provisioning | CLEAN ROCM INSTALL PASS | isolated `speech-rocm` runtime activated only after all five model snapshots completed; exact revisions recorded in runtime metadata |
-| SFX | IMPLEMENTED, REAL MODEL NOT TESTED | Stable Audio 3 Small-SFX CPU-first; fixed upstream API inspected; model snapshot prefetched only after Stability terms acceptance |
+| SFX | TERMS GATE REAL PASS, MODEL NOT TESTED | real setup without acceptance failed `terms_required:stability-ai-community-license` and kept Game Audio `missing`; Small-SFX download/generation awaits explicit user acceptance |
 | Japanese SFX conditioning | IMPLEMENTED | ControlDeck LLM may normalize JP intent to English acoustic prompt; both prompts kept in provenance |
 | Music/BGM | CLEAN ROCM SETUP + REAL GENERATION PASS | ACE-Step 1.5 pinned source and prepared `acestep-v15-turbo` + `acestep-5Hz-lm-0.6B`; real target generation produced a 10.000 s, 48 kHz stereo WAV without model-cache growth |
 | Localization Studio | IMPLEMENTED | JP/EN lines, durable render, `pending/failed/changed/all` retry modes |
@@ -219,6 +219,7 @@ ControlDeck affected integration set:
 
 Real setup/runtime evidence:
 
+- real `game-audio` setup with an empty acceptance list terminated as `failed` with `terms_required:stability-ai-community-license`; no pack activation or model download occurred and the component remained `missing`;
 - clean `speech-rocm` provisioning completed with Qwen CustomVoice, Clone Base, VoiceDesign, Kotoba-Whisper and Whisper Turbo snapshots and recorded their exact revisions;
 - first provisioning attempt failed correctly in staging because unpinned PyPI torchaudio was ABI-incompatible with ROCm torch; `torchaudio==2.10.0` now resolves to the ROCm 7.2.1 wheel and the second clean activation passed;
 - ControlDeck restarted on the combined Host changes, reported `/api/v1/health` healthy, accepted the SonicForge v2 manifest, enabled all requested capabilities and projected `sonic-forge` into the effective registry;

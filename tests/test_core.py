@@ -74,3 +74,12 @@ def test_localization_batch(env):
     with TestClient(m.app) as c:
         r=c.post('/addon/v1/localization/batches',json={"name":"demo","profile":{},"lines":[{"line_id":"1","character":"A","ja_text":"はい","en_text":"Yes","voice_id":None}]})
         assert r.status_code==200 and r.json()['lines']==1
+
+def test_serve_has_bounded_graceful_shutdown(env, monkeypatch):
+    from sonicforge import __main__
+    captured={}
+    def run(*args,**kwargs): captured.update({"args":args,"kwargs":kwargs})
+    monkeypatch.setattr(__main__.uvicorn,'run',run)
+    monkeypatch.setattr(sys,'argv',['sonic-forge','serve'])
+    assert __main__.main()==0
+    assert captured['kwargs']['timeout_graceful_shutdown']==15

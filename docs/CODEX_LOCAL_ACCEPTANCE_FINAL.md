@@ -35,10 +35,11 @@ Verify on Linux:
 1. short PTT PCM is created under the configured tmpfs or `/dev/shm` path;
 2. live TTS work dirs are ephemeral/RAM-backed when capacity permits;
 3. meeting chunks use RAM first;
-4. force a tiny `SONICFORGE_SPOOL_STREAM_MB` and prove an active stream transparently spills to `data/tmp/spool` without truncation;
-5. set `SONICFORGE_SPOOL_MODE=disk` and prove explicit disk mode works;
-6. finalized Job/transcript/Asset metadata remains durable after restart;
-7. RAM threshold is a **spill threshold**, never an arbitrary recording-duration limit.
+4. local raw-ASR upload uses the same Adaptive Spool path;
+5. force a tiny `SONICFORGE_SPOOL_STREAM_MB` and prove an active stream transparently spills to `data/tmp/spool` without truncation;
+6. set `SONICFORGE_SPOOL_MODE=disk` and prove explicit disk mode works;
+7. finalized Job/transcript/Asset metadata remains durable after restart;
+8. RAM threshold is a **spill threshold**, never an arbitrary recording-duration limit.
 
 Record approximate:
 
@@ -182,7 +183,51 @@ Verify:
 
 Wake/VAD/AEC/barge-in remain client-side/optional enhancements and are not SonicForge v1 merge blockers unless a server contract change is required.
 
-## H. Final merge rule
+## H. Clean pack provisioning / no hidden first-use download
+
+Start from controlled empty SonicForge runtime/model state. Do not reuse a developer cache when proving this gate.
+
+### Speech Essentials
+
+Run setup and confirm the component does not become `available` until the exposed initial models are present:
+
+```text
+Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+Qwen/Qwen3-TTS-12Hz-0.6B-Base
+Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+kotoba-tech/kotoba-whisper-v2.0
+openai/whisper-large-v3-turbo
+```
+
+Confirm runtime metadata records the downloaded snapshot/revision information. Then run one simple CustomVoice, Clone/authorized reference, VoiceDesign, Japanese ASR and English/Auto ASR request. The first request may load weights into RAM/VRAM, but it must not start an avoidable multi-GB model download that setup claimed was already complete.
+
+### Game Audio
+
+Verify setup refuses to proceed until the Stability terms identifier is explicitly accepted. Do not auto-accept terms in code/tests.
+
+After acceptance, confirm `stabilityai/stable-audio-3-small-sfx` is present before `game-audio` becomes `available`. Run the first CPU Small-SFX generation and verify there is no hidden first-use model download.
+
+### Music
+
+On the supported experimental Linux ROCm target, confirm setup installs the pinned ACE-Step source and uses the upstream downloader to prepare at least:
+
+```text
+acestep-v15-turbo
+acestep-5Hz-lm-0.6B
+```
+
+The checkpoint root must be SonicForge-managed. Verify a failed `(message, success=False)` from either ACE-Step initializer fails the job instead of continuing into generation. Then run the first music request and confirm the required checkpoints were already prepared by setup.
+
+### Failure/interruption behavior
+
+For each applicable pack verify:
+
+- canceled/interrupted setup never reports the incomplete component as `available`;
+- staging failure preserves the previous known-good runtime;
+- an idempotent second setup does not redownload unchanged model snapshots unnecessarily;
+- `SONICFORGE_SETUP_SKIP_MODEL_PREFETCH=1` is treated only as an explicit developer/testing escape hatch and is not used for release acceptance.
+
+## I. Final merge rule
 
 `SF受入マージ` must not merge until:
 

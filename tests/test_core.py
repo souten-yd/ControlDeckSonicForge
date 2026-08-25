@@ -3,8 +3,9 @@ from fastapi.testclient import TestClient
 
 def load_app():
     for n in list(sys.modules):
-        if n.startswith('sonicforge.app'): sys.modules.pop(n,None)
-    return importlib.import_module('sonicforge.app')
+        if n.startswith('sonicforge.bootstrap') or n.startswith('sonicforge.app'):
+            sys.modules.pop(n,None)
+    return importlib.import_module('sonicforge.bootstrap')
 
 def test_health_and_capabilities(env):
     m=load_app()
@@ -30,6 +31,18 @@ def test_fake_generation_persists_asset(env):
             time.sleep(.03)
         assert j['state']=='succeeded',j
         assets=c.get('/addon/v1/assets').json()['assets']; assert assets and assets[0]['duration_ms']>0
+
+def test_pipeline_routes_precede_spa_mount(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        req={
+            "input":{"kind":"text","text":"短い確認音"},
+            "stages":[{"id":"tts","kind":"speech.tts","routing":{"engine":"fake","model":None,"device":"auto"}}],
+            "delivery":{"mode":"asset","profile":"test"},
+        }
+        compiled=c.post('/addon/v1/pipelines/compile',json=req)
+        assert compiled.status_code==200,compiled.text
+        assert compiled.json()['stage_ids']==['tts']
 
 def test_voice_rights_gate(env):
     m=load_app()

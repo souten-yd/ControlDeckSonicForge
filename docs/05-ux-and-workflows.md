@@ -5,11 +5,21 @@ Date: 2026-08-25
 
 ## 1. UX principle
 
-SonicForge should expose powerful audio tooling without requiring the user to understand model families, Python environments, sampling parameters or worker topology.
+SonicForge exposes powerful speech/audio/music workflows without requiring users to understand model families, Python environments, sampling parameters or worker topology.
 
-The default experience is task-oriented and uses recommended settings. Advanced settings remain reachable, but are not presented as the first decision.
+The product is **Japanese/English bilingual**, task-oriented and recommended-by-default.
 
-## 2. Primary navigation
+Settings use three levels:
+
+```text
+Easy / かんたん
+Customize / 調整
+Expert / 詳細
+```
+
+Complexity is revealed by need, not shown all at once.
+
+## 2. Information architecture
 
 Single ControlDeck navigation entry:
 
@@ -18,177 +28,310 @@ Single ControlDeck navigation entry:
 Inside SonicForge:
 
 ```text
-Create
+Studio
+Voices
+Library
+Runtime
+```
+
+Studio task tabs:
+
+```text
 Speech
 Transcribe
-Game Audio
+SFX
 Music
-Library
-Runtime & Settings
+Localization
 ```
 
-On narrow/mobile layouts use a compact/companion layout. Do not force a desktop multicolumn audio workstation into 320 px.
+This replaces the earlier redundant pattern where Create/Speech/Transcribe/Game Audio/Music all appeared as separate top-level destinations.
 
-## 3. First launch
-
-### 3.1 Lightweight core available, heavy environment absent
-
-The main view renders `setup_required`, not a blank page.
-
-Primary card:
+Mobile target:
 
 ```text
-SonicForge をセットアップ
-日本語音声合成・文字起こし・効果音・音楽生成に必要な環境を自動で準備します。
-[ 推奨環境をセットアップ ]
+Studio | Library | Jobs | More
 ```
 
-Secondary:
+`More` contains Voices/Runtime and less frequent administration.
+
+## 3. Localization / UI language
+
+Primary UI locales:
 
 ```text
-予定: <components>
-ダウンロード: <estimated>
-必要容量: <estimated>
-検出ハードウェア: <summary>
-[詳細を見る]
+auto
+日本語
+English
 ```
 
-Advanced choices are hidden until requested.
+- `auto` follows ControlDeck locale from the Host bridge.
+- SonicForge override is stored server-side.
+- UI locale is independent of speech content language.
+- all strings use localization keys; no code-level Japanese fragment concatenation.
+- errors have stable machine codes and localized display messages.
+- task examples/help text also switch locale.
 
-### 3.2 Preflight blockers
+## 4. First launch
 
-Examples:
+When lightweight core is installed but speech runtimes are absent, show `setup_required`, not a blank workspace.
 
-- insufficient disk -> show required/free amount and destination settings
-- missing supported Python -> show exact requirement
-- GPU runtime unsupported -> offer CPU-capable subset if useful
-- gated model -> show terms step; never auto-accept
-- network unavailable -> explain which already-installed capabilities remain usable
-
-## 4. Setup progress
-
-Setup runs as a durable job. Closing the browser does not lose it.
-
-Show human phases, not package-manager noise:
+Primary Japanese copy:
 
 ```text
-1/5 環境を準備
-2/5 音声合成を導入
-3/5 日本語文字起こしを導入
-4/5 効果音/音楽モデルを準備
-5/5 動作確認
+音声基本環境をセットアップ
+日本語・英語の音声合成と文字起こしに必要な環境を自動で準備します。
+[ 音声基本環境をセットアップ ]
 ```
 
-Expandable technical log is available for diagnosis.
+English:
+
+```text
+Set up Speech Essentials
+Automatically prepare Japanese/English speech synthesis and transcription.
+[ Set up Speech Essentials ]
+```
+
+Secondary summary:
+
+```text
+ダウンロード / Download      <estimated>
+必要容量 / Disk               <estimated>
+ハードウェア / Hardware        <summary>
+利用可能になる機能 / Enables   <capabilities>
+[ 詳細 / Details ]
+```
+
+Do not ask the user to select models/runtimes during ordinary first use.
+
+Game Audio/Music are installed later with contextual one-button actions or by choosing Full Studio in Details.
+
+## 5. Setup progress
+
+Setup is a durable Host Job and survives page closure/backgrounding.
+
+Speech Essentials user phases:
+
+```text
+1/4 環境を準備 / Preparing environment
+2/4 音声合成を準備 / Preparing TTS
+3/4 文字起こしを準備 / Preparing ASR
+4/4 動作確認 / Verifying
+```
+
+Game Audio/Music use their own short phase sets rather than making all users watch irrelevant steps.
+
+Technical logs are collapsed by default.
 
 Actions:
 
-- cancel when safe
+- cancel safely
 - retry failed component
+- repair
 - copy diagnostic summary
 
-Do not claim setup success until smoke tests complete.
+Do not claim success before real smoke validation.
 
-## 5. Create home
+## 6. Studio landing
 
-The first screen favors intent cards:
+Show concise intent cards:
 
-- セリフ・ナレーション
-- 音声から文字起こし
-- 効果音を作る
-- 環境音・ループを作る
-- BGM・音楽を作る
+```text
+Speak text / セリフ・ナレーション
+Transcribe / 文字起こし
+Sound effect / 効果音
+Music / BGM・音楽
+Localize dialogue / 台詞ローカライズ
+```
 
-A prompt box may also accept natural-language intent and route to a task.
+Selecting a card changes the Studio task tab; it does not create a second duplicate route/navigation item.
 
-Recent assets/jobs appear below but should not dominate first use.
+Recent/running work can appear below as a small section with `View all` rather than dominating creation.
 
-## 6. Speech Studio
+## 7. Three-level settings pattern
 
-### Simple mode
+### 7.1 Easy
 
-Required visible controls:
+Show only the decisions necessary for a good result.
+
+Speech:
+
+```text
+Text
+Voice
+Language: Auto
+Style
+[ Preview ] [ Generate ]
+```
+
+Transcribe:
+
+```text
+Audio
+Language: Auto
+Timestamps on/off
+[ Transcribe ]
+```
+
+SFX:
+
+```text
+Description
+Type preset
+Length
+Variations
+[ Create ]
+```
+
+Music:
+
+```text
+Description
+Length
+BGM/Instrumental
+Loop
+[ Create ]
+```
+
+### 7.2 Customize
+
+Show normalized outcome controls:
+
+- Fast / Recommended / High quality
+- speech speed
+- emotion/style strength
+- pronunciation dictionary
+- variation count
+- BPM/mood
+- loop options
+- output/game profile
+- loudness target/profile
+
+These should remain understandable without knowing the engine.
+
+### 7.3 Expert
+
+May show:
+
+- engine/model pin
+- seed
+- engine-native options
+- device/runtime selection
+- chunking/VAD thresholds
+- detailed codec/sample settings
+- model residency/resource diagnostics
+
+Expert options are grouped and namespaced; they do not contaminate the stable normal settings schema.
+
+## 8. Contextual controls
+
+A control is visible only when it is relevant and supported.
+
+Do not show a disabled wall of controls for capabilities that the active route does not implement.
+
+Examples:
+
+- hide Voice Design when no installed route supports it;
+- show BPM only for music engines/profile paths that accept it;
+- show diarization only when installed;
+- show loop tuning only when a task/profile is loop-oriented.
+
+## 9. Speech Studio
+
+### Easy
 
 - text
 - voice
-- style preset when supported
-- quality: fast / balanced / quality
-- generate button
+- language `Auto / 日本語 / English`
+- simple style preset when supported
+- Preview / Generate
 
-Optional compact controls:
+### Customize
 
+- quality
 - speed
 - emotion/style strength
+- pronunciation dictionary
+- output profile
 
-### Advanced mode
+### Expert
 
-May reveal:
+- engine/model
+- detailed natural-language instruction
+- pitch/intonation if meaningfully normalized
+- seed/generation parameters
+- chunking/long-form behavior
+- sample/codec details
 
-- engine/model pin
-- detailed style instruction
-- pitch/intonation parameters
-- seed/generation options
-- chunking/long-form policy
-- output sample settings
+### Mixed language
 
-Only show controls supported by the selected/auto-routed capability.
+`Auto` can support Japanese/English code switching where the route can handle it. When the target language is known, encourage explicit selection for predictable pronunciation.
 
-### Voice Library
+## 10. Voice Library
 
 Voice cards show:
 
-- user-facing name
-- source type: built-in / clone recipe / trained model / voice design
-- language
-- engine compatibility
+- display name
+- source: built-in / imported model / clone recipe / voice design
+- preferred/supported languages
+- preview
+- default style/profile
 - rights/consent state
 - model/license warning if any
-- preview action
 
-Raw checkpoint paths are never shown as the primary identity.
+Never use a checkpoint path as the primary identity.
 
-## 7. Voice clone flow
+### Voice consistency profile
 
-Voice cloning is explicit, not hidden inside ordinary generation.
+A character profile can store:
 
-Flow:
+- voice identity/recipe
+- preferred routing
+- per-language behavior
+- default style
+- speed range
+- pronunciation dictionary
+- rights/license metadata
 
-1. select/import reference audio through scoped picker/upload
-2. confirm the user has the necessary rights/permission
-3. optionally provide/reference transcript
-4. choose voice name
-5. preview
-6. save logical voice profile
+This keeps hundreds of dialogue lines consistent without repeating advanced settings.
 
-Store consent/rights metadata. Do not imply that software can determine legal ownership automatically.
+## 11. Voice clone flow
 
-## 8. Transcribe UX
+1. choose/import reference through scoped picker/upload;
+2. confirm necessary rights/permission;
+3. optionally provide reference transcript/language;
+4. choose logical voice name;
+5. Preview;
+6. save voice profile.
 
-Simple mode:
+The confirmation is an auditable user statement, not legal certification by the product.
 
-- drop/select audio
-- Japanese selected/recommended automatically
-- `文字起こし` button
-- transcript editor/view
-- timestamp toggle
-- export text/subtitle when supported
+## 12. Transcribe UX
 
-Advanced:
+Easy:
 
-- engine pin
-- Japanese/English mode
-- VAD/segmentation
-- chunking
+- audio
+- language Auto/Japanese/English
+- timestamps toggle
+- Transcribe
+
+Customize:
+
+- quality
 - punctuation/normalization
-- diarization/alignment when installed
+- output: text/subtitle
+- segmentation mode
 
-For live transcription, show microphone state, latency/connection state and stop control clearly.
+Expert:
 
-## 9. Game Audio UX
+- engine/model
+- VAD/chunking thresholds
+- diarization/alignment when available
 
-Use task presets rather than generic prompt-only generation.
+Live transcription clearly shows microphone permission/state, connection, detected language when reliable, latency status and Stop.
 
-Initial categories:
+## 13. Game Audio UX
+
+Task presets:
 
 ```text
 UI
@@ -201,188 +344,320 @@ Loop
 Custom
 ```
 
-Simple inputs:
+Easy:
 
 - description
-- approximate duration
-- number of variations
-- loop yes/no where meaningful
+- type
+- approximate length
+- 2–3 variations default
+- loop yes/no when relevant
 
-Preset output policies may normalize loudness, trim silence and name variations consistently.
+Customize:
 
-### Pack generation
+- variation count
+- intensity/mood tags
+- loudness/export profile
+- loop policy
+
+Expert:
+
+- engine/model/seed
+- model-native prompt/control options
+
+### Sound-pack workflow
+
+Example brief:
+
+```text
+Create matching futuristic Confirm / Cancel / Warning UI sounds.
+```
+
+One durable job can create a variation group with consistent metadata and scoped project export.
+
+## 14. Music UX
+
+Easy:
+
+- description
+- duration
+- BGM/instrumental
+- loop
+- Create
+
+Customize:
+
+- Fast/Recommended/High quality
+- BPM
+- mood/style tags
+- candidate count
+- output profile
+
+Expert:
+
+- model/engine
+- key/time signature when supported
+- sections/lyrics/repaint/extension options only if the capability route supports them
+
+## 15. Preview and candidate comparison
+
+Where useful:
+
+```text
+Preview      low-cost/shorter/faster representation, clearly labeled
+Render Final production request; never overwrites preview
+```
+
+Subjective tasks can return a bounded A/B candidate strip:
+
+```text
+Play | Favorite | Use this | Variations | Details
+```
+
+Default candidate count remains small to control GPU use.
+
+## 16. Localization Studio
+
+Purpose: produce consistent Japanese/English dialogue assets without manually repeating voice/settings for every line.
+
+Table columns:
+
+```text
+Line ID
+Character
+Japanese
+English
+Voice/Profile
+Style/Context
+Status
+JP asset
+EN asset
+QA
+```
+
+Workflow:
+
+```text
+import CSV/JSON or edit rows
+ -> assign voices by character
+ -> preview representative rows
+ -> batch render JP/EN as durable jobs
+ -> optional round-trip QA
+ -> filter flagged rows
+ -> export using a Project Profile
+```
+
+Project Profile can store:
+
+- `{line_id}_{locale}.wav` naming
+- `ja/` and `en/` directory convention
+- sample rate/channels
+- loudness target
+- preferred quality
+- character -> voice mapping
+- pronunciation dictionary
+
+Do not hard-code a specific game engine's absolute path into the core contract.
+
+## 17. Automatic QA
+
+### Deterministic
+
+- decode validity
+- duration
+- clipping/peak/loudness
+- silence bounds
+- sample/container consistency
+- loop points/seam metric
+
+### Speech heuristic
+
+Optional:
+
+```text
+TTS -> ASR -> normalized text comparison
+```
+
+This can flag omitted/repeated/severely mismatched speech, but does not prove naturalness or correct emotion.
+
+Anything not actually checked is `not_checked`.
+
+## 18. Asset Library
+
+Supports:
+
+- generated/imported audio
+- waveform preview
+- language
+- duration/format
+- tags
+- generation task/profile
+- voice/project association
+- provenance/license
+- variation groups
+- localization line linkage
+- export/download
+- regenerate/variation actions
+
+Destructive deletion requires confirmation when referenced by lineage/voice/localization records.
+
+## 19. Runtime screen
+
+Default capability-oriented view:
+
+```text
+Speech Essentials    Ready
+Game Audio           Not installed   [Set up]
+Music                Optional        [Set up]
+```
+
+Expanded details can show:
+
+```text
+Japanese TTS         Available
+English TTS          Available
+Japanese ASR         Available
+English ASR          Available/Degraded
+```
+
+Expert/Diagnostics reveals engine/runtime/model details.
+
+Actions:
+
+- setup optional pack
+- update
+- repair
+- disable worker pack
+- remove after impact/size preview
+- doctor
+
+Never present package-manager internals as the normal UI.
+
+## 20. State vocabulary
+
+User states stay small and distinct:
+
+```text
+Available / 利用可能
+Preparing / 準備中
+Waiting / 待機中
+Partially available / 一部利用不可
+Setup required / セットアップが必要
+Unavailable / 利用不可
+Failed / 失敗
+```
+
+Catalog/install/runtime terms must not be collapsed:
+
+```text
+Listed in catalog
+Installed on this device
+Available for routing
+Loaded in memory
+Running now
+Recommended / Experimental
+```
+
+Every unavailable state answers what, why, and next action.
+
+## 21. Resource wait UX
 
 Example:
 
 ```text
-"近未来UIの決定/キャンセル/警告を同じ世界観で"
-```
-
-SonicForge creates a variation group with coherent metadata and can package it into project-relative directories only via Host output grant.
-
-## 10. Music UX
-
-Simple mode:
-
-- description
-- instrumental/BGM toggle
-- duration
-- loop toggle
-- quality
-
-Useful optional controls:
-
-- BPM
-- mood/style tags
-
-Advanced engine-specific capabilities such as key, sections, lyrics, cover/repaint or stems appear only when capability metadata says they are supported.
-
-## 11. Asset Library
-
-Library supports:
-
-- generated/imported audio
-- waveform preview
-- duration/format
-- tags
-- generation task/profile
-- voice association
-- project association (logical)
-- provenance/license info
-- variation groups
-- export/download
-- regenerate/variation actions
-
-Destructive deletion requires confirmation when the asset is referenced by another SonicForge asset/voice/provenance record.
-
-## 12. Runtime & Settings
-
-Default screen is capability-oriented:
-
-```text
-日本語音声合成       利用可能
-日本語文字起こし     利用可能
-効果音生成           未導入      [導入]
-音楽生成             更新あり    [更新]
-```
-
-Advanced section reveals engine/runtime details.
-
-Actions:
-
-- install recommended
-- install optional component
-- update
-- repair
-- disable worker pack
-- remove model/runtime after impact/size preview
-- doctor
-
-Never present a wall of pip packages as the normal settings UI.
-
-## 13. State language
-
-User-facing states are intentionally small:
-
-```text
-利用可能
-準備中
-待機中
-一部利用不可
-セットアップが必要
-停止中/利用不可
-失敗
-```
-
-Internal detailed states remain in diagnostics.
-
-Every non-available state should answer:
-
-1. what is happening?
-2. why?
-3. what can the user do?
-
-## 14. Resource wait UX
-
-When waiting for GPU:
-
-```text
-GPUを待っています
+GPUを待っています / Waiting for GPU
 別のAI処理がGPUを使用中です。順番が来ると自動で開始します。
+Another AI task is using the GPU. This will start automatically when resources are available.
 ```
 
-Show queue/wait information only when Host provides reliable data. Never fake countdown times.
+Never fake time remaining. Show queue information only when reliable.
 
 Actions:
 
-- cancel
-- lower-quality/faster alternative when routing can safely offer one
+- Cancel
+- use a faster/lower-resource alternative only when routing can genuinely offer one
 
-## 15. ControlDeck Jobs integration
+Queued cancellation should settle immediately if nothing has started and there is no work to unwind; running cancellation is handled by the owning worker/job.
 
-Each durable operation deep-links to SonicForge detail.
+## 22. Durable progress and reconnection
+
+Expensive preparation belongs in the server-owned job, not browser memory.
+
+On boot/visibility return:
+
+- inspect active job state
+- replace dead WebSocket/session connections
+- reconnect with bounded backoff
+- restore progress/result display
+- avoid polling while push is healthy
+
+Closing/reopening a mobile browser must not create a permanently blank Studio or lose a generation that is still running.
+
+## 23. ControlDeck Jobs
 
 Examples:
 
 ```text
-Japanese TTS — Character A
+Speech — Character A — Japanese
+Speech — Character A — English
 Transcribe — meeting.wav
+Localize dialogue — 48 lines
 Generate SFX pack — Futuristic UI
 Generate BGM — Cyberpunk Exploration
-Install SonicForge recommended environment
+Set up Speech Essentials
 ```
 
-Host Job status is the canonical global progress surface; SonicForge may show richer local detail.
+ControlDeck Job is the canonical global status; SonicForge provides richer detail/deep links.
 
-## 16. Project integration
+## 24. Project integration
 
-From Project Lab/context actions, users/agents can:
+From Project Lab/context actions users/agents can:
 
 - transcribe selected audio
-- open audio in SonicForge
-- generate audio for current project
-- place a SonicForge asset into an authorized output directory
+- open in SonicForge
+- generate/replace audio for current project
+- export a chosen asset or localization pack
 
-The UI can display project-relative destination labels supplied/derived by the Host without learning the absolute host path.
+Host supplies opaque grants/logical destination information; SonicForge never learns raw project paths.
 
-## 17. Workflow/agent UX
+## 25. Workflow/agent UX
 
-Workflow and agent users should see task-level names, not model names.
+Show task-level names:
 
-Good:
+```text
+Synthesize Speech
+Transcribe Audio
+Generate Audio
+Generate Music
+```
 
-- Generate Speech
-- Transcribe Audio
-- Generate Sound/Music
+Keep the stable executor set small. Model pinning belongs to optional fields/Expert policy.
 
-Advanced model pinning belongs to optional node/tool fields.
+Unavailable saved nodes remain visible with an actionable reason; do not delete them.
 
-Unavailable saved workflow nodes remain visible with a clear "SonicForge capability unavailable" reason; they are not deleted.
+## 26. Theme and iframe rules
 
-## 18. Theme and iframe rules
+- wait for Host theme/locale/safe-area handshake where needed
+- react without reload
+- no Host cookie assumptions
+- no shared-origin localStorage dependency
+- important state is server-side
+- route synchronization through Host bridge
+- prompt disable/drain handling
 
-SonicForge embedded UI follows ControlDeck's isolated view contract:
+## 27. Accessibility and mobile
 
-- wait for theme/token handshake before final paint where needed
-- react to theme/locale/safe-area changes
-- do not use Host cookies
-- do not depend on shared-origin localStorage/sessionStorage
-- persist important state server-side
-- synchronize internal route with Host bridge where supported
-- handle disable/drain notification promptly
-
-## 19. Accessibility/basic media behavior
-
-- keyboard-accessible primary actions
+- keyboard-accessible actions
 - visible focus
-- controls labelled in Japanese UI
-- playback does not autoplay unexpectedly
-- volume/play buttons are explicit
-- long waveforms do not block basic navigation
-- status is not communicated by color alone
+- localized accessible labels
+- status not color-only
+- playback never unexpectedly autoplays
+- explicit play/stop/volume controls
+- labels avoid wrapping into unusable vertical text at supported mobile widths
+- compact visual abbreviations preserve `aria-label`/title meaning
+- one dominant primary action per task view
 
-## 20. Default Japanese copy policy
+## 28. Copy policy
 
-User-facing primary language is Japanese, with English localization keys available from the start.
+Japanese and English are equal product UI locales.
 
-Model/vendor jargon should be confined to Advanced/Diagnostics unless required for license/terms attribution.
+Model/vendor jargon stays in Expert/Diagnostics unless required for license/source attribution.

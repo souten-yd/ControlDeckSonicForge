@@ -12,6 +12,13 @@ def test_health_and_capabilities(env):
         h=c.get('/health').json(); assert h['contract_version']=='2.0'; assert h['status']=='healthy'
         caps=c.get('/addon/v1/capabilities').json(); ids={x['id'] for x in caps['capabilities']}; assert 'speech.tts.synthesize' in ids; assert 'music.generate' in ids
 
+def test_embedded_frontend_routes(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        root=c.get('/'); assert root.status_code==200 and 'localization.js' in root.text
+        settings=c.get('/settings/'); assert settings.status_code==200 and '<base href="../">' in settings.text and 'data-view="runtime"' in settings.text
+        localization=c.get('/localization.js'); assert localization.status_code==200 and 'renderLocalizationBatch' in localization.text
+
 def test_fake_generation_persists_asset(env):
     m=load_app()
     with TestClient(m.app) as c:

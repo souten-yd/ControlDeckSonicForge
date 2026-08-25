@@ -5,371 +5,414 @@ Date: 2026-08-25
 
 ## 1. Objective
 
-SonicForge combines a privileged Host integration boundary, third-party ML engines, large runtime downloads, audio processing and GPU resource management. Development must therefore be incremental, contract-first and evidence-driven.
+SonicForge combines signed feature distribution, privileged Host integration, third-party ML engines, large runtime/model downloads, bilingual speech, audio processing and GPU scheduling. Development must be incremental, contract-first and evidence-driven.
 
 ## 2. Source-of-truth order
 
-Before changing code, read:
+Before changing code read:
 
 1. `AGENTS.md`
 2. `docs/00-master-spec.md`
 3. `docs/01-boundaries-and-contracts.md`
-4. the relevant feature document
-5. current `docs/implementation-status.md`
-6. the current ControlDeck Add-on host contract files
+4. relevant domain document
+5. `docs/13-release-distribution-and-signing.md` for release work
+6. `docs/14-bilingual-ux-and-critical-review.md` for UI/product work
+7. `docs/implementation-status.md`
+8. current generic ControlDeck host/release-bundle contract
 
-If implementation pressure suggests breaking a design rule, update/review the design first. Do not encode a new architecture accidentally in code.
+Do not let an engine's API, a temporary Host limitation or a convenient shell command silently redefine the architecture.
 
 ## 3. Repository boundaries
 
 A SonicForge PR modifies SonicForge only.
 
-A ControlDeck host change:
+A ControlDeck change:
 
-- is a separate ControlDeck branch/PR;
-- is generic, not Sonic-specific;
-- includes host-level tests and documentation;
-- states why SonicForge cannot solve the requirement within the current contract.
+- separate branch/PR;
+- generic, not Sonic-specific;
+- documented version/threat/backward-compatibility behavior;
+- Host tests/evidence;
+- explicit explanation why the current generic contract cannot satisfy the requirement.
 
 A MediaForge change is never bundled as convenience refactoring for SonicForge.
 
-## 4. Branch and PR convention
+## 4. PR/commit discipline
 
-Recommended branch naming:
-
-```text
-sf0/<slug>
-sf1/<slug>
-sf2/<slug>
-...
-```
-
-One PR should contain one reviewable slice with one main risk profile.
-
-Good examples:
+Recommended branches:
 
 ```text
 sf0/core-health
+sf0/release-signing
 sf0/setup-state
-sf1/addon-manifest
-sf2/qwen-tts-worker
-sf3/kotoba-asr-worker
+sf1/bilingual-studio
+sf2/qwen-tts
+sf3/asr-routing
 ```
 
-Avoid a single PR that simultaneously changes public schemas, setup, two engines and the frontend.
+One PR = one reviewable slice/risk profile.
 
-## 5. Commit rules
+- no generated models/venvs/assets in Git;
+- lock/fingerprint/release metadata may be committed where required for reproducibility;
+- tests accompany behavior;
+- docs accompany public contract/decision changes;
+- commit/PR text does not claim evidence that was not executed.
 
-- concise functional commits
-- generated model files/venvs/assets are never committed
-- lock/fingerprint metadata may be committed when it is part of reproducible runtime definition
-- tests accompany behavior changes
-- documentation accompanies public contract changes
-- do not claim runtime evidence in a commit message if it was not executed
+## 5. Contract-first feature sequence
 
-## 6. Contract-first sequence
+For public behavior:
 
-For a new public feature:
-
-1. define/update capability name;
-2. define JSON schema;
-3. write validation/contract tests;
-4. implement fake adapter path;
-5. implement core orchestration;
-6. implement real worker adapter;
-7. integrate UI;
-8. execute real E2E;
+1. define capability/task/language semantics;
+2. define/update JSON schema;
+3. write validation/backward-compat tests;
+4. fake adapter/worker path;
+5. durable core orchestration;
+6. real worker adapter;
+7. Easy/Customize/Expert UI exposure;
+8. real E2E/failure/cancel/reconnect tests;
 9. record evidence.
 
-This prevents third-party engine APIs from becoming SonicForge's public API by accident.
+Do not surface engine-native fields as required stable API just because they exist upstream.
 
-## 7. Test pyramid
+## 6. Release signing gate
 
-### 7.1 Unit tests
+Before any release can be called trusted-installable:
+
+### Build/sign
+
+- bundle identity/version consistent across release tag, feature manifest, Add-on manifest and package version;
+- canonical release manifest generated;
+- Ed25519 publisher signature generated only in authorized release context;
+- private key absent from repository/runtime/ordinary CI artifacts/logs;
+- self-verification succeeds;
+- artifact SHA-256 and size in the signed manifest match published bytes.
+
+### Verifier negative cases
+
+Test at least:
+
+```text
+valid signature succeeds
+manifest one-byte tamper fails
+artifact one-byte tamper fails
+wrong feature id fails
+wrong version fails
+wrong platform/architecture fails
+wrong artifact name/size fails
+wrong publisher key fails
+malformed signature fails
+valid old release downgrade fails when Host policy forbids it
+validly signed capability escalation still fails
+provision/health failure preserves previous current version
+```
+
+Use disposable test keys, never the publisher private key.
+
+### Host compatibility
+
+Before SF1 fresh-install E2E, verify the target ControlDeck uses the generic publisher-signature Release Bundle Feature verifier. If not, record `HOST-GATE-001` and land generic Host support separately. Do not permanently revert SonicForge to per-release SHA catalog pins.
+
+## 7. Unit/schema/fake integration gates
+
+### Unit
 
 Cover:
 
-- request validation
-- routing decisions
+- request/language validation
+- routing by language/task/profile
+- setup state/profile reconciliation
 - resource estimates
-- setup state transitions
 - path containment
-- provenance construction
-- audio metadata validation
-- error normalization
-- config migration
+- provenance/lineage
+- QA state honesty (`not_checked`)
+- audio metadata/output validation
+- locale/error normalization
+- config/database migrations
 
-### 7.2 Schema/contract tests
+### Contract/schema
 
 Validate:
 
-- `addon.json` against current ControlDeck host parser
-- public JSON schemas Draft 2020-12 where Host requires it
-- all contribution IDs and endpoints
-- capability document shape
-- worker protocol version compatibility
-- backwards-compatible schema fixtures after contract freeze
+- `addon.json` with current Host parser;
+- contribution IDs/permissions/endpoints;
+- public JSON Schema as required by Host;
+- `auto|ja|en` language contract;
+- capability document shape;
+- setup checklist `core/speech-essentials/game-audio/music`;
+- four workflow executors/five initial agent tools;
+- frozen-contract old fixtures after SF1.
 
-### 7.3 Fake worker integration tests
+### Fake worker
 
-A deterministic fake audio worker should support:
+Deterministic fake worker supports:
 
-- configurable latency
-- generated tiny valid WAV
-- progress
-- cancellation
-- forced crash/failure
-- resource estimate variants
-- load/unload states
+- Japanese/English/mixed metadata;
+- tiny valid WAV;
+- configurable latency/progress;
+- queued and running cancel;
+- failure/crash;
+- resource estimates;
+- load/unload/reconnect lifecycle.
 
-This lets core/job/setup/UI behavior be tested without multi-GB models.
+## 8. Real speech engine gates
 
-### 7.4 Real engine tests
+Every promoted speech route requires target-hardware evidence.
 
-Each promoted engine requires a real target-hardware run.
+TTS measure:
 
-Measure at least:
+- clean install;
+- cold start/model load;
+- first/warm generation latency;
+- RAM/VRAM;
+- cancellation/recovery;
+- valid output/provenance;
+- human listening notes.
 
-- cold worker startup
-- model load time
-- warm inference latency / real-time factor as relevant
-- peak host RAM
-- peak VRAM when GPU-backed
-- output duration/format
-- cancellation latency
-- recovery after worker termination
+ASR measure:
 
-### 7.5 ControlDeck integration tests
+- CER/WER or appropriate metric on redistributable fixtures;
+- real-time factor;
+- timestamps/segmentation;
+- RAM/VRAM/startup;
+- cancellation/recovery.
 
-With actual ControlDeck or a contract-faithful harness, verify:
-
-- install/enable/effective contribution
-- opaque embedded view
-- token introspection
-- Host Job attach/update
-- Resource request -> lease -> activate -> renew/release
-- disable while waiting/running
-- file input grant
-- output staging/commit
-- workflow invocation
-- agent tool invocation
-
-### 7.6 Browser E2E
-
-Use a real browser for:
-
-- first-use setup_required
-- setup button/progress/reload persistence
-- dark/light theme
-- mobile companion layout
-- task generation flow
-- unavailable/degraded messaging
-- project export
-- disable/re-enable recovery
-
-## 8. Clean-install gate
-
-Environment/setup code is not complete until exercised from a clean SonicForge state.
-
-At least once per release candidate:
+Run language-specific fixtures:
 
 ```text
-no .venv
-no SonicForge runtime packs
-empty SonicForge data_dir except config
-empty or known-cache state
+Japanese
+English
+representative Japanese/English mixed content
 ```
 
-Run the documented setup path and record what was downloaded/built and the final capability state.
+Do not mark a route globally recommended when only one language was tested. Promotion is capability/language specific.
 
-Tests on a developer machine with a preexisting working venv do not satisfy this gate.
+## 9. Bilingual/localization gate
 
-## 9. Japanese speech quality gate
+Before Localization Studio is production-ready verify:
 
-TTS/ASR changes must run the versioned Japanese benchmark fixtures described in `04-engine-model-strategy.md`.
+- UI works in Japanese and English;
+- `ui_locale` is independent from `content_language`;
+- JP/EN paired lines preserve stable `line_id`;
+- voice mappings persist by character/profile;
+- partial retry regenerates only failed/changed lines;
+- project naming/locale directories are deterministic;
+- pronunciation dictionary applies as intended;
+- export uses scoped grants, no raw project path;
+- reconnect/restart preserves batch state.
 
-TTS evidence should include listening-review notes for representative files; an automated waveform check cannot prove naturalness.
+Optional TTS->ASR round-trip QA must be validated as a **flagging heuristic**, not naturalness proof. Choose thresholds only after real bilingual fixtures; untested semantic requirements remain `not_checked`.
 
-ASR evidence should include CER/WER or another appropriate error metric on redistributable test data when feasible, plus real-time factor.
+## 10. ControlDeck integration gate
 
-Never select a default engine based solely on upstream benchmark claims.
+With real ControlDeck or contract-faithful harness verify:
 
-## 10. Audio-generation quality gate
+- trusted feature install/update/rollback where signature support is available;
+- Add-on install/enable/effective lifecycle;
+- opaque embedded view;
+- theme/locale/safe-area bridge;
+- service token/introspection as required;
+- Host Job attach/update;
+- Resource request -> wait -> lease -> activate -> renew/release;
+- generic AI release path when used;
+- disable while waiting/running;
+- input grant/output commit;
+- workflow and agent invocation;
+- optional missing SFX/Music does not incorrectly make Speech Essentials unavailable.
 
-For SFX/music candidate promotion, use a repeatable prompt suite.
+## 11. Browser E2E gate
 
-Track:
+Real browser checks include applicable cases:
 
-- prompt adherence review
-- usable-result rate
-- duration behavior
-- loop suitability where requested
-- clipping/invalid outputs
-- generation latency
-- resource footprint
+- Japanese UI;
+- English UI;
+- dark/light;
+- desktop and mobile widths;
+- Easy/Customize/Expert disclosure;
+- no duplicate/stranded navigation paths;
+- setup progress and contextual optional-pack install;
+- dead WebSocket/network drop then reconnect;
+- background/visibility return;
+- active Job progress reattach;
+- queued cancel immediate settlement;
+- running cancel;
+- capability unavailable/remediation copy;
+- project export;
+- no horizontal overflow / unusable wrapped action labels;
+- no page/console errors.
 
-Human evaluation is acceptable but record criteria and sample identifiers.
+## 12. Clean setup gates
 
-## 11. Resource safety gate
+At least once per release candidate, test from clean SonicForge state rather than a developer's already-working environment.
+
+### Lightweight signed feature
+
+- no previous SonicForge feature version where the scenario requires fresh install;
+- bundle download/verify/extract/provision/health/activate.
+
+### Speech Essentials
+
+```text
+no SonicForge ML runtimes
+empty/controlled model cache state
+known data/config state
+```
+
+Record downloads, disk use, build duration and final Japanese/English capability state.
+
+### Optional packs
+
+Game Audio and Music are tested independently. Installing/removing them must not break Speech Essentials.
+
+Setup safety cases:
+
+- idempotent second run;
+- network/process interruption;
+- insufficient disk;
+- missing system prerequisite;
+- gated terms;
+- invalid staged runtime;
+- cancel;
+- repair;
+- rollback.
+
+`doctor` remains read-only.
+
+## 13. Audio/SFX/music quality gate
+
+Use repeatable prompt/task suites and record:
+
+- usable result rate;
+- prompt adherence review;
+- duration behavior;
+- clipping/invalid/silent output;
+- loop suitability/seam where relevant;
+- generation latency/resource footprint;
+- Japanese/English prompt behavior where user-facing prompts support both languages.
+
+Human evaluation criteria/sample IDs are recorded. Engine popularity is not evidence.
+
+## 14. Resource safety gate
 
 For every GPU worker:
 
-- resource estimate implemented
-- Host lease obtained before protected GPU work
-- wait path tested
-- cancel while waiting tested
-- cancel while running tested
-- lease release in success/failure/cancel paths tested
-- worker crash does not leak a permanent lease beyond Host fail-safe TTL
-- worker does not retain large VRAM indefinitely outside declared residency/lease policy
+- measured/defensible resource estimate;
+- Host lease before protected GPU work/model load;
+- wait path;
+- cancel while waiting;
+- cancel while running;
+- release on success/failure/cancel;
+- crash cannot leak permanent lease beyond Host fail-safe;
+- large VRAM is not retained outside declared residency/resource policy;
+- interaction with ControlDeck LLM/AI release policy tested when relevant.
 
-## 12. Setup safety gate
+## 15. Security/supply-chain gate
 
-Provisioning tests must cover:
+Before merge for files/process/network/setup/release/model code:
 
-- idempotent second run
-- network interruption
-- process interruption
-- insufficient disk
-- missing system prerequisite
-- gated license/terms
-- invalid staged runtime
-- rollback to prior good runtime
-- cancellation
+- no `shell=True`;
+- no unchecked user executable/path/package URL;
+- no traversal/symlink escape;
+- no secret/token/signing-key logs;
+- no Host cookie forwarding;
+- bounded request/response/archive/log sizes;
+- non-root worker default;
+- runtime/package sources locked/known;
+- third-party model source/revision/digest/license recorded or explicitly unverified;
+- valid release signature does not bypass Host capability allowlist;
+- voice rights/consent preserved.
 
-`doctor` must remain read-only.
+## 16. CI philosophy
 
-## 13. Security gate
+Ordinary PR CI:
 
-Before merge for code touching files/processes/network/models:
+- lightweight core tests;
+- schema/manifest tests;
+- fake workers;
+- setup planner without large downloads;
+- disposable-key signing/verifier tests;
+- ja/en localization key completeness;
+- frontend type/build/E2E subset when relevant;
+- security invariants.
 
-- no `shell=True`
-- no unchecked user executable/path
-- no path traversal/symlink escape
-- no secret/token logging
-- no Host cookie forwarding
-- bounded uploads/responses/logs
-- non-root worker default
-- license metadata known or explicitly marked unverified
+Heavy model/GPU tests use explicit hardware workflows/runners and caching. CI success does not replace target-machine evidence for promotion.
 
-## 14. Static quality
+Release signing key is only available to the authorized release-signing step after normal gates, never pull-request CI.
 
-Target tooling should include:
+## 17. Dependency/runtime updates
 
-- Python formatting/linting
-- type checking suitable for the codebase
-- pytest
-- JSON Schema validation
-- frontend type/lint/build checks when frontend exists
-- dependency/lock consistency checks
+For critical upgrades:
 
-Exact tools may evolve; CI commands are documented in the repository rather than hidden in individual developer environments.
+1. new fingerprint/lock;
+2. stage separately;
+3. smoke + language/task benchmark;
+4. compare quality/resource regressions;
+5. atomically activate;
+6. retain rollback metadata where practical.
 
-## 15. CI philosophy
+Do not mutate the active runtime in place and call it a safe update strategy.
 
-CI should stay practical and deterministic.
+## 18. Database/data migration gate
 
-### Required on ordinary PRs
+- explicit migrations;
+- additive/reversible where practical;
+- assets/provenance/voice/localization records not silently deleted;
+- old fixture DB migration tests after releases exist;
+- public/logical IDs remain stable;
+- migration failure leaves usable prior state.
 
-- lightweight core tests
-- fake worker integration
-- schema/manifest validation
-- setup planner tests without large downloads
-- frontend tests/build when relevant
-- security invariants
+## 19. Documentation discipline
 
-### Separate/optional hardware CI
-
-Heavy model downloads and GPU tests should use dedicated runners/workflows and caching with explicit triggers because they are expensive and backend-specific.
-
-CI success does not replace real target-machine evidence before promoting an engine to recommended.
-
-## 16. Dependency updates
-
-For runtime-critical dependency upgrades:
-
-1. create a new fingerprint/lock;
-2. build in staging;
-3. run engine smoke/benchmark;
-4. compare resource/quality regressions;
-5. activate only after passing;
-6. preserve rollback metadata.
-
-Do not mutate the active venv in place during development and call it an upgrade strategy.
-
-## 17. Database migrations
-
-- Alembic-style explicit migrations for persistent schema changes
-- migrations are additive/reversible where practical
-- assets/provenance are not deleted silently
-- migration tests include an old fixture DB once releases exist
-- public IDs remain stable
-
-## 18. Documentation discipline
-
-Keep synchronized:
+Synchronize:
 
 ```text
-public schema <-> docs/03-audio-capabilities-and-api.md
-setup behavior <-> docs/02-runtime-environment-and-setup.md
-host contract <-> docs/01-boundaries-and-contracts.md
-engine promotion <-> docs/04-engine-model-strategy.md
-actual state <-> docs/implementation-status.md
+Host/release boundary       <-> docs/01 + docs/13
+setup                       <-> docs/02
+public API/language          <-> docs/03
+engine promotion             <-> docs/04
+UX/localization/reconnect    <-> docs/05 + docs/14
+security/signing/provenance  <-> docs/06
+implementation order         <-> docs/09
+actual evidence              <-> docs/implementation-status.md
 ```
 
-Do not edit only an implementation note to change a normative design decision.
+## 20. Evidence format
 
-## 19. Evidence format
-
-For each completed roadmap slice record in `docs/implementation-status.md`:
+Record for each completed slice:
 
 ```text
-Date / commit
-Environment/hardware
-Commands actually executed
-Observed result
-Measured latency/RAM/VRAM/disk where applicable
-Browser/API assertions
-Known limitations
+date / commit
+exact environment/hardware
+commands/actions actually executed
+observed result
+latency/RAM/VRAM/disk/download where relevant
+language/task fixtures used
+browser/API assertions
+known limitations
 NOT TESTED items
 ```
 
-Evidence must distinguish upstream claims from locally measured data.
+Always distinguish upstream claim from local measurement.
 
-## 20. Definition of done
+## 21. Definition of done
 
-A slice is done when:
+A slice is done only when:
 
-- code is merged/reviewable;
+- reviewable code/contracts/docs agree;
 - tests pass;
-- public docs/schema are synchronized;
-- relevant real E2E was executed;
-- failure/cancel path relevant to the slice was tested;
+- relevant real E2E/failure/cancel/reconnect path was executed;
+- release/security gates relevant to the slice pass;
 - evidence is recorded;
-- there is no known boundary violation;
-- untested areas are explicitly marked.
+- untested areas are explicit;
+- no architecture boundary was weakened for convenience.
 
-## 21. Stop conditions
+## 22. Stop conditions
 
-Stop and return to design rather than forcing implementation when:
+Return to design when:
 
-- an engine requires incompatible dependencies in an existing runtime -> create a separate runtime;
-- a worker needs unrestricted Host paths -> redesign around grants;
-- the only solution seems to require importing ControlDeck -> boundary is wrong;
-- a model license cannot be understood -> do not promote it to recommended;
-- target hardware cannot run the engine reliably -> keep experimental/defer;
-- public contract must break after freeze -> write migration/version plan first;
-- one-click setup appears to require arbitrary root shell execution -> design a generic privileged mechanism, do not bypass Host security.
-
-## 22. PR review checklist
-
-- [ ] Does this remain out-of-process from ControlDeck?
-- [ ] Is the public concept capability/task-oriented rather than model-oriented?
-- [ ] Are SonicForge environments independent?
-- [ ] Are Host files represented by grants/assets only?
-- [ ] Does GPU work use the Host broker?
-- [ ] Are setup changes idempotent and rollback-safe?
-- [ ] Are generated assets validated and provenance recorded?
-- [ ] Are license/voice-rights states preserved?
-- [ ] Are unavailable states actionable in the UI?
-- [ ] Were real relevant behaviors actually tested and recorded?
+- a new engine conflicts with a working runtime -> separate runtime;
+- a worker seems to require unrestricted Host paths -> redesign around grants;
+- solution seems to import ControlDeck/MediaForge -> boundary violation;
+- model/release trust/license cannot be established -> do not promote;
+- target hardware is unreliable -> keep experimental/defer;
+- frozen contract would break -> write migration/version plan;
+- setup appears to require arbitrary root shell -> generic Host design, not bypass;
+- current Host lacks signature-aware release verification -> record Host gate and implement generic verifier separately, not per-release SHA churn.

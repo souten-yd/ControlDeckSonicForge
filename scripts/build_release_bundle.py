@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import platform
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 from pathlib import Path
@@ -26,8 +28,17 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _pyinstaller_argv(requested: Path | None) -> list[str]:
+    current_prefix = Path(sys.prefix).resolve()
+    if requested is not None and requested.resolve().parent.parent != current_prefix:
+        raise SystemExit("--pyinstaller must belong to the active SonicForge environment")
+    if importlib.util.find_spec("PyInstaller") is None:
+        raise SystemExit("PyInstaller is missing; install the SonicForge release extra")
+    return [sys.executable, "-m", "PyInstaller"]
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(); parser.add_argument("--version", required=True); parser.add_argument("--output-dir", type=Path, required=True); parser.add_argument("--pyinstaller", type=Path, required=True); args = parser.parse_args()
+    parser = argparse.ArgumentParser(); parser.add_argument("--version", required=True); parser.add_argument("--output-dir", type=Path, required=True); parser.add_argument("--pyinstaller", type=Path); args = parser.parse_args()
     if platform.system() != "Linux" or platform.machine().lower() not in {"x86_64", "amd64"}: raise SystemExit("only linux-x86_64 release bundles are currently supported")
     if VERSION_RE.fullmatch(args.version) is None: raise SystemExit("invalid bundle version")
     addon = json.loads((ROOT / "addon.json").read_text(encoding="utf-8")); package_text = (ROOT / "backend/sonicforge/__init__.py").read_text(encoding="utf-8"); match = re.search(r'__version__ = "([^"]+)"', package_text)
@@ -36,8 +47,8 @@ def main() -> int:
         if not required.is_dir(): raise SystemExit(f"required bundle directory is missing: {required.name}")
     args.output_dir.mkdir(parents=True, exist_ok=True); name = f"control-deck-sonic-forge-{args.version}-linux-x86_64"
     with tempfile.TemporaryDirectory(prefix="sonicforge-bundle-") as temporary:
-        work = Path(temporary); dist = work / "dist"; pyinstaller_python = args.pyinstaller.parent / "python"; pyinstaller_argv = [str(pyinstaller_python), "-m", "PyInstaller"] if pyinstaller_python.is_file() else [str(args.pyinstaller)]
-        command = [*pyinstaller_argv, "--noconfirm", "--clean", "--onefile", "--name", "sonicforge-core", "--paths", str(ROOT / "backend"), "--distpath", str(dist), "--workpath", str(work / "build"), "--specpath", str(work), "--add-data", f"{ROOT / 'frontend'}:frontend", "--add-data", f"{ROOT / 'schemas'}:schemas", "--add-data", f"{ROOT / 'worker_packs'}:worker_packs", "--add-data", f"{ROOT / 'runtimes'}:runtimes", str(ROOT / "scripts/bundle_entrypoint.py")]
+        work = Path(temporary); dist = work / "dist"; pyinstaller_argv = _pyinstaller_argv(args.pyinstaller)
+        command = [*pyinstaller_argv, "--noconfirm", "--clean", "--onefile", "--name", "sonicforge-core", "--paths", str(ROOT / "backend"), "--collect-submodules", "sonicforge", "--distpath", str(dist), "--workpath", str(work / "build"), "--specpath", str(work), "--add-data", f"{ROOT / 'frontend'}:frontend", "--add-data", f"{ROOT / 'schemas'}:schemas", "--add-data", f"{ROOT / 'worker_packs'}:worker_packs", "--add-data", f"{ROOT / 'runtimes'}:runtimes", str(ROOT / "scripts/bundle_entrypoint.py")]
         subprocess.run(command, check=True, cwd=ROOT)
         bundle = work / name; _copy(dist / "sonicforge-core", bundle / "bin/sonicforge-core", 0o755)
         (bundle / "control-deck-addon.json").write_text(json.dumps(addon, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

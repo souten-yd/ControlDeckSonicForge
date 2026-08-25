@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from scripts.sign_release import sign
+from scripts.sign_release import canonical_bytes, sign
 from scripts.verify_release import verify
 
 def test_signed_release_and_tamper(tmp_path):
@@ -15,6 +15,7 @@ def test_signed_release_and_tamper(tmp_path):
     sign(artifact,'sonic-forge','0.1.0',kp)
     pub=base64.b64encode(key.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)).decode()
     mp=Path(str(artifact)+'.manifest.json'); sp=Path(str(artifact)+'.manifest.json.sig')
+    assert mp.read_bytes() == canonical_bytes(json.loads(mp.read_text(encoding='utf-8')))
     assert verify(artifact,mp,sp,pub)['feature_id']=='sonic-forge'
     artifact.write_bytes(b'abd')
     with pytest.raises(ValueError): verify(artifact,mp,sp,pub)

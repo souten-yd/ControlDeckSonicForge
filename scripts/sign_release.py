@@ -22,7 +22,7 @@ def sign(artifact:Path,feature_id:str,version:str,key_path:Path):
     key=serialization.load_pem_private_key(key_path.read_bytes(),password=None)
     if not isinstance(key,Ed25519PrivateKey): raise SystemExit("signing key must be Ed25519")
     message=canonical_bytes(manifest); sig=key.sign(message)
-    mp=artifact.with_name(artifact.name+'.manifest.json'); sp=artifact.with_name(artifact.name+'.manifest.json.sig'); mp.write_bytes(message+b'\n'); sp.write_text(base64.b64encode(sig).decode()+'\n')
+    mp=artifact.with_name(artifact.name+'.manifest.json'); sp=artifact.with_name(artifact.name+'.manifest.json.sig'); mp.write_bytes(message); sp.write_text(base64.b64encode(sig).decode()+'\n')
     Ed25519PublicKey.from_public_bytes(key.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)).verify(sig,message)
     print(json.dumps({"manifest":str(mp),"signature":str(sp),**manifest}))
 def main():

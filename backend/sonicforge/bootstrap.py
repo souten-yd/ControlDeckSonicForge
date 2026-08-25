@@ -10,6 +10,7 @@ from .live_api import create_live_router
 from .local_api import create_local_router
 from .meeting_api import create_meeting_router
 from .pipeline_api import create_pipeline_router
+from .pipeline_extensions import install_pipeline_extensions
 
 
 app = base.app
@@ -33,6 +34,7 @@ def _install_extension_routers() -> None:
     if getattr(app.state, "sonicforge_extension_routers_installed", False):
         return
     install_job_extensions(base.jobs)
+    install_pipeline_extensions()
     app.include_router(create_pipeline_router(base))
     app.include_router(create_delivery_router(base))
     app.include_router(create_device_router(base))

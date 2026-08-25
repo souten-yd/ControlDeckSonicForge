@@ -47,84 +47,80 @@ def _host_headers_present(request: Request) -> bool:
 
 
 async def _host_identity(request: Request) -> HostIdentity | None:
-    if not _host_headers_present(request):
-        return None
-    try:
-        return await host_client.authenticate(request.headers)
-    except HostApiError as exc:
-        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}) from exc
+    if not _host_headers_present(request): return None
+    try: return await host_client.authenticate(request.headers)
+    except HostApiError as exc: raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}) from exc
 
 
 async def _stage_read_grant(identity: HostIdentity, grant_id: str, *, max_bytes: int, suffix: str = ".bin") -> str:
     metadata, content = await read_grant(host_client, identity, grant_id, max_bytes=max_bytes)
-    staging = settings.data_dir / "tmp" / "imports"
-    staging.mkdir(parents=True, exist_ok=True)
-    filename = str(metadata.get("filename") or "")
-    guessed = Path(filename).suffix if filename else ""
-    extension = guessed if guessed and len(guessed) <= 12 else suffix
-    target = staging / f"{uuid.uuid4().hex}{extension}"
-    target.write_bytes(content)
-    return str(target)
+    staging = settings.data_dir / "tmp" / "imports"; staging.mkdir(parents=True, exist_ok=True)
+    filename = str(metadata.get("filename") or ""); guessed = Path(filename).suffix if filename else ""; extension = guessed if guessed and len(guessed) <= 12 else suffix
+    target = staging / f"{uuid.uuid4().hex}{extension}"; target.write_bytes(content); return str(target)
 
 
 async def _prepare_task(request: Request, body: TaskRequest) -> tuple[dict[str, Any], HostedExecution | None]:
-    payload = body.model_dump(mode="json")
-    identity = await _host_identity(request)
-    hosted: HostedExecution | None = None
+    payload = body.model_dump(mode="json"); identity = await _host_identity(request); hosted: HostedExecution | None = None
     if identity is not None:
-        if "jobs.write" not in identity.granted_capabilities:
-            raise HTTPException(status_code=403, detail={"code": "capability_not_granted", "message": "jobs.write is required"})
-        created = await host_client.create_or_attach_job(identity, title=f"SonicForge: {body.task}")
-        host_job = created.get("job") if isinstance(created, dict) else None
-        host_job_id = host_job.get("id") if isinstance(host_job, dict) else None
-        if not isinstance(host_job_id, str) or not host_job_id:
-            raise HTTPException(status_code=502, detail={"code": "invalid_host_response", "message": "ControlDeck did not return a Host Job"})
-        hosted = HostedExecution(identity=identity, host_job_id=host_job_id)
-        inp = payload.setdefault("input", {})
+        if "jobs.write" not in identity.granted_capabilities: raise HTTPException(status_code=403, detail={"code": "capability_not_granted", "message": "jobs.write is required"})
+        created = await host_client.create_or_attach_job(identity, title=f"SonicForge: {body.task}"); host_job = created.get("job") if isinstance(created, dict) else None; host_job_id = host_job.get("id") if isinstance(host_job, dict) else None
+        if not isinstance(host_job_id, str) or not host_job_id: raise HTTPException(status_code=502, detail={"code": "invalid_host_response", "message": "ControlDeck did not return a Host Job"})
+        hosted = HostedExecution(identity=identity, host_job_id=host_job_id); inp = payload.setdefault("input", {})
         if body.task == "speech.asr.transcribe":
             grant_id = inp.get("audio_grant") or inp.get("grant_id")
-            if grant_id:
-                inp["_internal_staged_input"] = await _stage_read_grant(identity, str(grant_id), max_bytes=1024 * 1024 * 1024, suffix=".wav")
+            if grant_id: inp["_internal_staged_input"] = await _stage_read_grant(identity, str(grant_id), max_bytes=1024 * 1024 * 1024, suffix=".wav")
         reference_grant = inp.get("reference_grant")
-        if reference_grant:
-            inp["_internal_reference_audio"] = await _stage_read_grant(identity, str(reference_grant), max_bytes=256 * 1024 * 1024, suffix=".wav")
+        if reference_grant: inp["_internal_reference_audio"] = await _stage_read_grant(identity, str(reference_grant), max_bytes=256 * 1024 * 1024, suffix=".wav")
     return payload, hosted
 
 
-async def _run_setup_job(job_id: str, body: SetupApplyRequest) -> None:
+def _health_item(component: dict[str, Any]) -> dict[str, Any]:
+    state = str(component.get("state") or "missing")
+    mapped = "ok" if state == "available" else "checking" if state == "installing" else "error" if state == "error" else "missing"
+    labels = {"core": "SonicForge core", "speech-essentials": "Speech Essentials", "game-audio": "Game Audio", "music": "Music"}
+    detail = component.get("detail") or None
+    return {"id": str(component["id"]), "label": labels.get(str(component["id"]), str(component["id"])), "state": mapped, "detail": str(detail)[:300] if detail else None}
+
+
+async def _run_setup_job(job_id: str, body: SetupApplyRequest, hosted: HostedExecution | None) -> None:
+    if hosted is not None: jobs.hosted[job_id] = hosted
     async def progress(value: float, message: str) -> None:
-        with session_factory() as session:
-            row = session.get(Job, job_id)
-            if row is None:
-                return
-            row.state = "running"; row.progress = min(max(value, 0.0), 0.99); row.result = {"message": message, "profile": body.profile}; session.commit()
-        await events.publish({"type": "setup", "job_id": job_id, "state": "running", "progress": value})
+        if hosted is not None:
+            control = await host_client.job_control(hosted.identity, hosted.host_job_id)
+            if control.get("cancel_requested") or control.get("status") == "canceled": raise asyncio.CancelledError
+        await jobs._set(job_id, state="running", progress=min(max(value, 0.0), 0.99), result={"message": message, "profile": body.profile})
     try:
-        with session_factory() as session:
-            result = await setup_service.apply(settings, session, body.profile, body.components or None, progress=progress)
-        with session_factory() as session:
-            row = session.get(Job, job_id)
-            if row: row.state = "succeeded"; row.progress = 1.0; row.result = result; session.commit()
+        with session_factory() as session: result = await setup_service.apply(settings, session, body.profile, body.components or None, progress=progress, accepted_terms=body.accepted_terms)
+        await jobs._set(job_id, state="succeeded", progress=1.0, result=result)
         await events.publish({"type": "setup", "job_id": job_id, "state": "succeeded", "progress": 1.0})
     except asyncio.CancelledError:
-        with session_factory() as session:
-            row = session.get(Job, job_id)
-            if row: row.state = "canceled"; row.error_code = "canceled"; row.error_message = "Setup canceled"; session.commit()
-        await events.publish({"type": "setup", "job_id": job_id, "state": "canceled"}); raise
+        await jobs._set(job_id, state="canceled", progress=1.0, error_code="canceled", error_message="Setup canceled")
+        await events.publish({"type": "setup", "job_id": job_id, "state": "canceled"})
     except Exception as exc:
-        with session_factory() as session:
-            row = session.get(Job, job_id)
-            if row: row.state = "failed"; row.error_code = "setup_failed"; row.error_message = str(exc)[:500]; session.commit()
+        await jobs._set(job_id, state="failed", progress=1.0, error_code="setup_failed", error_message=str(exc)[:500])
         await events.publish({"type": "setup", "job_id": job_id, "state": "failed"})
     finally:
-        setup_tasks.pop(job_id, None)
+        setup_tasks.pop(job_id, None); jobs.hosted.pop(job_id, None)
+
+
+async def _start_setup(body: SetupApplyRequest, request: Request) -> dict[str, Any]:
+    identity = await _host_identity(request); hosted: HostedExecution | None = None
+    if identity is not None:
+        if "jobs.write" not in identity.granted_capabilities: raise HTTPException(status_code=403, detail={"code": "capability_not_granted", "message": "jobs.write is required"})
+        created = await host_client.create_or_attach_job(identity, title=f"SonicForge setup: {body.profile}"); host_job_id = (created.get("job") or {}).get("id")
+        if not isinstance(host_job_id, str) or not host_job_id: raise HTTPException(status_code=502, detail="ControlDeck did not return a Host Job")
+        hosted = HostedExecution(identity=identity, host_job_id=host_job_id)
+    job_id = f"job:{uuid.uuid4()}"
+    with session_factory() as session:
+        row = Job(id=job_id, task="system.setup", state="queued", progress=0.0, request={"profile": body.profile, "components": body.components, "accepted_terms": body.accepted_terms}); session.add(row); session.commit()
+    task = asyncio.create_task(_run_setup_job(job_id, body, hosted), name=f"sonicforge-setup-{job_id}"); setup_tasks[job_id] = task
+    return {"setup_id": job_id, "job_id": job_id, "state": "queued", "host_job_id": hosted.host_job_id if hosted else None}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     with session_factory() as session:
-        for row in session.query(Job).filter(Job.state.in_(["queued", "running"])).all():
-            row.state = "failed"; row.error_code = "service_restarted"; row.error_message = "Service restarted before the job completed"
+        for row in session.query(Job).filter(Job.state.in_(["queued", "running"])).all(): row.state = "failed"; row.error_code = "service_restarted"; row.error_message = "Service restarted before the job completed"
         session.commit()
     yield
     for task in list(setup_tasks.values()): task.cancel()
@@ -140,7 +136,9 @@ app = FastAPI(title="SonicForge", version="0.1.0", lifespan=lifespan)
 async def health():
     with session_factory() as session: setup = setup_service.status(session)
     ready = setup["state"] == "available" or settings.enable_fake_worker
-    return {"status": "healthy" if ready else "setup_required", "contract_version": "2.0", "reason_code": None if ready else "setup_incomplete", "message": None if ready else "Speech Essentials is not installed", "setup": setup["components"]}
+    response: dict[str, Any] = {"status": "healthy" if ready else "setup_required", "contract_version": "2.0", "setup": [_health_item(item) for item in setup["components"]]}
+    if not ready: response.update({"reason_code": "setup_incomplete", "message": "Speech Essentials is not installed", "action": {"kind": "open_route", "route": "/x/sonic-forge/workspace"}})
+    return response
 
 
 @app.get("/addon/v1/capabilities")
@@ -154,17 +152,11 @@ async def setup_status():
 
 
 @app.get("/addon/v1/setup/plan")
-async def setup_plan(profile: str = "speech-essentials"):
-    return setup_service.plan(settings, profile)
+async def setup_plan(profile: str = "speech-essentials"): return setup_service.plan(settings, profile)
 
 
 @app.post("/addon/v1/setup/apply")
-async def setup_apply(body: SetupApplyRequest):
-    job_id = f"job:{uuid.uuid4()}"
-    with session_factory() as session:
-        row = Job(id=job_id, task="system.setup", state="queued", progress=0.0, request={"profile": body.profile, "components": body.components, "accepted_terms": body.accepted_terms}); session.add(row); session.commit()
-    task = asyncio.create_task(_run_setup_job(job_id, body), name=f"sonicforge-setup-{job_id}"); setup_tasks[job_id] = task
-    return {"setup_id": job_id, "job_id": job_id, "state": "queued"}
+async def setup_apply(body: SetupApplyRequest, request: Request): return await _start_setup(body, request)
 
 
 @app.post("/addon/v1/setup/cancel/{job_id:path}")
@@ -175,11 +167,9 @@ async def setup_cancel(job_id: str):
 
 
 @app.post("/addon/v1/setup/repair")
-async def setup_repair(body: SetupApplyRequest): return await setup_apply(body)
-
-
+async def setup_repair(body: SetupApplyRequest, request: Request): return await _start_setup(body, request)
 @app.post("/addon/v1/setup/update")
-async def setup_update(body: SetupApplyRequest): return await setup_apply(body)
+async def setup_update(body: SetupApplyRequest, request: Request): return await _start_setup(body, request)
 
 
 @app.post("/addon/v1/tasks")
@@ -254,8 +244,7 @@ async def create_voice(body: VoiceCreate, request: Request):
         grant_id = recipe.pop("reference_grant", None)
         if grant_id:
             if identity is None: raise HTTPException(status_code=401, detail="ControlDeck grant requires Host authentication")
-            staged = await _stage_read_grant(identity, str(grant_id), max_bytes=256 * 1024 * 1024, suffix=".wav")
-            voices_dir = settings.data_dir / "voices"; voices_dir.mkdir(parents=True, exist_ok=True); target = voices_dir / f"{uuid.uuid4().hex}{Path(staged).suffix or '.wav'}"; Path(staged).replace(target); recipe["reference_audio"] = str(target.relative_to(settings.data_dir))
+            staged = await _stage_read_grant(identity, str(grant_id), max_bytes=256 * 1024 * 1024, suffix=".wav"); voices_dir = settings.data_dir / "voices"; voices_dir.mkdir(parents=True, exist_ok=True); target = voices_dir / f"{uuid.uuid4().hex}{Path(staged).suffix or '.wav'}"; Path(staged).replace(target); recipe["reference_audio"] = str(target.relative_to(settings.data_dir))
     row = Voice(id=f"voice:{uuid.uuid4()}", name=body.name, source_type=body.source_type, languages=body.languages, engine_id=body.engine_id, recipe=recipe, rights_confirmed=body.rights_confirmed)
     with session_factory() as session: session.add(row); session.commit(); session.refresh(row)
     return _voice_dict(row)
@@ -307,8 +296,8 @@ def _workflow_body(task: str, value: dict[str, Any]) -> TaskRequest:
     body = dict(value); body["task"] = task; body.setdefault("input", {}); body.setdefault("profile", "default"); body.setdefault("quality", "balanced"); body.setdefault("content_language", "auto"); body.setdefault("output", {"format": "wav", "sample_rate": None, "channels": None}); body.setdefault("routing", {"engine": None, "model": None, "device": "auto"}); body.setdefault("seed", None); body.setdefault("project_output_grant", None); return TaskRequest.model_validate(body)
 
 
-async def _workflow_submit(task: str, request: Request) -> dict[str, Any]:
-    value = await request.json(); body = _workflow_body(task, value if isinstance(value, dict) else {}); payload, hosted = await _prepare_task(request, body); job = jobs.create(payload, hosted=hosted); return {"job_id": job.id, "host_job_id": hosted.host_job_id if hosted else None}
+async def _workflow_submit(task: str, request: Request, value: dict[str, Any] | None = None) -> dict[str, Any]:
+    raw = value if value is not None else await request.json(); body = _workflow_body(task, raw if isinstance(raw, dict) else {}); payload, hosted = await _prepare_task(request, body); job = jobs.create(payload, hosted=hosted); return {"job_id": job.id, "host_job_id": hosted.host_job_id if hosted else None}
 
 
 @app.post("/addon/v1/workflow/speech/synthesize")
@@ -325,7 +314,7 @@ async def agent_capabilities(): return await capabilities()
 
 @app.post("/addon/v1/agent/generate")
 async def agent_generate(request: Request):
-    value = await request.json(); return await _workflow_submit(str(value.get("task") or "speech.tts.synthesize"), request)
+    value = await request.json(); return await _workflow_submit(str(value.get("task") or "speech.tts.synthesize"), request, value if isinstance(value, dict) else {})
 @app.post("/addon/v1/agent/transcribe")
 async def agent_transcribe(request: Request): return await _workflow_submit("speech.asr.transcribe", request)
 
@@ -344,21 +333,19 @@ async def agent_pack(request: Request):
         if asset is None: raise HTTPException(status_code=404, detail="asset not found")
         source = (settings.data_dir / asset.relative_path).resolve()
         if not source.is_relative_to(settings.data_dir.resolve()) or not source.is_file(): raise HTTPException(status_code=404, detail="asset content missing")
-    created = await host_client.create_or_attach_job(identity, title="SonicForge asset placement"); host_job_id = created.get("job", {}).get("id")
+    created = await host_client.create_or_attach_job(identity, title="SonicForge asset placement"); host_job_id = (created.get("job") or {}).get("id")
+    if not isinstance(host_job_id, str) or not host_job_id: raise HTTPException(status_code=502, detail="ControlDeck did not return a Host Job")
     from .host.files import commit_file
     result = await commit_file(host_client, identity, host_job_id=host_job_id, grant_id=grant_id, source=source, filename=str(value.get("filename") or source.name), mime_type=asset.mime_type, sha256=asset.sha256)
+    await host_client.update_job(identity, host_job_id, {"phase": "complete", "status": "succeeded", "result": {"asset_id": asset_id}})
     return {"asset_id": asset_id, "output": result}
 
 
 @app.post("/addon/v1/commands/create")
 async def command_create(): return {"route": "/x/sonic-forge/workspace", "task": "choose"}
-
-
 @app.post("/addon/v1/context/transcribe-audio")
 async def context_transcribe(request: Request):
     value = await request.json(); body = _workflow_body("speech.asr.transcribe", {"input": {"audio_grant": value.get("grant_id")}, "content_language": value.get("content_language", "auto")}); payload, hosted = await _prepare_task(request, body); job = jobs.create(payload, hosted=hosted); return {"job_id": job.id, "host_job_id": hosted.host_job_id if hosted else None}
-
-
 @app.post("/addon/v1/context/open-audio")
 async def context_open_audio(): return {"route": "/x/sonic-forge/workspace", "task": "library"}
 

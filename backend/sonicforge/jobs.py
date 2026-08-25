@@ -99,7 +99,7 @@ class JobManager:
         task=request["task"]
         if task=="speech.tts.synthesize": peak=8*1024**3; runtime=120; residency="sonicforge:qwen3-tts"
         elif task=="speech.asr.transcribe": peak=5*1024**3; runtime=180; residency="sonicforge:whisper"
-        elif task.startswith("audio."): peak=13*1024**3; runtime=180; residency="sonicforge:stable-audio-3"
+        elif task.startswith("audio."): peak=4*1024**3; runtime=180; residency="sonicforge:stable-audio-3"
         else: peak=18*1024**3; runtime=300; residency="sonicforge:ace-step-1.5"
         return {"job_id":host_job_id,"device":request.get("routing",{}).get("device") or "auto","vram":{"resident_bytes":0,"execution_peak_bytes":peak,"cold_load_peak_bytes":peak,"headroom_bytes":512*1024**2,"confidence":"low"},"compute_mode":"exclusive-preferred","priority":20,"class":"interactive","residency_key":residency,"estimated_runtime_sec":runtime,"max_wait_sec":300,"on_insufficient":"queue"}
 
@@ -107,7 +107,20 @@ class JobManager:
         if self.settings.enable_fake_worker or request.get("routing",{}).get("engine")=="fake": return False
         try: _engine,python,_script=route(self.settings,request["task"],request.get("content_language","auto"),request.get("routing",{}).get("engine"))
         except WorkerError: return False
-        return "rocm" in str(python).lower() or request["task"].startswith(("audio.","music."))
+        return "rocm" in str(python).lower()
+
+    async def _watch_host_cancel(self,job_id:str,execution:HostedExecution)->None:
+        if self.host_client is None: return
+        while True:
+            await asyncio.sleep(1.0)
+            try: control=await self.host_client.job_control(execution.identity,execution.host_job_id)
+            except HostApiError as exc:
+                if exc.status_code in {401,403,409}: return
+                continue
+            if control.get("cancel_requested") or control.get("status")=="canceled":
+                task=self.tasks.get(job_id)
+                if task and not task.done(): task.cancel()
+                return
 
     async def _acquire_resource(self,job_id:str,request:dict,execution:HostedExecution)->asyncio.Task|None:
         if not self._gpu_required(request): return None
@@ -122,8 +135,6 @@ class JobManager:
                 if not isinstance(lease_id,str): raise WorkerError("ControlDeck granted resource without a lease ID")
                 execution.lease_id=lease_id; await self.host_client.lease_action(execution.identity,lease_id,"activate"); return asyncio.create_task(self._renew_lease(execution),name=f"sonicforge-lease-{job_id}")
             if status.get("state") in {"rejected","canceled","expired"}: raise WorkerError(f"GPU resource request ended: {status.get('state')}")
-            control=await self.host_client.job_control(execution.identity,execution.host_job_id)
-            if control.get("cancel_requested") or control.get("status")=="canceled": await self.host_client.cancel_resource(execution.identity,request_id); raise asyncio.CancelledError
             await self._set(job_id,progress=0.02,result={"message":f"Waiting for GPU: {status.get('reason') or 'queue'}"}); await asyncio.sleep(1.0); status=await self.host_client.resource_status(execution.identity,request_id)
 
     async def _renew_lease(self,execution:HostedExecution)->None:
@@ -158,9 +169,10 @@ class JobManager:
                     if not candidate.is_relative_to(voices_root) or not candidate.is_file(): raise WorkerError("Voice reference audio is missing or outside SonicForge storage")
                     recipe["reference_audio"]=str(candidate)
                 inp["_internal_voice"]={"id":voice.id,"name":voice.name,"source_type":voice.source_type,"languages":voice.languages or [],"engine_id":voice.engine_id,"recipe":recipe,"rights_confirmed":bool(voice.rights_confirmed)}; request["input"]=inp
-        work_dir=self.settings.data_dir/"tmp"/job_id.replace(":","_"); execution=self.hosted.get(job_id); lease_renew:asyncio.Task|None=None
+        work_dir=self.settings.data_dir/"tmp"/job_id.replace(":","_"); execution=self.hosted.get(job_id); lease_renew:asyncio.Task|None=None; control_watch:asyncio.Task|None=None
         async def progress(value:float,message:str): await self._set(job_id,progress=max(0.0,min(0.98,value)),result={"message":message})
         try:
+            if execution is not None: control_watch=asyncio.create_task(self._watch_host_cancel(job_id,execution),name=f"sonicforge-host-control-{job_id}")
             if self._gpu_required(request) and execution is None: raise WorkerError("GPU work requires a ControlDeck-managed Host Job and Resource Broker lease")
             if execution is not None: lease_renew=await self._acquire_resource(job_id,request,execution)
             async with self.process_lock: result=await execute(self.settings,request,work_dir,progress)
@@ -182,7 +194,9 @@ class JobManager:
         except HostApiError as exc: await self._set(job_id,state="failed",progress=1.0,error_code=exc.code,error_message=str(exc)[:500])
         except Exception as exc: await self._set(job_id,state="failed",progress=1.0,error_code="internal_error",error_message=str(exc)[:500])
         finally:
-            if lease_renew is not None: lease_renew.cancel(); await asyncio.gather(lease_renew,return_exceptions=True)
+            for task in (lease_renew,control_watch):
+                if task is not None: task.cancel()
+            await asyncio.gather(*[task for task in (lease_renew,control_watch) if task is not None],return_exceptions=True)
             if execution is not None: await self._release_resource(execution)
             inp=request.get("input",{}) if "request" in locals() else {}
             for key in ("_internal_staged_input","_internal_reference_audio"):

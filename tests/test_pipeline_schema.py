@@ -51,12 +51,24 @@ def test_llm_to_asr_is_rejected():
         })
 
 
-def test_websocket_requires_audio_output():
-    with pytest.raises(ValidationError, match="websocket delivery"):
+def test_websocket_allows_text_dictation_output():
+    request = PipelineRequest.model_validate({
+        "pipeline": "m5-dictation",
+        "input": {"kind": "audio_stream", "stream_id": "mic"},
+        "stages": [{"id": "asr", "kind": "speech.asr"}],
+        "delivery": {"mode": "websocket", "profile": "plain"},
+    })
+    compiled = compile_pipeline(request)
+    assert compiled.output_type == "text"
+    assert compiled.stage_ids == ("asr",)
+
+
+def test_asset_delivery_rejects_text_output():
+    with pytest.raises(ValidationError, match="asset delivery requires audio output"):
         PipelineRequest.model_validate({
             "input": {"kind": "text", "text": "hello"},
             "stages": [{"id": "llm", "kind": "host.ai.text"}],
-            "delivery": {"mode": "websocket"},
+            "delivery": {"mode": "asset"},
         })
 
 

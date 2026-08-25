@@ -5,9 +5,21 @@
     "version": "0.1.0",
     "state": "degraded"
   },
+  "localization": {
+    "ui_locales": [
+      "ja",
+      "en"
+    ],
+    "default_ui_locale": "auto",
+    "content_languages": [
+      "ja",
+      "en"
+    ],
+    "default_content_language": "auto"
+  },
   "setup": {
     "state": "setup_required",
-    "profile": null,
+    "profile": "speech-essentials",
     "action": {
       "kind": "open_route",
       "route": "/settings/runtime"
@@ -16,32 +28,22 @@
       {
         "id": "core",
         "state": "available",
-        "reason_code": null,
-        "reason": null
+        "reason_code": null
       },
       {
-        "id": "recommended-speech",
+        "id": "speech-essentials",
         "state": "available",
-        "reason_code": null,
-        "reason": null
+        "reason_code": null
       },
       {
-        "id": "recommended-asr",
-        "state": "available",
-        "reason_code": null,
-        "reason": null
-      },
-      {
-        "id": "recommended-audio",
+        "id": "game-audio",
         "state": "setup_required",
-        "reason_code": "component_not_installed",
-        "reason": "効果音生成環境がまだ導入されていません"
+        "reason_code": "component_not_installed"
       },
       {
-        "id": "recommended-music",
+        "id": "music",
         "state": "setup_required",
-        "reason_code": "component_not_installed",
-        "reason": "音楽生成環境がまだ導入されていません"
+        "reason_code": "component_not_installed"
       }
     ]
   },
@@ -51,15 +53,17 @@
       "state": "available",
       "quality_tier": "recommended",
       "reason_code": null,
-      "reason": null,
       "features": {
         "languages": [
-          "ja"
+          "ja",
+          "en"
         ],
+        "mixed_language": true,
         "streaming": false,
         "voice_clone": true,
         "voice_design": false,
-        "style_control": true
+        "style_control": true,
+        "pronunciation_dictionary": true
       },
       "limits": {
         "max_text_chars": 10000
@@ -70,11 +74,12 @@
       "state": "available",
       "quality_tier": "recommended",
       "reason_code": null,
-      "reason": null,
       "features": {
         "languages": [
-          "ja"
+          "ja",
+          "en"
         ],
+        "mixed_language": true,
         "timestamps": [
           "segment"
         ],
@@ -86,11 +91,28 @@
       }
     },
     {
+      "id": "speech.localization.batch",
+      "state": "available",
+      "quality_tier": "recommended",
+      "reason_code": null,
+      "features": {
+        "languages": [
+          "ja",
+          "en"
+        ],
+        "paired_assets": true,
+        "partial_retry": true,
+        "roundtrip_qa": false
+      },
+      "limits": {
+        "max_lines_per_batch": 500
+      }
+    },
+    {
       "id": "audio.sfx.generate",
       "state": "setup_required",
       "quality_tier": "experimental",
       "reason_code": "component_not_installed",
-      "reason": "効果音生成環境を導入してください",
       "features": {
         "variations": true,
         "loop": true
@@ -105,7 +127,6 @@
       "state": "setup_required",
       "quality_tier": "experimental",
       "reason_code": "component_not_installed",
-      "reason": "音楽生成環境を導入してください",
       "features": {
         "instrumental": true,
         "bpm_hint": true,
@@ -119,7 +140,7 @@
     }
   ],
   "routing": {
-    "default_language": "ja",
+    "default_language": "auto",
     "default_quality": "balanced",
     "advanced_engine_pinning": true
   }

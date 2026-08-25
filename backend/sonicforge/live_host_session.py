@@ -40,6 +40,7 @@ class LiveHostSession:
         self._leases: dict[str, _SessionLease] = {}
         self._identity_lock = asyncio.Lock()
         self._closed = False
+        self._keep_llm_warm = False
 
     @property
     def hosted(self) -> bool:
@@ -54,11 +55,14 @@ class LiveHostSession:
             self._identity = value
 
     async def start(self, *, keep_llm_warm: bool) -> None:
+        self._keep_llm_warm = keep_llm_warm
         identity = await self.identity()
         if identity is None:
             return
         if "jobs.write" in identity.granted_capabilities:
             created = await self.host_client.create_or_attach_job(identity, self.title)
+            identity = await self.host_client.identity_from_job_response(identity, created)
+            await self._set_identity(identity)
             raw = created.get("job") if isinstance(created, dict) else None
             host_job_id = raw.get("id") if isinstance(raw, dict) else None
             if isinstance(host_job_id, str) and host_job_id:
@@ -67,8 +71,38 @@ class LiveHostSession:
                     self._job_credential_heartbeat(),
                     name=f"sonicforge-live-job-credential-{host_job_id}",
                 )
-        if keep_llm_warm and "ai.inference" in identity.granted_capabilities:
-            await self._start_llm_hold()
+
+    async def ensure_llm_hold(self) -> None:
+        identity = await self.identity()
+        if (
+            not self._keep_llm_warm
+            or self.hold_id is not None
+            or identity is None
+            or "ai.inference" not in identity.granted_capabilities
+        ):
+            return
+        await self._start_llm_hold()
+
+    async def release_llm_hold(self, *, stop_runtime: bool = False) -> None:
+        task = self._hold_task
+        self._hold_task = None
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        identity = await self.identity()
+        hold_id = self.hold_id
+        self.hold_id = None
+        if identity is not None and hold_id is not None:
+            try:
+                await self.host_client.ai_residency_release(identity, hold_id)
+            except HostApiError:
+                pass
+        if stop_runtime and identity is not None:
+            try:
+                await self.host_client.ai_release(identity)
+            except HostApiError as exc:
+                if exc.status_code not in {404, 409, 503}:
+                    raise
 
     async def _job_credential_heartbeat(self) -> None:
         while not self._closed and self.host_job_id:
@@ -240,12 +274,7 @@ class LiveHostSession:
         for key in list(self._leases):
             await self.release_worker_lease(key)
         identity = await self.identity()
-        if identity is not None and self.hold_id:
-            try:
-                await self.host_client.ai_residency_release(identity, self.hold_id)
-            except HostApiError:
-                pass
-        self.hold_id = None
+        await self.release_llm_hold()
         if identity is not None and self.host_job_id:
             try:
                 await self.host_client.update_job(

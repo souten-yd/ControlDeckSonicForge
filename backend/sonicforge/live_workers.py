@@ -283,3 +283,6 @@ class LiveWorkerPool:
         self._closed = True
         for key in list(self._workers):
             await self._evict(key)
+
+    async def evict(self, key: str) -> None:
+        await self._evict(key)

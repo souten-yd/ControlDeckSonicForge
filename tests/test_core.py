@@ -36,6 +36,21 @@ def test_fake_generation_persists_asset(env):
         content=c.get('/addon/v1/assets/'+asset_id+'/content')
         assert content.status_code==200 and content.headers['content-type']=='audio/wav'
 
+def test_agent_generate_unwraps_control_deck_envelope(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/generate',json={
+            "input":{"task":"speech.tts.synthesize","input":{"text":"MCP envelope"},"routing":{"engine":"fake","model":None,"device":"auto"}},
+            "correlation":{"job_id":"host-job"},
+        })
+        assert response.status_code==200,response.text
+        job_id=response.json()['job_id']
+        for _ in range(100):
+            job=c.get('/addon/v1/jobs/'+job_id.replace(':','%3A')).json()
+            if job['state'] not in {'queued','running'}: break
+            time.sleep(.03)
+        assert job['state']=='succeeded',job
+
 def test_pipeline_routes_precede_spa_mount(env):
     m=load_app()
     with TestClient(m.app) as c:

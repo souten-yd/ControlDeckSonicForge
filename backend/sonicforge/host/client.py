@@ -96,7 +96,11 @@ class ControlDeckHostClient:
         return HostIdentity(auth, addon, value["subject"], exp, frozenset(caps))
 
     async def _identity_from_access_token(
-        self, previous: HostIdentity, token: str
+        self,
+        previous: HostIdentity,
+        token: str,
+        *,
+        expected_subject: str | None = None,
     ) -> HostIdentity:
         if not token or " " in token:
             raise HostApiError(
@@ -111,7 +115,7 @@ class ControlDeckHostClient:
         )
         if (
             refreshed.addon_id != previous.addon_id
-            or refreshed.subject != previous.subject
+            or refreshed.subject != (expected_subject or previous.subject)
             or refreshed.granted_capabilities != previous.granted_capabilities
         ):
             raise HostApiError(
@@ -205,9 +209,41 @@ class ControlDeckHostClient:
             "compatibility": {"source": "legacy_projection"},
         }
 
-    async def create_or_attach_job(self, identity: HostIdentity, title: str):
+    async def create_or_attach_job(
+        self, identity: HostIdentity, title: str, *, detached: bool = False
+    ):
+        payload: dict[str, object] = {"title": title}
+        if detached:
+            payload["detached"] = True
         return await self.request(
-            identity, "POST", f"/{ADDON_ID}/jobs", json={"title": title}
+            identity,
+            "POST",
+            f"/{ADDON_ID}/jobs",
+            json=payload,
+        )
+
+    async def identity_from_job_response(
+        self, previous: HostIdentity, value: object, *, required: bool = False
+    ) -> HostIdentity:
+        if not isinstance(value, dict) or value.get("created") is not True:
+            return previous
+        job = value.get("job")
+        job_id = job.get("id") if isinstance(job, dict) else None
+        token = value.get("access_token")
+        if token is None and not required:
+            return previous
+        if (
+            not isinstance(job_id, str)
+            or not job_id
+            or value.get("token_type") != "Bearer"
+            or not isinstance(token, str)
+        ):
+            raise HostApiError(
+                "invalid_host_response",
+                "ControlDeck did not return a scoped Host Job credential",
+            )
+        return await self._identity_from_access_token(
+            previous, token, expected_subject=f"job:{job_id}"
         )
 
     async def update_job(self, identity: HostIdentity, job_id: str, payload: dict):
@@ -437,14 +473,22 @@ class ControlDeckHostClient:
                 status_code=403,
             )
         return await self.request(
-            identity, "POST", f"/{ADDON_ID}/ai/release", json={}
+            identity,
+            "POST",
+            f"/{ADDON_ID}/ai/release",
+            json={},
+            timeout_sec=130,
         )
 
     async def ai_residency_create(
         self, identity: HostIdentity
     ) -> tuple[dict, HostIdentity]:
         value = await self.request(
-            identity, "POST", f"/{ADDON_ID}/ai/residency/holds", json={}
+            identity,
+            "POST",
+            f"/{ADDON_ID}/ai/residency/holds",
+            json={},
+            timeout_sec=190,
         )
         token = value.get("access_token")
         if isinstance(token, str):
@@ -521,6 +565,7 @@ class ControlDeckHostClient:
         *,
         json: dict | None = None,
         content: bytes | None = None,
+        timeout_sec: float | None = None,
     ):
         return await self._raw(
             method,
@@ -529,6 +574,7 @@ class ControlDeckHostClient:
             identity.addon_id,
             json=json,
             content=content,
+            timeout_sec=timeout_sec,
         )
 
     async def _raw(
@@ -540,6 +586,7 @@ class ControlDeckHostClient:
         *,
         json: dict | None = None,
         content: bytes | None = None,
+        timeout_sec: float | None = None,
     ):
         try:
             response = await self._client.request(
@@ -548,6 +595,7 @@ class ControlDeckHostClient:
                 headers=self._headers(authorization, addon_id),
                 json=json,
                 content=content,
+                timeout=timeout_sec,
             )
         except httpx.HTTPError as exc:
             raise HostApiError(

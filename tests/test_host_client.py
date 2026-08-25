@@ -1,5 +1,129 @@
 import time, httpx, pytest
-from sonicforge.host.client import ControlDeckHostClient
+from sonicforge.host.client import ControlDeckHostClient, HostApiError, HostIdentity
+
+
+@pytest.mark.asyncio
+async def test_ai_residency_creation_allows_host_model_cold_start(monkeypatch):
+    client = ControlDeckHostClient("http://127.0.0.1:8765")
+    captured = {}
+
+    async def raw(method, path, authorization, addon_id, **kwargs):
+        captured.update(kwargs)
+        return {"held": False}
+
+    monkeypatch.setattr(client, "_raw", raw)
+    identity = HostIdentity(
+        "Bearer abc",
+        subject="18",
+        expires_at=int(time.time()) + 300,
+        granted_capabilities=frozenset({"ai.inference"}),
+    )
+    await client.ai_residency_create(identity)
+    assert captured["timeout_sec"] == 190
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_detached_host_job_is_explicit_and_opt_in(monkeypatch):
+    client = ControlDeckHostClient("http://127.0.0.1:8765")
+    captured = {}
+
+    async def raw(method, path, authorization, addon_id, **kwargs):
+        captured.update(kwargs)
+        return {"created": True, "job": {"id": "child-job"}}
+
+    monkeypatch.setattr(client, "_raw", raw)
+    identity = HostIdentity(
+        "Bearer abc",
+        subject="job:parent",
+        expires_at=int(time.time()) + 300,
+        granted_capabilities=frozenset({"jobs.write"}),
+    )
+    await client.create_or_attach_job(identity, "durable generation", detached=True)
+    assert captured["json"] == {"title": "durable generation", "detached": True}
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_regular_host_job_request_omits_detached_for_older_hosts(monkeypatch):
+    client = ControlDeckHostClient("http://127.0.0.1:8765")
+    captured = {}
+
+    async def raw(method, path, authorization, addon_id, **kwargs):
+        captured.update(kwargs)
+        return {"created": False, "job": {"id": "existing-job"}}
+
+    monkeypatch.setattr(client, "_raw", raw)
+    identity = HostIdentity("Bearer abc", subject="job:existing-job")
+    await client.create_or_attach_job(identity, "attached generation")
+    assert captured["json"] == {"title": "attached generation"}
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_new_host_job_adopts_exact_child_scoped_credential(monkeypatch):
+    client = ControlDeckHostClient("http://127.0.0.1:8765")
+    previous = HostIdentity(
+        "Bearer parent",
+        subject="job:parent",
+        expires_at=int(time.time()) + 300,
+        granted_capabilities=frozenset({"jobs.write"}),
+    )
+    child = HostIdentity(
+        "Bearer child",
+        subject="job:child",
+        expires_at=int(time.time()) + 300,
+        granted_capabilities=previous.granted_capabilities,
+    )
+
+    async def authenticate(headers):
+        assert headers["Authorization"] == "Bearer child-token"
+        return child
+
+    monkeypatch.setattr(client, "authenticate", authenticate)
+    refreshed = await client.identity_from_job_response(
+        previous,
+        {
+            "created": True,
+            "job": {"id": "child"},
+            "access_token": "child-token",
+            "token_type": "Bearer",
+        },
+    )
+    assert refreshed is child
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_new_host_job_rejects_wrong_child_subject(monkeypatch):
+    client = ControlDeckHostClient("http://127.0.0.1:8765")
+    previous = HostIdentity(
+        "Bearer parent",
+        subject="job:parent",
+        expires_at=int(time.time()) + 300,
+        granted_capabilities=frozenset({"jobs.write"}),
+    )
+
+    async def authenticate(_headers):
+        return HostIdentity(
+            "Bearer forged",
+            subject="job:other",
+            expires_at=int(time.time()) + 300,
+            granted_capabilities=previous.granted_capabilities,
+        )
+
+    monkeypatch.setattr(client, "authenticate", authenticate)
+    with pytest.raises(HostApiError, match="changed the refreshed service token scope"):
+        await client.identity_from_job_response(
+            previous,
+            {
+                "created": True,
+                "job": {"id": "child"},
+                "access_token": "forged-token",
+                "token_type": "Bearer",
+            },
+        )
+    await client.close()
 
 @pytest.mark.asyncio
 async def test_host_auth_and_output_roundtrip():

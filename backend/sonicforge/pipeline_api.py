@@ -16,7 +16,9 @@ def create_pipeline_router(base) -> APIRouter:
         host_client=base.host_client,
     )
 
-    async def hosted_execution(request: Request, title: str) -> HostedExecution | None:
+    async def hosted_execution(
+        request: Request, title: str, *, detached_host_job: bool = False
+    ) -> HostedExecution | None:
         if not base._host_headers_present(request):
             return None
         try:
@@ -34,7 +36,12 @@ def create_pipeline_router(base) -> APIRouter:
                     "message": "jobs.write is required for hosted pipeline execution",
                 },
             )
-        created = await base.host_client.create_or_attach_job(identity, title=title)
+        created = await base.host_client.create_or_attach_job(
+            identity, title=title, detached=detached_host_job
+        )
+        identity = await base.host_client.identity_from_job_response(
+            identity, created, required=detached_host_job
+        )
         host_job = created.get("job") if isinstance(created, dict) else None
         host_job_id = host_job.get("id") if isinstance(host_job, dict) else None
         if not isinstance(host_job_id, str) or not host_job_id:
@@ -47,11 +54,14 @@ def create_pipeline_router(base) -> APIRouter:
             )
         return HostedExecution(identity=identity, host_job_id=host_job_id)
 
-    async def submit(body: PipelineRequest, request: Request) -> dict:
+    async def submit(
+        body: PipelineRequest, request: Request, *, detached_host_job: bool = False
+    ) -> dict:
         compiled = compile_pipeline(body)
         execution = await hosted_execution(
             request,
             title=f"SonicForge pipeline: {body.pipeline or 'custom'}",
+            detached_host_job=detached_host_job,
         )
         if any(stage.kind == "host.ai.text" for stage in body.stages[compiled.start_index : compiled.stop_index + 1]) and execution is None:
             raise HTTPException(
@@ -105,7 +115,9 @@ def create_pipeline_router(base) -> APIRouter:
         return await submit(body, request)
 
     @router.post("/agent/pipeline")
-    async def agent_pipeline(body: PipelineRequest, request: Request):
-        return await submit(body, request)
+    async def agent_pipeline(request: Request):
+        raw = await request.json()
+        body = PipelineRequest.model_validate(base._agent_arguments(raw))
+        return await submit(body, request, detached_host_job=True)
 
     return router

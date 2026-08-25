@@ -239,6 +239,8 @@ def create_live_router(base) -> APIRouter:
                 keep_llm_warm=session.keep_warm
                 and any(stage.kind == "host.ai.text" for stage in active)
             )
+            if session.preset == "simultaneous-translation" and identity is not None:
+                await host_session.release_llm_hold(stop_runtime=True)
             worker_pool = LiveWorkerPool(
                 settings=base.settings,
                 host_session=host_session,
@@ -294,6 +296,9 @@ def create_live_router(base) -> APIRouter:
                     )
                 created = await base.host_client.create_or_attach_job(
                     current, title=title
+                )
+                current = await base.host_client.identity_from_job_response(
+                    current, created
                 )
                 raw = created.get("job") if isinstance(created, dict) else None
                 host_job_id = raw.get("id") if isinstance(raw, dict) else None
@@ -501,6 +506,19 @@ def create_live_router(base) -> APIRouter:
                     recorded_bytes += len(frame.payload)
         except WebSocketDisconnect:
             return
+        except HostApiError as exc:
+            session_failed = True
+            try:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "code": exc.code,
+                        "message": str(exc)[:500],
+                    }
+                )
+                await websocket.close(code=1011)
+            except RuntimeError:
+                pass
         except (EdgeProtocolError, ValueError, json.JSONDecodeError) as exc:
             session_failed = True
             try:

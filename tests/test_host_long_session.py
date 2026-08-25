@@ -147,3 +147,71 @@ def test_ai_stream_consumes_provider_neutral_sse_incrementally():
             await client.close()
 
     asyncio.run(scenario())
+
+
+def test_live_session_creates_llm_hold_lazily_and_releases_runtime():
+    class FakeJobs:
+        pass
+
+    class FakeHostClient:
+        def __init__(self):
+            self.created = 0
+            self.released = []
+            self.runtime_releases = 0
+
+        async def create_or_attach_job(self, _identity, _title):
+            return {"job": {"id": "job:live"}}
+
+        async def identity_from_job_response(self, identity, _created):
+            return identity
+
+        async def gateway_capabilities(self, _identity):
+            return {"control_plane": {"ai": {"residency_hold": True}}}
+
+        async def ai_residency_create(self, current):
+            self.created += 1
+            return (
+                {
+                    "held": True,
+                    "hold_id": "hold:live",
+                    "heartbeat_interval_seconds": 30,
+                },
+                current,
+            )
+
+        async def ai_residency_release(self, _identity, hold_id):
+            self.released.append(hold_id)
+            return {"released": True}
+
+        async def ai_release(self, _identity):
+            self.runtime_releases += 1
+            return {"released": True}
+
+        async def update_job(self, *_args, **_kwargs):
+            return {}
+
+    async def scenario():
+        from sonicforge.live_host_session import LiveHostSession
+
+        client = FakeHostClient()
+        session = LiveHostSession(
+            host_client=client,
+            jobs=FakeJobs(),
+            identity=identity(),
+            title="lazy hold test",
+        )
+        await session.start(keep_llm_warm=True)
+        assert client.created == 0
+        assert session.hold_id is None
+
+        await session.ensure_llm_hold()
+        assert client.created == 1
+        assert session.hold_id == "hold:live"
+
+        await session.release_llm_hold(stop_runtime=True)
+        assert session.hold_id is None
+        assert client.released == ["hold:live"]
+        assert client.runtime_releases == 1
+        await session.close()
+
+    asyncio.run(scenario())

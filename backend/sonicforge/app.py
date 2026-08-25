@@ -46,6 +46,15 @@ def _host_headers_present(request: Request) -> bool:
     return bool(request.headers.get("authorization") or request.headers.get("x-control-deck-addon-id"))
 
 
+def _agent_arguments(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    nested = value.get("input")
+    if isinstance(value.get("correlation"), dict) and isinstance(nested, dict):
+        return nested
+    return value
+
+
 async def _host_identity(request: Request) -> HostIdentity | None:
     if not _host_headers_present(request): return None
     try: return await host_client.authenticate(request.headers)
@@ -59,11 +68,13 @@ async def _stage_read_grant(identity: HostIdentity, grant_id: str, *, max_bytes:
     target = staging / f"{uuid.uuid4().hex}{extension}"; target.write_bytes(content); return str(target)
 
 
-async def _prepare_task(request: Request, body: TaskRequest) -> tuple[dict[str, Any], HostedExecution | None]:
+async def _prepare_task(
+    request: Request, body: TaskRequest, *, detached_host_job: bool = False
+) -> tuple[dict[str, Any], HostedExecution | None]:
     payload = body.model_dump(mode="json"); identity = await _host_identity(request); hosted: HostedExecution | None = None
     if identity is not None:
         if "jobs.write" not in identity.granted_capabilities: raise HTTPException(status_code=403, detail={"code": "capability_not_granted", "message": "jobs.write is required"})
-        created = await host_client.create_or_attach_job(identity, title=f"SonicForge: {body.task}"); host_job = created.get("job") if isinstance(created, dict) else None; host_job_id = host_job.get("id") if isinstance(host_job, dict) else None
+        created = await host_client.create_or_attach_job(identity, title=f"SonicForge: {body.task}", detached=detached_host_job); identity = await host_client.identity_from_job_response(identity, created, required=detached_host_job); host_job = created.get("job") if isinstance(created, dict) else None; host_job_id = host_job.get("id") if isinstance(host_job, dict) else None
         if not isinstance(host_job_id, str) or not host_job_id: raise HTTPException(status_code=502, detail={"code": "invalid_host_response", "message": "ControlDeck did not return a Host Job"})
         hosted = HostedExecution(identity=identity, host_job_id=host_job_id); inp = payload.setdefault("input", {})
         if body.task == "speech.asr.transcribe":
@@ -107,7 +118,7 @@ async def _start_setup(body: SetupApplyRequest, request: Request) -> dict[str, A
     identity = await _host_identity(request); hosted: HostedExecution | None = None
     if identity is not None:
         if "jobs.write" not in identity.granted_capabilities: raise HTTPException(status_code=403, detail={"code": "capability_not_granted", "message": "jobs.write is required"})
-        created = await host_client.create_or_attach_job(identity, title=f"SonicForge setup: {body.profile}"); host_job_id = (created.get("job") or {}).get("id")
+        created = await host_client.create_or_attach_job(identity, title=f"SonicForge setup: {body.profile}"); identity = await host_client.identity_from_job_response(identity, created); host_job_id = (created.get("job") or {}).get("id")
         if not isinstance(host_job_id, str) or not host_job_id: raise HTTPException(status_code=502, detail="ControlDeck did not return a Host Job")
         hosted = HostedExecution(identity=identity, host_job_id=host_job_id)
     job_id = f"job:{uuid.uuid4()}"
@@ -296,8 +307,14 @@ def _workflow_body(task: str, value: dict[str, Any]) -> TaskRequest:
     body = dict(value); body["task"] = task; body.setdefault("input", {}); body.setdefault("profile", "default"); body.setdefault("quality", "balanced"); body.setdefault("content_language", "auto"); body.setdefault("output", {"format": "wav", "sample_rate": None, "channels": None}); body.setdefault("routing", {"engine": None, "model": None, "device": "auto"}); body.setdefault("seed", None); body.setdefault("project_output_grant", None); return TaskRequest.model_validate(body)
 
 
-async def _workflow_submit(task: str, request: Request, value: dict[str, Any] | None = None) -> dict[str, Any]:
-    raw = value if value is not None else await request.json(); body = _workflow_body(task, raw if isinstance(raw, dict) else {}); payload, hosted = await _prepare_task(request, body); job = jobs.create(payload, hosted=hosted); return {"job_id": job.id, "host_job_id": hosted.host_job_id if hosted else None}
+async def _workflow_submit(
+    task: str,
+    request: Request,
+    value: dict[str, Any] | None = None,
+    *,
+    detached_host_job: bool = False,
+) -> dict[str, Any]:
+    raw = value if value is not None else await request.json(); body = _workflow_body(task, raw if isinstance(raw, dict) else {}); payload, hosted = await _prepare_task(request, body, detached_host_job=detached_host_job); job = jobs.create(payload, hosted=hosted); return {"job_id": job.id, "host_job_id": hosted.host_job_id if hosted else None}
 
 
 @app.post("/addon/v1/workflow/speech/synthesize")
@@ -314,26 +331,27 @@ async def agent_capabilities(): return await capabilities()
 
 @app.post("/addon/v1/agent/generate")
 async def agent_generate(request: Request):
-    value = await request.json(); return await _workflow_submit(str(value.get("task") or "speech.tts.synthesize"), request, value if isinstance(value, dict) else {})
+    value = _agent_arguments(await request.json()); return await _workflow_submit(str(value.get("task") or "speech.tts.synthesize"), request, value, detached_host_job=True)
 @app.post("/addon/v1/agent/transcribe")
-async def agent_transcribe(request: Request): return await _workflow_submit("speech.asr.transcribe", request)
+async def agent_transcribe(request: Request):
+    value = _agent_arguments(await request.json()); return await _workflow_submit("speech.asr.transcribe", request, value, detached_host_job=True)
 
 
 @app.post("/addon/v1/agent/inspect")
 async def agent_inspect(request: Request):
-    value = await request.json(); return await get_asset(str(value.get("asset_id") or ""))
+    value = _agent_arguments(await request.json()); return await get_asset(str(value.get("asset_id") or ""))
 
 
 @app.post("/addon/v1/agent/pack")
 async def agent_pack(request: Request):
-    value = await request.json(); asset_id = str(value.get("asset_id") or ""); grant_id = str(value.get("grant_id") or value.get("output_grant") or ""); identity = await _host_identity(request)
+    value = _agent_arguments(await request.json()); asset_id = str(value.get("asset_id") or ""); grant_id = str(value.get("project_output_grant") or value.get("grant_id") or value.get("output_grant") or ""); identity = await _host_identity(request)
     if identity is None: raise HTTPException(status_code=401, detail="ControlDeck Host authentication is required")
     with session_factory() as session:
         asset = session.get(Asset, asset_id)
         if asset is None: raise HTTPException(status_code=404, detail="asset not found")
         source = (settings.data_dir / asset.relative_path).resolve()
         if not source.is_relative_to(settings.data_dir.resolve()) or not source.is_file(): raise HTTPException(status_code=404, detail="asset content missing")
-    created = await host_client.create_or_attach_job(identity, title="SonicForge asset placement"); host_job_id = (created.get("job") or {}).get("id")
+    created = await host_client.create_or_attach_job(identity, title="SonicForge asset placement"); identity = await host_client.identity_from_job_response(identity, created); host_job_id = (created.get("job") or {}).get("id")
     if not isinstance(host_job_id, str) or not host_job_id: raise HTTPException(status_code=502, detail="ControlDeck did not return a Host Job")
     from .host.files import commit_file
     result = await commit_file(host_client, identity, host_job_id=host_job_id, grant_id=grant_id, source=source, filename=str(value.get("filename") or source.name), mime_type=asset.mime_type, sha256=asset.sha256)

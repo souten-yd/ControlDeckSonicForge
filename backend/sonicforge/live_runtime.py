@@ -213,6 +213,12 @@ class LiveTurnRunner:
             raise WorkerError("ControlDeck Host AI is required for this live pipeline")
         if hosted is not None:
             hosted.identity = identity
+        await self.host_session.ensure_llm_hold()
+        identity = await self.host_session.identity()
+        if identity is None:
+            raise WorkerError("ControlDeck Host AI identity expired")
+        if hosted is not None:
+            hosted.identity = identity
         result = await self.host_client.ai_complete(
             identity,
             self._messages(session, stage, text),
@@ -459,6 +465,7 @@ class LiveTurnRunner:
             kinds = [stage.kind for stage in active]
             if (
                 session.streaming_response
+                and session.preset != "simultaneous-translation"
                 and emit_audio is not None
                 and kinds == ["speech.asr", "host.ai.text", "speech.tts"]
             ):
@@ -583,6 +590,12 @@ class LiveTurnRunner:
                     start = 0.05 + index / max(total, 1) * 0.85
                     span = 0.85 / max(total, 1)
                     if stage.kind in {"speech.asr", "speech.tts"}:
+                        if (
+                            stage.kind == "speech.tts"
+                            and session.preset == "simultaneous-translation"
+                            and self.host_session.hold_id is not None
+                        ):
+                            await self.host_session.release_llm_hold(stop_runtime=True)
                         value, item, worker, worker_request = (
                             await self._persistent_worker_stage(
                                 job_id,
@@ -608,6 +621,8 @@ class LiveTurnRunner:
                     elif stage.kind == "host.ai.text":
                         if value.kind != "text" or value.text is None:
                             raise WorkerError("Host AI stage requires text input")
+                        if session.preset == "simultaneous-translation":
+                            await self.worker_pool.evict("asr")
                         response_text = await self._host_ai_complete(
                             session, stage, value.text, hosted
                         )

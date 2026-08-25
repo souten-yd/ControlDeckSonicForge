@@ -96,6 +96,9 @@ class LiveSessionResources:
             self.identity,
             title=f"SonicForge live session: {self.label}"[:300],
         )
+        self.identity = await self.host_client.identity_from_job_response(
+            self.identity, created
+        )
         host_job = created.get("job") if isinstance(created, dict) else None
         host_job_id = host_job.get("id") if isinstance(host_job, dict) else None
         if not isinstance(host_job_id, str) or not host_job_id:

@@ -179,6 +179,8 @@ Do not freeze every detailed capability as a separate Host executor. After freez
 - real engine promotion requires measured target-hardware evidence;
 - UI changes require real browser checks in Japanese and English when applicable;
 - update `docs/implementation-status.md` with what was actually executed and what remains `NOT TESTED`.
+- validate locally first and batch CI at meaningful milestones rather than running CI after every small change.
+- do not merge SonicForge or dependent ControlDeck PRs before local functional acceptance on the target machine.
 
 ## 10. Definition of done
 
@@ -198,3 +200,34 @@ Relevant real evidence includes:
 - no falsely claimed checks or support.
 
 Record untested areas explicitly.
+
+## 11. Codex short acceptance commands
+
+The detailed local-machine procedure is normative in:
+
+`docs/CODEX_LOCAL_ACCEPTANCE.md`
+
+Recognize these short user commands even in a fresh Codex session:
+
+### `SF受入確認`
+
+Read `docs/CODEX_LOCAL_ACCEPTANCE.md` and execute the local acceptance procedure through the final PASS / FAIL / NOT TESTED report.
+
+**Do not merge any PR.**
+
+### `SF受入マージ`
+
+Read `docs/CODEX_LOCAL_ACCEPTANCE.md`, execute a fresh local acceptance against the exact PR heads, and merge only if the runbook ends with `merge recommendation: YES`.
+
+Rules:
+
+- local functional validation precedes merge;
+- do not reuse stale acceptance after relevant code changes;
+- run the intentionally batched milestone CI only after local acceptance is green;
+- do not bypass required checks;
+- do not force merge;
+- generic ControlDeck dependency PRs merge before the dependent SonicForge PR;
+- after a dependency merge/rebase, re-run the affected SonicForge smoke tests before SonicForge merge;
+- after merge, run a short smoke test from `main` and record actual merge/evidence in `docs/implementation-status.md`.
+
+If any required acceptance item fails, stop the merge sequence and fix the failure on a branch first.

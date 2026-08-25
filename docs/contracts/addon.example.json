@@ -3,7 +3,7 @@
   "id": "sonic-forge",
   "name": "SonicForge",
   "version": "0.1.0",
-  "description": "Japanese-first speech, audio and music generation",
+  "description": "Japanese and English speech, audio and music generation",
   "publisher": "souten-yd",
   "requires": {
     "addon_contract": ">=2.0 <3.0"
@@ -32,7 +32,7 @@
         "id": "workspace",
         "label": {
           "en": "Audio",
-          "ja": "Audio"
+          "ja": "オーディオ"
         },
         "route": "/x/sonic-forge/workspace",
         "icon": "audio",
@@ -189,33 +189,25 @@
         "permission": "settings.manage"
       },
       {
-        "id": "recommended-speech",
+        "id": "speech-essentials",
         "label": {
-          "en": "Japanese speech synthesis",
-          "ja": "日本語音声合成"
+          "en": "Speech Essentials",
+          "ja": "音声基本環境"
         },
         "permission": "settings.manage"
       },
       {
-        "id": "recommended-asr",
+        "id": "game-audio",
         "label": {
-          "en": "Japanese speech recognition",
-          "ja": "日本語文字起こし"
+          "en": "Game Audio",
+          "ja": "ゲーム音声"
         },
         "permission": "settings.manage"
       },
       {
-        "id": "recommended-audio",
+        "id": "music",
         "label": {
-          "en": "Sound effect generation",
-          "ja": "効果音生成"
-        },
-        "permission": "settings.manage"
-      },
-      {
-        "id": "recommended-music",
-        "label": {
-          "en": "Music generation",
+          "en": "Music",
           "ja": "音楽生成"
         },
         "permission": "settings.manage"

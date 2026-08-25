@@ -74,6 +74,38 @@ class ControlDeckHostClient:
     async def upload_output(self, identity: HostIdentity, output_id: str, content: bytes): return await self.request(identity, "PUT", f"/{ADDON_ID}/files/outputs/{output_id}/content", content=content)
     async def commit_output(self, identity: HostIdentity, output_id: str): return await self.request(identity, "POST", f"/{ADDON_ID}/files/outputs/{output_id}/commit")
 
+    async def ai_capabilities(self, identity: HostIdentity):
+        if "ai.inference" not in identity.granted_capabilities:
+            raise HostApiError("capability_not_granted", "ControlDeck ai.inference capability is required", status_code=403)
+        return await self.request(identity, "GET", f"/{ADDON_ID}/ai/capabilities")
+
+    async def ai_complete(
+        self,
+        identity: HostIdentity,
+        messages: list[dict],
+        *,
+        temperature: float = 0.0,
+        max_tokens: int = 256,
+        timeout_seconds: int = 60,
+        response_format: dict | None = None,
+    ):
+        if "ai.inference" not in identity.granted_capabilities:
+            raise HostApiError("capability_not_granted", "ControlDeck ai.inference capability is required", status_code=403)
+        payload = {
+            "capability": "text.generate",
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "timeout_seconds": timeout_seconds,
+            "response_format": response_format,
+        }
+        return await self.request(identity, "POST", f"/{ADDON_ID}/ai/complete", json=payload)
+
+    async def ai_release(self, identity: HostIdentity):
+        if "ai.inference" not in identity.granted_capabilities:
+            raise HostApiError("capability_not_granted", "ControlDeck ai.inference capability is required", status_code=403)
+        return await self.request(identity, "POST", f"/{ADDON_ID}/ai/release", json={})
+
     async def grant_content(self, identity: HostIdentity, grant_id: str, *, max_bytes: int = MAX_GRANT_BYTES) -> bytes:
         if not grant_id.startswith("grant:"): raise ValueError("grant id must start with grant:")
         if not 0 < max_bytes <= MAX_GRANT_BYTES: raise ValueError("grant content bound is invalid")

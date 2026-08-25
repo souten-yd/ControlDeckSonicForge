@@ -113,7 +113,7 @@ def handle(payload: dict) -> None:
                 "text": result.get("text", ""),
                 "segments": chunks,
                 "language": lang,
-                "warm_model_cache": True,
+                "warm_model_cache": False,
             },
         }
     )

@@ -184,7 +184,7 @@ def handle(payload: dict) -> None:
                 "voice_id": voice.get("id") if voice else None,
                 "speaker": speaker,
                 "filename": "speech.wav",
-                "warm_model_cache": True,
+                "warm_model_cache": False,
             },
         }
     )

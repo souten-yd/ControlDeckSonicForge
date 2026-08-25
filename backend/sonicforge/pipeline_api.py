@@ -4,13 +4,13 @@ from fastapi import APIRouter, HTTPException, Request
 
 from .host.client import HostApiError
 from .jobs import HostedExecution
-from .pipeline_runtime import PipelineRuntime
 from .pipeline_schema import PipelineRequest, compile_pipeline
+from .prompt_pipeline_runtime import PromptAwarePipelineRuntime
 
 
 def create_pipeline_router(base) -> APIRouter:
     router = APIRouter(prefix="/addon/v1", tags=["pipeline"])
-    runtime = PipelineRuntime(
+    runtime = PromptAwarePipelineRuntime(
         jobs=base.jobs,
         session_factory=base.session_factory,
         host_client=base.host_client,

@@ -1,0 +1,126 @@
+{
+  "api_version": "1",
+  "service": {
+    "id": "sonic-forge",
+    "version": "0.1.0",
+    "state": "degraded"
+  },
+  "setup": {
+    "state": "setup_required",
+    "profile": null,
+    "action": {
+      "kind": "open_route",
+      "route": "/settings/runtime"
+    },
+    "components": [
+      {
+        "id": "core",
+        "state": "available",
+        "reason_code": null,
+        "reason": null
+      },
+      {
+        "id": "recommended-speech",
+        "state": "available",
+        "reason_code": null,
+        "reason": null
+      },
+      {
+        "id": "recommended-asr",
+        "state": "available",
+        "reason_code": null,
+        "reason": null
+      },
+      {
+        "id": "recommended-audio",
+        "state": "setup_required",
+        "reason_code": "component_not_installed",
+        "reason": "効果音生成環境がまだ導入されていません"
+      },
+      {
+        "id": "recommended-music",
+        "state": "setup_required",
+        "reason_code": "component_not_installed",
+        "reason": "音楽生成環境がまだ導入されていません"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "speech.tts.synthesize",
+      "state": "available",
+      "quality_tier": "recommended",
+      "reason_code": null,
+      "reason": null,
+      "features": {
+        "languages": [
+          "ja"
+        ],
+        "streaming": false,
+        "voice_clone": true,
+        "voice_design": false,
+        "style_control": true
+      },
+      "limits": {
+        "max_text_chars": 10000
+      }
+    },
+    {
+      "id": "speech.asr.transcribe",
+      "state": "available",
+      "quality_tier": "recommended",
+      "reason_code": null,
+      "reason": null,
+      "features": {
+        "languages": [
+          "ja"
+        ],
+        "timestamps": [
+          "segment"
+        ],
+        "streaming": false,
+        "diarization": false
+      },
+      "limits": {
+        "max_input_duration_sec": 14400
+      }
+    },
+    {
+      "id": "audio.sfx.generate",
+      "state": "setup_required",
+      "quality_tier": "experimental",
+      "reason_code": "component_not_installed",
+      "reason": "効果音生成環境を導入してください",
+      "features": {
+        "variations": true,
+        "loop": true
+      },
+      "limits": {
+        "max_duration_sec": 120,
+        "max_variations": 8
+      }
+    },
+    {
+      "id": "music.generate",
+      "state": "setup_required",
+      "quality_tier": "experimental",
+      "reason_code": "component_not_installed",
+      "reason": "音楽生成環境を導入してください",
+      "features": {
+        "instrumental": true,
+        "bpm_hint": true,
+        "loop": true,
+        "remix": false,
+        "extend": false
+      },
+      "limits": {
+        "max_duration_sec": 240
+      }
+    }
+  ],
+  "routing": {
+    "default_language": "ja",
+    "default_quality": "balanced",
+    "advanced_engine_pinning": true
+  }
+}

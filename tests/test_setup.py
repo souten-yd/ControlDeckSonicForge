@@ -42,3 +42,17 @@ def test_game_audio_plan_prefetches_gated_small_sfx_after_terms(env):
     assert component["models"] == [setup.STABLE_AUDIO_SMALL_SFX]
     assert component["terms"] == [setup.STABILITY_TERMS]
     assert setup.STABLE_AUDIO_SMALL_SFX == "stabilityai/stable-audio-3-small-sfx"
+
+
+def test_music_plan_prepares_upstream_ace_step_models(env, monkeypatch):
+    settings = load_settings()
+    ensure_directories(settings)
+    monkeypatch.setattr(setup, "detect_backend", lambda: "rocm")
+
+    plan = setup.plan(settings, "music")
+    component = plan["components"][0]
+    assert component["id"] == "music"
+    assert component["runtime_id"] == "music-rocm"
+    assert component["models"] == [setup.ACESTEP_DIT, setup.ACESTEP_LM]
+    assert setup.ACESTEP_DIT == "acestep-v15-turbo"
+    assert setup.ACESTEP_LM == "acestep-5Hz-lm-0.6B"

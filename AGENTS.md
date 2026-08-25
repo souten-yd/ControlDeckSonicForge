@@ -161,7 +161,7 @@ Before the end of SF1 freeze:
 
 - `addon.json` contribution IDs
 - four initial workflow executor IDs
-- five initial agent tool IDs
+- six initial agent tool IDs
 - `auto|ja|en` content language contract
 - public JSON schemas/error codes
 - capability naming principles

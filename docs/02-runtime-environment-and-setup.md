@@ -9,6 +9,20 @@ SonicForge owns its environment independently from ControlDeck and MediaForge.
 
 This is an architectural boundary, not merely an installation preference.
 
+The product separates two installation layers:
+
+```text
+A. lightweight SonicForge feature
+   installed/updated by ControlDeck's generic trusted Release Bundle Feature path
+   target trust = Ed25519 publisher-signed release manifest
+
+B. SonicForge ML capability packs
+   provisioned by SonicForge itself after the service is available
+   separate runtimes/models, durable one-click setup
+```
+
+See `13-release-distribution-and-signing.md` for release trust.
+
 ## 2. What must be independent
 
 SonicForge owns and isolates:
@@ -18,6 +32,8 @@ SonicForge owns and isolates:
 - runtime lock/fingerprint state
 - model library/catalog state
 - asset DB and provenance DB
+- voice profiles and dictionaries
+- localization project/profile state
 - temporary job workspaces
 - logs
 - downloadable model weights unless the user explicitly points to an external model library
@@ -27,11 +43,11 @@ No SonicForge venv may be reused by ControlDeck or MediaForge, and vice versa.
 
 ## 3. Default paths
 
-Repository-local:
+Repository/source checkout:
 
 ```text
 ControlDeckSonicForge/
-├─ .venv/                              lightweight core
+├─ .venv/                              lightweight development/core env
 ├─ runtimes/
 │  ├─ torch-rocm-a/.venv/              shared only by compatible SonicForge packs
 │  ├─ torch-rocm-b/.venv/              incompatible dependency family
@@ -42,6 +58,7 @@ ControlDeckSonicForge/
 │  ├─ tts-gptsovits/
 │  ├─ tts-sbv2/
 │  ├─ asr-kotoba/
+│  ├─ asr-multilingual/
 │  ├─ asr-reazon/
 │  ├─ audio-stable3/
 │  └─ music-acestep/
@@ -56,6 +73,7 @@ Default persistent state:
 ├─ sonicforge.db
 ├─ models/
 ├─ voices/
+├─ dictionaries/
 ├─ assets/
 ├─ runtime-state/
 ├─ tmp/
@@ -72,11 +90,13 @@ Default cache:
 └─ downloads/
 ```
 
+When installed by ControlDeck Release Bundle Features, the generic Host may provide managed feature roots/data/cache environment variables. SonicForge maps those generic paths into its own data/runtime policy without importing ControlDeck Python internals.
+
 Respect explicit environment variables and configured model-library roots.
 
 ## 4. Environment layering
 
-### 4.1 Core environment
+### 4.1 Lightweight core environment
 
 Purpose:
 
@@ -89,14 +109,15 @@ Purpose:
 - setup orchestration
 - worker process supervision
 - Host Add-on Runtime client
+- UI/backend localization resources
 
-The core should remain small and start even when no ML runtime is installed.
+The core starts without torch or production models and can report `setup_required`.
 
 ### 4.2 Runtime environments
 
 Heavy engines are grouped by **dependency fingerprint**, not arbitrarily by feature name.
 
-A runtime fingerprint should include at least:
+A fingerprint includes at least:
 
 ```text
 python major/minor
@@ -107,52 +128,59 @@ engine lockfile hash
 platform/architecture
 ```
 
-Multiple SonicForge worker packs may share one runtime only when the fingerprint is compatible and verified.
-
-Never mutate a compatible working runtime just to satisfy a newly added incompatible engine. Create another runtime family.
+Multiple SonicForge packs may share a runtime only when compatibility is proven. Never mutate a known-good runtime merely to satisfy a newly introduced incompatible engine; create another runtime family.
 
 ### 4.3 Worker packs
 
-Each worker pack declares:
+Each pack declares:
 
 - stable pack id/version
 - capabilities provided
+- supported content languages/locales
 - runtime fingerprint/requirements
-- required model artifacts
-- optional model artifacts
-- estimated disk footprint
+- required/optional model artifacts
+- estimated download/disk footprint
 - supported hardware backends
-- smoke-test command/protocol
+- smoke-test protocol
 - license/terms metadata
 - resource estimate policy
 - adapter protocol version
 
-Core launches workers as subprocesses/services; core does not import their heavy Python modules.
+Core launches workers as subprocesses/services; it does not import their heavy ML modules.
 
 ## 5. One-click provisioning UX
 
-The expected normal setup path is a button:
+The default prominent action is deliberately smaller than the original "install everything" design:
 
-**推奨環境をセットアップ**
+**音声基本環境をセットアップ / Set up Speech Essentials**
 
-The button lives in SonicForge's setup/runtime UI and invokes a SonicForge API. ControlDeck does not execute arbitrary manifest commands.
+Speech Essentials targets first-class Japanese + English TTS/ASR on the detected hardware.
+
+SFX and Music are optional contextual packs. Entering an uninstalled task gives a direct action such as:
+
+```text
+効果音生成をセットアップ / Set up Game Audio
+音楽生成をセットアップ / Set up Music
+```
+
+Users who explicitly want all supported packs can choose `Full Studio` under setup details.
 
 ### 5.1 API sketch
 
 ```text
 GET  /addon/v1/setup/status
-GET  /addon/v1/setup/plan?profile=recommended
+GET  /addon/v1/setup/plan?profile=speech-essentials
 POST /addon/v1/setup/apply
 POST /addon/v1/setup/cancel
 POST /addon/v1/setup/repair
 POST /addon/v1/setup/update
 ```
 
-`POST /setup/apply` request example:
+Request example:
 
 ```json
 {
-  "profile": "recommended",
+  "profile": "speech-essentials",
   "components": [],
   "accepted_terms": []
 }
@@ -161,31 +189,35 @@ POST /addon/v1/setup/update
 Profiles:
 
 ```text
-recommended   Japanese TTS + Japanese ASR + practical SFX + music if hardware permits
-speech-only   TTS + ASR
-cpu-only      CPU-capable subset
-advanced      explicit component selection
+speech-essentials   default; Japanese + English TTS/ASR
+ game-audio          SFX + deterministic processing additions
+ music               local music/BGM additions
+ full-studio         all currently supported recommended packs
+ cpu-essentials      practical CPU-capable speech subset
+ custom              explicit component selection
 ```
 
-The UI default is `recommended`; component checkboxes are not shown until advanced mode.
+The normal UI does not show component checkboxes until setup details/Custom is opened.
 
 ## 6. Preflight plan
 
-Before changing the machine, calculate and show:
+Before changing state, show:
 
 - detected OS/architecture
 - Python availability
-- GPU inventory and backend detection
+- GPU inventory/backend
 - ROCm/CUDA usability where relevant
 - disk free space
 - planned runtime packs
 - planned model downloads
 - approximate download/disk sizes where known
-- gated model terms that require explicit acceptance
-- capabilities expected to become available
-- components that cannot be installed on this hardware
+- required gated terms
+- capabilities/languages expected to become available
+- components unsupported on the current hardware
 
-The plan must be obtainable without modifying the environment.
+The plan is read-only.
+
+Do not show dozens of wheels/packages in the primary UI. Technical details belong under disclosure/diagnostics.
 
 ## 7. Provisioning state machine
 
@@ -202,7 +234,7 @@ not_started
   -> completed
 ```
 
-Failure/cancel states:
+Failure/cancel:
 
 ```text
 failed_recoverable
@@ -213,96 +245,102 @@ canceled
 Each phase has:
 
 - progress 0..1 when measurable
-- current component
-- concise status message
-- bounded recent log excerpt
+- current component/capability pack
+- localized concise message
+- bounded recent technical log excerpt
 - durable resume metadata
 
-Setup should attach to a ControlDeck Job when invoked through the Add-on so progress survives browser closure.
+Setup attaches to a ControlDeck Job when invoked through the Add-on. Browser closure/navigation does not own or cancel it.
 
 ## 8. Atomic install strategy
 
-Never build directly into the active runtime.
-
-Use:
+Never build directly into an active runtime.
 
 ```text
 runtimes/.staging/<runtime-id>-<operation-id>/
    -> create venv
    -> install locked dependencies
    -> install/prepare engine
-   -> run import/hardware smoke tests
+   -> acquire/download model artifacts
+   -> run import/hardware/real minimal smoke tests
    -> write manifest/fingerprint
    -> atomic rename/symlink activation
 ```
 
-Keep the previous active runtime until the new runtime passes validation.
+Keep the previous active runtime until validation succeeds.
 
-Interrupted staging directories are detected on next startup and either resumed when safe or removed/rebuilt.
+Interrupted staging is resumed only when reconciliation can prove it safe; otherwise it is discarded/rebuilt without touching the active runtime.
 
-## 9. Idempotency
+## 9. Idempotency and reconciliation
 
-Repeated `setup/apply(recommended)` must converge, not reinstall everything.
+Repeated `setup/apply(speech-essentials)` converges rather than reinstalling.
 
-Each component records:
+Record per component:
 
 - desired version/fingerprint
 - installed version/fingerprint
 - dependency lock hash
-- model artifact hash/revision
+- model source revision/digest
 - last smoke-test result/time
 
-No-op when already reconciled.
+A second run is a no-op when already reconciled.
 
 ## 10. Package installation rules
 
-Preferred package tooling may be `uv` for reproducibility/speed, with pip-compatible fallback if required.
+Preferred tooling may use `uv`, with pip-compatible fallback when needed.
 
 Rules:
 
-- exact/pinned lock for runtime-critical dependencies
-- verify expected package sources
+- exact/pinned runtime-critical dependency sets
+- known package sources
 - no `shell=True`
-- no arbitrary package names from browser input
+- no arbitrary browser-provided package names
 - no global site-packages modification
-- no system Python package pollution
+- no system Python pollution
 - no silent sudo
+- no `curl | sh`
+
+Release-bundle publisher signing does not authorize arbitrary packages downloaded later. Runtime dependencies still follow lock/source integrity policy.
 
 ## 11. Model download rules
 
-Models are separate from venvs.
+Models are separate from venvs and from the signed lightweight release bundle.
 
-- model catalog contains source, revision, expected files and license metadata
-- use resumable downloads where supported
-- store partial files safely
-- verify hashes/size when available
-- atomic activation after validation
-- do not redownload an identical valid artifact
-- model uninstall never deletes unrelated shared user libraries
+Model catalog stores:
 
-If a model requires gated access or license acceptance, stop in `awaiting_terms`. Do not auto-accept.
+- source/repository identity
+- immutable revision where possible
+- expected files
+- digests when available
+- size
+- language/capability support
+- license/terms state
+
+Use resumable downloads where supported, private partial staging and atomic activation.
+
+If gated terms are required, stop at `awaiting_terms`. Never auto-accept.
+
+A signed SonicForge release is not proof that a third-party model is licensed or authentic; third-party model trust/provenance remains separately recorded.
 
 ## 12. Hardware validation
 
-An installed package is not proof of usable inference.
+Installation success is not inference success.
 
-GPU runtime validation should include:
+GPU validation includes where applicable:
 
 - framework imports
-- target GPU visible
+- target device visible
 - device properties readable
 - small tensor operation succeeds
-- required dtype/attention path works when applicable
-- free/total VRAM obtainable
-- engine-specific minimal model smoke test when feasible
+- required dtype/attention path works
+- VRAM total/free obtainable
+- engine-specific minimal real inference
 
-CPU engine validation should include a minimal inference or decode/transcription path.
+CPU workers require a real minimal inference/transcription smoke test.
 
-A failed engine smoke test marks only that worker/capability unavailable or degraded.
+A failed worker only degrades its capabilities.
 
 ## 13. Runtime lifecycle
-
-Core controls worker lifecycle:
 
 ```text
 stopped
@@ -314,66 +352,69 @@ draining
 failed
 ```
 
-Worker protocol should include:
+Worker protocol includes:
 
-- `/health` or equivalent IPC health
-- capability/version handshake
+- health/version/capability handshake
 - load/unload model
-- execute/cancel task
+- execute/progress/cancel
 - graceful shutdown
 
-A crashed worker is restarted according to bounded policy without killing the core.
+Worker crash does not terminate SonicForge core.
 
-## 14. Model residency
+## 14. Model residency and ControlDeck Resource Broker
 
-SonicForge can decide which of its own model processes are loaded, but ControlDeck Resource Broker owns cross-application GPU admission.
+SonicForge controls its own worker/model residency, but ControlDeck owns cross-application GPU arbitration.
 
-Recommended worker behavior:
+GPU behavior:
 
-1. request lease before expensive load when GPU reservation is needed;
-2. activate lease;
-3. load/use model;
-4. obey Host yield/cancel policy where contract supports it;
-5. release model if needed;
-6. release lease.
+1. create/attach durable Host Job;
+2. request Host resource lease before protected GPU work/model load;
+3. wait without consuming unrelated runner capacity;
+4. activate lease;
+5. load/execute;
+6. obey cancel/yield/release contract;
+7. release lease on success/failure/cancel.
 
-Do not keep VRAM permanently allocated while claiming no lease.
+Do not retain large VRAM outside declared resource/residency policy.
 
-## 15. Update/repair
+## 15. Update/repair/remove
 
-### Update
+### Lightweight product update
 
-- plan changes first
-- download/build beside active runtime
+Use generic signed Release Bundle Feature side-by-side update/health/atomic current/rollback semantics. See `13-release-distribution-and-signing.md`.
+
+### ML pack update
+
+- plan first
+- stage beside active runtime
 - validate
-- atomically switch
-- retain one rollback target where disk policy permits
+- atomically activate
+- preserve rollback target where storage permits
 
 ### Repair
 
-- revalidate fingerprints/files
-- rebuild only broken component
-- never wipe all models/assets as a default repair action
+- revalidate only affected fingerprints/files
+- rebuild broken components
+- preserve models/assets/voices unless the user explicitly removes them
 
 ### Remove
 
-Component uninstall shows reclaimed size and affected capabilities.
+Show reclaimed size and lost capabilities before deletion.
 
-## 16. What one-click setup does not do
-
-The first implementation should **not** silently:
+## 16. What one-click setup does not silently do
 
 - install/upgrade kernel drivers
 - modify ROCm system packages as root
 - change BIOS settings
-- install arbitrary system services outside the approved SonicForge service registration path
 - accept third-party licenses
+- grant new ControlDeck Host capabilities
+- delete user assets/voices
 
-`doctor` reports these blockers with exact remediation. A future generic privileged setup facility belongs to ControlDeck's managed-service layer, not a SonicForge-specific escape hatch.
+`doctor` reports blockers with actionable remediation.
 
 ## 17. CLI parity
 
-Every setup operation exposed in the UI must have a deterministic CLI equivalent for recovery and automation:
+UI and CLI call the same orchestration logic:
 
 ```text
 ./sf.sh serve
@@ -387,4 +428,16 @@ Every setup operation exposed in the UI must have a deterministic CLI equivalent
 ./sf.sh test
 ```
 
-The CLI and UI call the same backend orchestration logic rather than implementing two installers.
+`doctor` is strictly read-only.
+
+## 18. UX rule for complexity
+
+Setup state shown to ordinary users is capability-oriented:
+
+```text
+Speech Essentials       Ready / Needs setup / Update available
+Game Audio              Optional / Ready
+Music                   Optional / Ready
+```
+
+Runtime IDs, Python packages, model revisions and exact fingerprints remain visible in Expert/Diagnostics, not on the default setup card.

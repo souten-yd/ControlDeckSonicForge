@@ -2,110 +2,241 @@
 
 Last updated: 2026-08-25
 
-This document records **observed implementation state and evidence**. `IMPLEMENTED` means code exists on `impl/full-platform-baseline`; it does not imply target-hardware validation. Anything not actually executed is explicitly marked `NOT TESTED`.
+This document records **observed implementation state and evidence**. `IMPLEMENTED` means code exists on `impl/full-platform-baseline`; it does not imply current branch-wide tests, real ControlDeck E2E, model inference, or target-hardware validation. Anything not actually executed is explicitly marked `NOT TESTED`.
 
 ## 1. Current summary
 
 | Area | State | Evidence / note |
 |---|---|---|
-| Specification baseline | COMPLETE | Normative design/specification baseline exists on `main` |
+| Specification baseline | COMPLETE | Normative architecture/specification exists and has been extended for music/SFX, typed pipelines, M5 and the common Host gateway |
 | Japanese + English product contract | IMPLEMENTED baseline | Separate UI locale/content language/voice language concepts; bilingual speech/localization APIs |
-| Easy / Customize / Expert UX | IMPLEMENTED | Embedded Studio exposes task-level defaults and hides engine/model controls from normal flow |
-| SonicForge core service | IMPLEMENTED | FastAPI service, `/health`, capability discovery, durable SQLite state, assets, voices, jobs, setup APIs |
-| Dedicated SonicForge state/cache | IMPLEMENTED | Uses SonicForge-owned data/cache/runtime/model directories; no ControlDeck/MediaForge imports into workers |
-| Add-on v2 manifest | IMPLEMENTED | `addon.json` contains navigation, embedded view, 4 workflow executors, 5 agent tools, context actions and setup checklist |
-| Browser Bridge integration | IMPLEMENTED | Uses ControlDeck `host.file.pick` for scoped input grants; proxy-relative embedded URLs |
-| Direct embedded settings route | IMPLEMENTED, TEST ADDED | `/settings/` static entry opens Runtime view; regression test added, latest suite not yet run |
-| Browser reconnect | IMPLEMENTED, NOT BROWSER-E2E TESTED | WebSocket reconnect/backoff and authoritative reload implemented |
-| Durable generation jobs | IMPLEMENTED | SQLite Job state, cancellation, restart interruption handling, server-owned work |
-| Host Job integration | IMPLEMENTED, NOT HOST-E2E TESTED | create/attach, bounded progress/terminal sync and Host cancel polling implemented |
-| Resource Broker integration | IMPLEMENTED, NOT HOST-E2E TESTED | request/wait/activate/renew/release and credential refresh implemented for GPU work |
-| Scoped input grants | IMPLEMENTED, NOT HOST-E2E TESTED | ASR/reference audio are copied from Host read grants; raw Host paths are not accepted |
-| Project output grants | IMPLEMENTED, NOT HOST-E2E TESTED | generated assets can be uploaded/committed through Host output API |
-| Speech Essentials provisioning | IMPLEMENTED, TARGET MACHINE NOT TESTED | isolated speech CPU/ROCm runtime construction and model preparation |
-| Music/SFX model research | COMPLETE FOR PLAN | `docs/15-music-and-sfx-generation-plan.md` records 2026-08-25 model/runtime/license decisions |
-| Game Audio default model decision | RESEARCHED + ADAPTER IMPLEMENTED, MODEL NOT TESTED | Stable Audio 3 Small-SFX CPU-first; upstream officially identifies Small-SFX as CPU/no-GPU-required |
-| Japanese SFX prompt normalization | PLANNED, NOT IMPLEMENTED | Stable Audio 3 is trained on English descriptions; plan requires original Japanese prompt -> engine English prompt with both preserved in provenance |
-| Music primary model decision | RESEARCHED + ADAPTER IMPLEMENTED, MODEL NOT TESTED | ACE-Step 1.5 Turbo first; upstream explicitly supports ROCm/AMD, but SonicForge target hardware has not been tested |
-| Music CPU fallback | PLANNED | Stable Audio 3 Small-Music selected as optional CPU fallback after setup/runtime integration |
-| Stable Audio 3 Medium | EVALUATION ONLY | upstream official runtime describes Medium as CUDA GPU; not an AMD default |
-| TangoFlux | RESEARCH-ONLY / NOT DEFAULT | checkpoint terms are non-commercial research-only; must not silently route production jobs to it |
-| AudioGen/MusicGen/AudioLDM2 | BENCHMARK-ONLY | published weights have non-commercial restrictions; not default production routes |
-| Qwen3-TTS CustomVoice | IMPLEMENTED, MODEL INFERENCE NOT TESTED | worker code present |
-| Qwen3-TTS VoiceDesign | IMPLEMENTED, MODEL INFERENCE NOT TESTED | logical voice recipe routing present |
-| Qwen3-TTS Voice Clone | IMPLEMENTED, MODEL INFERENCE NOT TESTED | reference grant import + rights confirmation + Base-model clone path present |
+| Easy / Customize / Expert UX | IMPLEMENTED | Normal flow hides engine/model details |
+| SonicForge core service | IMPLEMENTED | FastAPI, `/health`, capabilities, SQLite, assets, voices, jobs and setup APIs |
+| Production bootstrap | IMPLEMENTED, LATEST SUITE NOT RUN | `sonicforge.bootstrap:app` installs pipeline/delivery/job extensions while keeping the root SPA mount last |
+| Dedicated SonicForge state/cache/runtimes | IMPLEMENTED | no ControlDeck/MediaForge worker imports or shared venv/DB |
+| Add-on v2 manifest | IMPLEMENTED | 4 stable workflow executors, **6 agent tools** including `sonic.pipeline`, context actions and setup checklist |
+| Browser Bridge integration | IMPLEMENTED | Host `host.file.pick`, scoped grants and proxy-relative URLs |
+| Direct embedded settings route | IMPLEMENTED, TEST ADDED | `/settings/` opens Runtime view |
+| Browser reconnect | IMPLEMENTED, NOT BROWSER-E2E TESTED | WebSocket backoff/reload implemented |
+| Durable generation jobs | IMPLEMENTED | server-owned SQLite Job state, cancel and restart interruption handling |
+| Host Job integration | IMPLEMENTED, NOT HOST-E2E TESTED | create/attach, progress, terminal state and Host cancel polling |
+| Resource Broker integration | IMPLEMENTED, NOT HOST-E2E TESTED | request/wait/activate/renew/release and token refresh |
+| Scoped input/output grants | IMPLEMENTED, NOT HOST-E2E TESTED | no raw Host paths in public contract |
+| ControlDeck Generic AI/Media Gateway client | IMPLEMENTED, TESTS ADDED NOT RUN | versioned discovery plus legacy Host projection in `host/client.py` |
+| ControlDeck Generic AI/Media Gateway Host | IMPLEMENTED ON SEPARATE DRAFT PR, NOT E2E TESTED | ControlDeck PR #240 / `feat/generic-ai-media-gateway`; additive discovery only, current endpoints remain authoritative |
+| MediaForge alignment | CONFIRMED | MediaForge already uses the same Host Jobs/resources/grants/AI complete/release primitives |
+| Typed Pipeline schema | IMPLEMENTED, TESTS ADDED | typed text/audio stages, `start_at`, `stop_after`, delivery modes and invalid-chain rejection |
+| Durable Typed Pipeline runner | IMPLEMENTED, TESTS ADDED NOT RUN | `pipeline_runtime.py`; reuses Job/asset/provenance/Host control boundaries |
+| Stage-local GPU admission | IMPLEMENTED, REGRESSION TEST ADDED NOT RUN | local worker lease -> release -> Host AI -> `ai.release` -> next worker lease |
+| OpenCode `sonic.pipeline` | IMPLEMENTED CONTRACT, NOT AGENT-MCP E2E TESTED | agent contribution and JSON Schema are in `addon.json`/`schemas/pipeline-request.json` |
+| Pipeline text -> Host LLM -> TTS | IMPLEMENTED, FOCUSED MOCK-HOST TEST ADDED NOT RUN | Host AI output can feed TTS and return a durable audio asset |
+| Pipeline audio -> ASR -> Host LLM -> TTS | IMPLEMENTED, RESOURCE-ORDER TEST ADDED NOT RUN | audio grant input and stage-local admission path implemented |
+| Pipeline text -> SFX / Music | IMPLEMENTED, FAKE-WORKER TESTS ADDED NOT RUN | uses the same durable pipeline runner |
+| `audio.process` pipeline stage | SCHEMA ONLY / NOT IMPLEMENTED | rejected explicitly at runtime until deterministic stage is connected |
+| Pipeline `package` delivery | NOT IMPLEMENTED | contract reserved but runtime rejects it explicitly |
+| Pipeline WebSocket delivery | LIVE SESSION REQUIRED / NOT IMPLEMENTED | durable runner rejects WS delivery rather than pretending it is live |
+| M5/device descriptor schema | IMPLEMENTED, TEST ADDED | `sonic-edge/1`, capability negotiation, PCM/Opus descriptors, wake/VAD/AEC flags |
+| M5 binary framing | IMPLEMENTED, TESTS ADDED | versioned mic/speaker frames, sequence/sample clock, bounded payload/queue |
+| M5/voice-chat live session runtime | NOT IMPLEMENTED | PTT live server remains next phase |
+| Generic paired Device Session Host relay | DESIGNED, NOT IMPLEMENTED | intentionally advertised unavailable by Gateway v1; required before production M5 LAN/Tailscale use |
+| Speech Essentials provisioning | IMPLEMENTED, TARGET MACHINE NOT TESTED | speech CPU/ROCm runtime/model setup code present |
+| Qwen3-TTS CustomVoice / VoiceDesign / Clone | IMPLEMENTED, MODEL INFERENCE NOT TESTED | logical voice routing, reference grant import and rights confirmation present |
 | Japanese ASR | IMPLEMENTED, MODEL INFERENCE NOT TESTED | Kotoba-Whisper route present |
 | English/multilingual ASR | IMPLEMENTED, MODEL INFERENCE NOT TESTED | Whisper large-v3-turbo route present |
-| SFX generation | IMPLEMENTED, MODEL INFERENCE NOT TESTED | Stable Audio 3 Small-SFX worker present |
-| Music generation | IMPLEMENTED, MODEL INFERENCE NOT TESTED | ACE-Step worker present; ROCm is upstream-supported but local compatibility/performance remains unverified |
-| Localization Studio storage | IMPLEMENTED | JP/EN paired lines, voice mapping, QA/output state |
-| Localization durable rendering | IMPLEMENTED, FOCUSED TEST ADDED | parent Job renders locale outputs and stores per-locale input hashes/state |
-| Localization partial retry | IMPLEMENTED | `pending / failed / changed / all` modes; unchanged successful lines can be skipped |
-| Deterministic audio QA | IMPLEMENTED baseline | WAV decode/duration/hash metadata; richer SFX/music QA remains planned |
-| TTS->ASR semantic QA | NOT IMPLEMENTED | design exists but thresholds/false-positive policy are not yet validated |
-| Signed release bundle build | IMPLEMENTED | PyInstaller bundle builder plus runtime/frontend/schema/worker packaging |
-| SonicForge release signing | IMPLEMENTED + FOCUSED TESTED | Ed25519 canonical-manifest signer/verifier; tamper/context/wrong-key/noncanonical negative tests |
-| ControlDeck signature-aware verifier | IMPLEMENTED ON SEPARATE BRANCH, NOT E2E TESTED | `souten-yd/ControlDeck` branch `infra/publisher-signed-release-bundles`; generic publisher-key path with legacy compatibility |
-| Publisher public key registration | OPERATIONAL INPUT REQUIRED | Host code supports one-time trusted public key; production SonicForge/MediaForge public key must be registered in trusted catalog |
-| Real signed Host install/update/rollback | NOT TESTED | requires trusted publisher public key and target ControlDeck runtime |
-| Historical ControlDeck TTS migration | NOT STARTED | migration source inventory remains separate work |
-| Target hardware performance/compatibility | NOT TESTED | no current SonicForge Qwen/Whisper/Stable Audio/ACE-Step benchmark on target hardware |
-| Batched CI | NOT RUN | intentionally deferred per project CI policy; workflow is manual/tag-triggered rather than every push |
+| Game Audio model decision | RESEARCHED + ADAPTER IMPLEMENTED, MODEL NOT TESTED | Stable Audio 3 Small-SFX CPU-first |
+| Japanese SFX PromptNormalizer helper | IMPLEMENTED, UNIT TESTS EXIST | Host AI converts Japanese intent to concise English acoustic conditioning when available |
+| Japanese SFX direct-Job integration | IMPLEMENTED, INTEGRATION TEST ADDED NOT RUN | normalization occurs after durable Job creation and before worker admission |
+| Japanese SFX pipeline integration | IMPLEMENTED, LATEST TESTS NOT RUN | prompt-aware pipeline runtime normalizes before SFX resource acquisition |
+| Prompt provenance | IMPLEMENTED, TEST ADDED NOT RUN | original and engine-conditioning prompt are stored in asset metadata and Provenance parameters |
+| Music primary model | RESEARCHED + ADAPTER IMPLEMENTED, MODEL NOT TESTED | ACE-Step 1.5 Turbo first; ROCm upstream-supported but SonicForge target unverified |
+| Music CPU fallback | PLANNED | Stable Audio 3 Small-Music |
+| Localization Studio storage/render | IMPLEMENTED | paired JP/EN lines and durable rendering |
+| Localization partial retry | IMPLEMENTED | `pending / failed / changed / all` |
+| Deterministic WAV QA | IMPLEMENTED baseline | decode/duration/hash; semantic remains `not_checked` |
+| Audio delivery profiles | IMPLEMENTED, TESTS ADDED NOT RUN | master WAV, voice WAV, Unity, Unreal, Godot, Web/mobile and M5 profiles |
+| Durable `audio.export` | IMPLEMENTED, TESTS ADDED NOT RUN | safe argv ffmpeg subprocess, derived asset/provenance and optional project grant commit |
+| Real ffmpeg/ffprobe export | NOT TESTED | tests use fake conversion for orchestration; real codecs remain batched validation gate |
+| TTS->ASR semantic QA | NOT IMPLEMENTED | design only |
+| Signed release bundle build | IMPLEMENTED | lightweight bundle build/packaging |
+| SonicForge Ed25519 release signing | IMPLEMENTED + FOCUSED TESTED | canonical manifest and negative tests; focused signing suite previously 4 passed |
+| ControlDeck signature-aware release verifier | IMPLEMENTED ON DRAFT PR, NOT E2E TESTED | ControlDeck PR #239 |
+| Publisher public-key registration | OPERATIONAL INPUT REQUIRED | production public key not invented/committed |
+| Signed fresh install/update/rollback | NOT TESTED | requires real publisher key + Host environment |
+| Target hardware model performance | NOT TESTED | Qwen/Whisper/Stable Audio/ACE-Step not benchmarked by current SonicForge branch |
+| Batched CI | NOT RUN | deliberately deferred; latest branch-wide suite is not claimed green |
 
-## 2. Music / SFX research decision
+## 2. Common ControlDeck control-plane decision
 
-The researched implementation plan is:
-
-```text
-Game Audio
-  default -> Stable Audio 3 Small-SFX / CPU
-  prompt conditioning -> English
-  Japanese UX -> PromptNormalizer before engine
-  optional future -> inpaint/continue after validation
-
-Music
-  default accelerator -> ACE-Step 1.5 Turbo
-  first planner comparison -> 0.6B vs 1.7B
-  CPU fallback -> Stable Audio 3 Small-Music
-  high quality -> ACE-Step standard/XL only after benchmark
-```
-
-Important distinctions:
-
-- Stable Audio 3 Small-SFX is upstream-supported as CPU-first, but SonicForge has not run the actual model yet.
-- ACE-Step 1.5 is upstream-supported on ROCm/AMD, including official ROCm installation guidance. This resolves the earlier uncertainty about whether ROCm is an upstream-supported route; it **does not** prove the current SonicForge runtime pin works on the target machine.
-- Stable Audio 3 Medium is not the default AMD route because upstream currently documents it as CUDA GPU.
-- TangoFlux remains useful for research comparison but is not a production fallback because its published checkpoint is non-commercial research-only.
-- AudioCraft AudioGen/MusicGen and AudioLDM2 remain benchmark references rather than standard engines because their published model weights impose non-commercial restrictions.
-
-See `docs/15-music-and-sfx-generation-plan.md` for the complete runtime, routing, UX, QA, license and benchmark plan.
-
-## 3. Implementation branch evidence
-
-Primary implementation branch:
+SonicForge now follows the same split already exercised by MediaForge:
 
 ```text
-impl/full-platform-baseline
+ControlDeck Generic AI / Media Gateway
+  auth / capability scope
+  Host Jobs / cancel / progress
+  Resource Broker / queue / leases / residency
+  provider-neutral Host AI + explicit release
+  scoped grants / output receipts
+  Agent MCP / Workflow projection
+  embedded HTTP/WebSocket relay
+  future generic paired Device Session
+
+SonicForge
+  TTS / ASR / SFX / music engines
+  voice/localization/audio semantics
+  Typed Media Pipeline
+  M5 turn/audio semantics
+  audio assets/provenance/QA/delivery profiles
 ```
 
-Important implementation milestones include:
+ControlDeck PR #240 adds only versioned discovery. Existing endpoint families are preserved and remain authoritative.
 
-- platform/core baseline;
-- speech workers and logical voice routing;
-- setup/packaging/worker-boundary hardening;
-- proxy-safe embedded Studio and Browser Bridge integration;
-- durable bilingual Localization rendering;
-- signed release negative-test hardening;
-- direct `/settings/` embedded entry and frontend regression test;
-- researched Music/SFX implementation plan.
+The SonicForge client supports both:
 
-The branch is ahead of `main`. GitHub Actions has not been triggered during iterative implementation.
+```text
+new Host -> /gateway/capabilities
+old Host -> existing service-token grants + /ai/capabilities projected locally
+```
 
-## 4. Focused validation actually executed
+Discovery never grants authority.
+
+## 3. Typed Pipeline implementation
+
+Implemented stage types:
+
+```text
+speech.asr      audio -> text
+host.ai.text    text  -> text
+speech.tts      text  -> audio
+audio.sfx       text  -> audio
+music.generate  text  -> audio
+audio.process   audio -> audio   # schema reserved; execution not implemented yet
+```
+
+Examples:
+
+```text
+audio -> ASR -> ControlDeck LLM -> TTS -> asset
+text  -> ControlDeck LLM -> TTS -> asset
+text  -> TTS -> asset
+text  -> SFX -> asset
+text  -> Music -> asset
+```
+
+`start_at` / `stop_after` may select a valid sub-chain. Invalid media-type transitions such as `LLM -> ASR` are rejected before execution.
+
+Pipeline Jobs are stored in the same durable Job table and use the same cancellation/Host Job surfaces as direct generation.
+
+### Stage-local resource invariant
+
+The pipeline must never hold one GPU lease around the whole chain:
+
+```text
+ASR acquire -> ASR -> release
+Host LLM admission -> complete -> ai.release
+TTS acquire -> TTS -> release
+```
+
+A regression test records this ordering. That test has been added but not yet executed in the current batch.
+
+## 4. OpenCode / agent path
+
+SonicForge does not add a second MCP server.
+
+```text
+OpenCode
+ -> ControlDeck Agent MCP
+ -> sonic.generate / sonic.transcribe / sonic.pipeline / sonic.inspect / sonic.pack
+ -> durable Host/SonicForge Job
+ -> Asset
+ -> optional current-project output grant
+ -> commit receipt
+```
+
+The new `sonic.pipeline` contribution is justified by the explicit requirement to choose pipeline start/end stages. The four stable Workflow executors remain unchanged; no generic free-form pipeline Workflow executor was added prematurely.
+
+## 5. Japanese SFX prompt conditioning
+
+Stable Audio Small-SFX is treated as English-conditioning-first. SonicForge keeps Japanese UX and may perform:
+
+```text
+Japanese user intent
+ -> durable Job exists
+ -> ControlDeck text.generate
+ -> concise English acoustic engine prompt
+ -> ControlDeck ai.release
+ -> SFX worker admission/generation
+```
+
+If Host AI is unavailable, the state is explicitly recorded rather than hidden. The original prompt is retained.
+
+Metadata/provenance records:
+
+- user prompt
+- user prompt language
+- engine prompt
+- engine prompt language
+- normalizer identity
+- normalization state/failure reason
+
+The direct Job path and typed pipeline SFX path both contain this orchestration now. Latest integration tests are added but not run.
+
+## 6. Audio delivery implementation
+
+Generation output remains a canonical SonicForge audio asset. Delivery is derived deterministically rather than regenerating through a model.
+
+Initial profiles:
+
+```text
+master-wav   48 kHz / 24-bit PCM
+voice-wav    48 kHz mono / 16-bit PCM
+unity-sfx    WAV 48 kHz / 16-bit
+unity-bgm    OGG/Vorbis 48 kHz
+unreal-sfx   WAV 48 kHz / 16-bit
+godot-sfx    WAV 48 kHz / 16-bit
+godot-bgm    OGG/Vorbis 48 kHz
+web-mobile   MP3 160 kbps
+m5-wav       WAV 16 kHz mono / 16-bit
+```
+
+API:
+
+```text
+GET  /addon/v1/delivery/audio/profiles
+POST /addon/v1/assets/{asset_id}/export
+```
+
+The export runs as durable `audio.export`, invokes ffmpeg by validated argv (no shell), creates a derived asset with source lineage and may commit it through a scoped ControlDeck project grant.
+
+Real ffmpeg/codec execution remains `NOT TESTED` on the latest branch.
+
+## 7. M5 / live audio state
+
+Implemented foundation:
+
+- device capability schema for M5/mobile/PC/simulator
+- PCM/Opus negotiation fields
+- wake/VAD/AEC capability flags
+- `sonic-edge/1` binary mic/speaker frame
+- sequence/sample-clock gap detection
+- bounded audio queues
+- live-session schema/presets
+
+Not implemented yet:
+
+- authenticated production live-session WebSocket runtime
+- PTT turn engine
+- streaming ASR/TTS integration
+- generic ControlDeck paired Device Session
+- M5 firmware client in this repository
+- full duplex / barge-in
+
+Production M5 architecture deliberately forbids giving an M5 browser cookies/service tokens or directly exposing the loopback SonicForge service to LAN. A generic paired Device Session must be implemented in ControlDeck first.
+
+## 8. Focused validation actually executed
 
 ### Release signing
 
-A focused local test run was executed for SonicForge release signing:
+Previously executed:
 
 ```text
 pytest -q tests/test_release_signing.py tests/test_release_signing_negative.py
@@ -113,129 +244,47 @@ pytest -q tests/test_release_signing.py tests/test_release_signing_negative.py
 4 passed in 0.07s
 ```
 
-Validated cases include:
+This covered valid signing plus artifact/context/wrong-key/malformed/noncanonical failures.
 
-- valid Ed25519 signature over canonical manifest;
-- artifact tamper rejection;
-- valid signature over wrong feature/version/platform/architecture/name/size/digest rejected;
-- wrong publisher key rejected;
-- malformed signature rejected;
-- noncanonical manifest rejected.
+### Earlier lightweight baseline
 
-### Schema validation
+An earlier branch state had 9 lightweight tests passing and a fake-worker/Uvicorn smoke. The code has changed materially since then, therefore that result is **not** proof that the current branch is green.
 
-Focused Pydantic validation was executed for `speech.localization.batch`:
+### Current validation policy
 
-- valid JP/EN request accepted;
-- duplicate locale entries rejected;
-- invalid localization mode rejected.
+New tests now cover, but have **not yet been run as a batch**:
 
-### Frontend static checks
+- production bootstrap route ordering
+- Gateway v1 discovery and legacy fallback
+- typed pipeline compile/runtime
+- Host AI -> TTS composition
+- ASR -> Host AI -> TTS stage-local resource ordering
+- M5 edge framing/schema
+- PromptNormalizer durable/provenance integration
+- delivery profile argv and derived asset orchestration
+- existing localization/core/Host client/contracts
 
-`frontend/localization.js` passed `node --check` when authored. A later regression test was added for root frontend, `localization.js` and the direct `/settings/` embedded route, but the current full suite has not yet been executed.
+CI remains intentionally deferred per the requested batched-CI policy.
 
-### Earlier baseline tests
+## 9. Release / promotion gates still required
 
-An earlier lightweight baseline run had 9 tests passing and a fake-worker/Uvicorn smoke was exercised before later hardening changes. Because the implementation changed afterward, **that earlier result is not treated as proof that the current branch full suite is green**.
+Before production-ready status:
 
-### Current local-environment limitation
+1. run one current branch-wide lightweight/static batched validation;
+2. resolve every failure and only then run the intended batched GitHub CI;
+3. merge/validate ControlDeck PR #240 Generic Gateway discovery;
+4. merge/validate ControlDeck PR #239 publisher-signature verifier;
+5. register real publisher public key and test signed fresh install/update/downgrade rejection/rollback;
+6. run real ControlDeck Host Job/Resource/grant/Agent MCP E2E;
+7. run Japanese/English Qwen3-TTS inference and voice clone/design on target hardware;
+8. run Japanese/English/mixed ASR fixtures;
+9. run Stable Audio 3 Small-SFX CPU fixture bank including Japanese PromptNormalizer path;
+10. reproduce ACE-Step ROCm runtime and benchmark 30/60/90-second music generation;
+11. validate real ffmpeg/ffprobe delivery codecs and game import profiles;
+12. implement/test `audio.process` and package delivery only where required;
+13. implement browser/mobile PTT live session;
+14. implement a separate generic ControlDeck paired Device Session before production M5 access;
+15. then validate M5 PTT -> ASR -> LLM -> TTS end-to-end and measure latency/buffer/drop behavior;
+16. add WakeNet/VAD and later AEC/barge-in only after the PTT baseline is stable.
 
-Attempting to clone the current GitHub branches into the execution container failed with:
-
-```text
-Could not resolve host: github.com
-```
-
-Therefore the latest branch-wide pytest/browser suite has not been executed locally in this session. CI is intentionally not being used as a substitute until the large batch is ready.
-
-## 5. Runtime and security boundaries now implemented
-
-1. SonicForge remains an out-of-process Add-on; ControlDeck does not import SonicForge Python/JavaScript.
-2. Heavy workers run in SonicForge-owned runtime environments and communicate through a bounded JSON subprocess protocol.
-3. No `shell=True`; external command parsing uses argv semantics.
-4. Worker cancellation terminates the worker process group and escalates to kill after a bounded timeout.
-5. Worker output must remain under its private work directory and below a size bound.
-6. Host file/project access uses scoped grants and output receipts; raw Host paths are not a public protocol.
-7. GPU work requires a ControlDeck-managed Host Job and Resource Broker lease.
-8. CPU Small-SFX should not require a GPU lease.
-9. Host service credentials are short-lived; active lease credentials can be refreshed through the Host API.
-10. Voice clone reference audio is copied into SonicForge-owned storage and the expiring Host grant is not stored as the durable voice identity.
-11. Clone/import/trained voice profiles require an explicit rights-confirmation event; this is a product safety gate, not legal certification.
-12. Stability model terms are not silently accepted during Game Audio setup.
-13. Optional Game Audio/Music absence does not make healthy Speech Essentials unavailable.
-14. Future Japanese SFX prompt normalization must preserve both original and engine prompt in provenance rather than hiding translation/rewrite behavior.
-
-## 6. Localization implementation
-
-`Localization Studio` is no longer only a draft-state UI.
-
-Current behavior:
-
-```text
-LocalizationBatch
-  └─ LocalizationLine[]
-       ├─ ja_text / en_text
-       ├─ voice_id
-       ├─ outputs.ja / outputs.en -> asset IDs
-       └─ qa
-            ├─ locales.ja / locales.en
-            └─ input_hashes.ja / input_hashes.en
-```
-
-A `speech.localization.batch` task owns expensive work server-side. Supported modes are:
-
-- `pending`: render missing/non-successful locale outputs;
-- `failed`: retry failed locale outputs only;
-- `changed`: rerender only missing/hash-changed outputs;
-- `all`: explicitly rerender all selected outputs.
-
-Each output becomes a normal SonicForge asset with provenance. Semantic correctness is not falsely marked passed; it remains `not_checked` until a real semantic validator is used.
-
-## 7. Release trust state
-
-SonicForge release tooling implements the same trust split as current MediaForge release direction:
-
-```text
-publisher authorization = Ed25519 signature over canonical manifest
-artifact integrity       = SHA-256 + size inside that signed manifest
-runtime authority        = ControlDeck Add-on capability allowlist
-```
-
-SonicForge verifier binds:
-
-```text
-schema_version
-feature_id
-version
-platform
-architecture
-artifact_name
-sha256
-size_bytes
-```
-
-The separate ControlDeck branch `infra/publisher-signed-release-bundles` adds a generic `publisher_public_key` catalog path. If a trusted public key is present, manifest/signature assets are mandatory and the installer must not fall back to the legacy SHA-pin path. Catalog entries without a publisher key temporarily retain the old SHA-pin flow for migration compatibility.
-
-A production publisher public key has **not** been invented or committed by this implementation session. The private signing key must be created and retained outside the repositories; only its public key belongs in ControlDeck trusted configuration.
-
-## 8. Remaining release gates
-
-Before calling SonicForge production-ready, the following evidence is still required:
-
-1. run the current full lightweight pytest/static suite as one batched validation;
-2. install the Add-on into a real ControlDeck using a registered publisher public key;
-3. test signed fresh install, same-version repair, upgrade, downgrade rejection and rollback;
-4. test Host Job + Resource Broker lifecycle against real ControlDeck;
-5. test scoped input/output grants through the real embedded Browser Bridge;
-6. run Japanese/English Qwen3-TTS inference on target hardware;
-7. run Japanese/English/mixed ASR fixtures on target hardware;
-8. load Stable Audio 3 Small-SFX on CPU and run the SF4 fixture bank;
-9. implement/validate Japanese SFX PromptNormalizer behavior;
-10. reproduce a pinned ACE-Step ROCm runtime and run 30/60/90 second music fixtures;
-11. compare ACE-Step 0.6B vs 1.7B planner routes;
-12. add/test Stable Audio 3 Small-Music CPU fallback;
-13. validate loop processing/export for SFX and music;
-14. run browser/mobile reconnect/reattach E2E;
-15. benchmark RAM/VRAM/disk/download/latency and record measured routing thresholds.
-
-Until those checks are complete, model/hardware compatibility remains `NOT TESTED`, even where the worker/runtime implementation is present.
+Until these checks complete, heavy model/hardware compatibility and live-device readiness remain `NOT TESTED` even where contracts/adapters exist.

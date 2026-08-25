@@ -33,6 +33,8 @@ QWEN_VOICE_DESIGN = "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
 KOTOBA_WHISPER = "kotoba-tech/kotoba-whisper-v2.0"
 WHISPER_TURBO = "openai/whisper-large-v3-turbo"
 STABLE_AUDIO_SMALL_SFX = "stabilityai/stable-audio-3-small-sfx"
+ACESTEP_DIT = "acestep-v15-turbo"
+ACESTEP_LM = "acestep-5Hz-lm-0.6B"
 
 
 class SetupError(RuntimeError):
@@ -48,6 +50,7 @@ class RuntimeSpec:
     extra_install: tuple[str, ...] = ()
     smoke_imports: tuple[str, ...] = ()
     prefetch_models: tuple[str, ...] = ()
+    engine_models: tuple[str, ...] = ()
     required_terms: tuple[str, ...] = ()
 
 
@@ -73,8 +76,8 @@ def runtime_specs(
                 "speech-essentials",
                 runtime_id,
                 settings.repo_root / "runtimes" / runtime_id / "requirements.txt",
-                # Includes the runtime plus all models exposed by the initial
-                # Speech/Voices UI. This is an estimate, not a model-size claim.
+                # Runtime + all models exposed by initial Speech/Voices UI.
+                # This remains an intentionally conservative free-space estimate.
                 18_000_000_000,
                 smoke_imports=("torch", "qwen_tts", "transformers"),
                 prefetch_models=(
@@ -117,6 +120,7 @@ def runtime_specs(
                     "git+https://github.com/ace-step/ACE-Step-1.5@14c0211d5a0653b0f63e27686f4c3f151b4d8629",
                 ),
                 smoke_imports=("torch", "acestep"),
+                engine_models=(ACESTEP_DIT, ACESTEP_LM),
             )
         )
     return specs
@@ -179,7 +183,7 @@ def plan(
                 "runtime_id": s.runtime_id,
                 "requirements": s.requirements.name,
                 "estimated_bytes": s.estimated_bytes,
-                "models": list(s.prefetch_models),
+                "models": [*s.prefetch_models, *s.engine_models],
                 "terms": list(s.required_terms),
             }
             for s in specs
@@ -256,7 +260,7 @@ def _fingerprint(spec: RuntimeSpec) -> str:
     for item in spec.extra_install:
         h.update(b"\0")
         h.update(item.encode())
-    for model in spec.prefetch_models:
+    for model in (*spec.prefetch_models, *spec.engine_models):
         h.update(b"\0model\0")
         h.update(model.encode())
     h.update(sys.version.encode())
@@ -297,6 +301,51 @@ async def _prefetch_models(
     return value if isinstance(value, list) else []
 
 
+async def _prepare_engine_models(
+    settings: Settings,
+    python: Path,
+    spec: RuntimeSpec,
+    env: dict[str, str],
+) -> list[dict]:
+    if (
+        not spec.engine_models
+        or os.environ.get("SONICFORGE_SETUP_SKIP_MODEL_PREFETCH") == "1"
+    ):
+        return []
+    if spec.component != "music":
+        raise SetupError(f"unsupported engine model preparation: {spec.component}")
+    checkpoint_dir = settings.models_dir / "ace-step"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    code = (
+        "import json,sys\n"
+        "from pathlib import Path\n"
+        "from acestep.api.model_download import ensure_model_downloaded\n"
+        "root=Path(sys.argv[1]).resolve()\n"
+        "out=[]\n"
+        "for model in json.loads(sys.argv[2]):\n"
+        " p=Path(ensure_model_downloaded(model,str(root))).resolve()\n"
+        " if not p.exists(): raise RuntimeError(f'model preparation returned missing path: {p}')\n"
+        " out.append({'model':model,'path':str(p),'source':'acestep.model_download'})\n"
+        "print(json.dumps(out))"
+    )
+    raw = await _run_process(
+        [
+            str(python),
+            "-c",
+            code,
+            str(checkpoint_dir),
+            json.dumps(list(spec.engine_models)),
+        ],
+        env=env,
+        capture=True,
+    )
+    try:
+        value = json.loads(raw.strip().splitlines()[-1])
+    except (json.JSONDecodeError, IndexError) as exc:
+        raise SetupError("ACE-Step model preparation returned invalid metadata") from exc
+    return value if isinstance(value, list) else []
+
+
 async def _build_runtime(settings: Settings, spec: RuntimeSpec) -> dict:
     active = settings.runtime_dir / spec.runtime_id
     fingerprint = _fingerprint(spec)
@@ -308,9 +357,7 @@ async def _build_runtime(settings: Settings, spec: RuntimeSpec) -> dict:
     if settings.setup_test_mode:
         active.mkdir(parents=True, exist_ok=True)
         (active / "bin").mkdir(exist_ok=True)
-        (active / "bin/python").write_text(
-            "test-mode\n" * 8, encoding="utf-8"
-        )
+        (active / "bin/python").write_text("test-mode\n" * 8, encoding="utf-8")
         meta = {
             "runtime_id": spec.runtime_id,
             "test_mode": True,
@@ -336,25 +383,18 @@ async def _build_runtime(settings: Settings, spec: RuntimeSpec) -> dict:
         pip = staging / "bin/pip"
         python = staging / "bin/python"
         await _run_process([str(pip), "install", "--upgrade", "pip"], env=env)
-        await _run_process(
-            [str(pip), "install", "-r", str(spec.requirements)], env=env
-        )
+        await _run_process([str(pip), "install", "-r", str(spec.requirements)], env=env)
         for package in spec.extra_install:
-            await _run_process(
-                [str(pip), "install", "--no-deps", package], env=env
-            )
+            await _run_process([str(pip), "install", "--no-deps", package], env=env)
         if spec.smoke_imports:
             code = "import importlib,sys; [importlib.import_module(x) for x in sys.argv[1:]]"
-            await _run_process(
-                [str(python), "-c", code, *spec.smoke_imports], env=env
-            )
+            await _run_process([str(python), "-c", code, *spec.smoke_imports], env=env)
         models = await _prefetch_models(settings, python, spec, env)
+        models.extend(await _prepare_engine_models(settings, python, spec, env))
         meta = {
             "runtime_id": spec.runtime_id,
             "backend": detect_backend(),
-            "requirements_sha256": hashlib.sha256(
-                spec.requirements.read_bytes()
-            ).hexdigest(),
+            "requirements_sha256": hashlib.sha256(spec.requirements.read_bytes()).hexdigest(),
             "fingerprint": fingerprint,
             "sources": list(spec.extra_install),
             "models": models,

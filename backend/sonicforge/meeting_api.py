@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -10,6 +11,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .access import websocket_peer_is_trusted
 from .db import MeetingSegment, MeetingSession, utcnow
 from .edge_protocol import AudioFrame, EdgeProtocolError, SequenceTracker, STREAM_MIC
 from .host.client import HostApiError, HostIdentity
@@ -84,11 +86,11 @@ async def _host_identity(base, websocket: WebSocket) -> HostIdentity | None:
         or websocket.headers.get("x-control-deck-addon-id")
     )
     if not has_host:
-        if base.settings.host not in {"127.0.0.1", "localhost", "::1"}:
+        if not websocket_peer_is_trusted(websocket, bind_host=base.settings.host):
             raise HostApiError(
-                "host_service_token_required",
-                "Unauthenticated meeting capture is allowed on loopback; remote devices should use ControlDeck relay/Tailscale policy",
-                status_code=401,
+                "trusted_local_peer_required",
+                "Unauthenticated meeting capture is limited to trusted local-network peers",
+                status_code=403,
             )
         return None
     return await base.host_client.authenticate(websocket.headers)
@@ -129,9 +131,7 @@ def create_meeting_router(base) -> APIRouter:
                     continue
                 start = item.start_ms / 1000
                 end = item.end_ms / 1000
-                lines.append(
-                    f"[{start:0.1f}-{end:0.1f}] {item.source_text.strip()}"
-                )
+                lines.append(f"[{start:0.1f}-{end:0.1f}] {item.source_text.strip()}")
                 if item.translated_text:
                     lines.append(f"  -> {item.translated_text.strip()}")
             return "\n".join(lines) + ("\n" if lines else "")
@@ -140,8 +140,8 @@ def create_meeting_router(base) -> APIRouter:
     async def meeting_ws(websocket: WebSocket):
         try:
             identity = await _host_identity(base, websocket)
-        except HostApiError:
-            await websocket.close(code=4401)
+        except HostApiError as exc:
+            await websocket.close(code=4403 if exc.status_code == 403 else 4401)
             return
         await websocket.accept()
         host_session: LiveHostSession | None = None
@@ -152,10 +152,17 @@ def create_meeting_router(base) -> APIRouter:
         meeting_id: str | None = None
         current_spool: AdaptiveSpoolFile | None = None
         failed = False
+        transport_open = True
 
         async def send_json(value: dict) -> None:
-            async with send_lock:
-                await websocket.send_json(value)
+            nonlocal transport_open
+            if not transport_open:
+                return
+            try:
+                async with send_lock:
+                    await websocket.send_json(value)
+            except (RuntimeError, WebSocketDisconnect):
+                transport_open = False
 
         try:
             first = await websocket.receive_text()
@@ -280,17 +287,11 @@ def create_meeting_router(base) -> APIRouter:
                                 }
                             )
 
-                        result = await worker_pool.execute(
-                            request,
-                            work_dir,
-                            progress,
-                        )
+                        result = await worker_pool.execute(request, work_dir, progress)
                         source_text = result.payload.get("text")
                         if not isinstance(source_text, str):
                             raise WorkerError("meeting ASR returned no text")
-                        translated_text, translation_meta = await translate_text(
-                            source_text
-                        )
+                        translated_text, translation_meta = await translate_text(source_text)
                         with base.session_factory() as db:
                             db.add(
                                 MeetingSegment(
@@ -306,8 +307,7 @@ def create_meeting_router(base) -> APIRouter:
                                     asr_metadata={
                                         "engine_id": result.engine_id,
                                         "model_id": result.model_id,
-                                        "segments": result.payload.get("segments")
-                                        or [],
+                                        "segments": result.payload.get("segments") or [],
                                     },
                                     translation_metadata=translation_meta,
                                 )
@@ -342,22 +342,17 @@ def create_meeting_router(base) -> APIRouter:
                                 )
                             )
                             db.commit()
-                        try:
-                            await send_json(
-                                {
-                                    "type": "meeting.segment.error",
-                                    "meeting_id": meeting_id,
-                                    "sequence": sequence,
-                                    "message": str(exc)[:500],
-                                }
-                            )
-                        except RuntimeError:
-                            pass
+                        await send_json(
+                            {
+                                "type": "meeting.segment.error",
+                                "meeting_id": meeting_id,
+                                "sequence": sequence,
+                                "message": str(exc)[:500],
+                            }
+                        )
                     finally:
                         raw_path.unlink(missing_ok=True)
                         wav_path.unlink(missing_ok=True)
-                        import shutil
-
                         shutil.rmtree(work_dir, ignore_errors=True)
                         queue.task_done()
 
@@ -410,9 +405,7 @@ def create_meeting_router(base) -> APIRouter:
                             "start_ms": start_ms,
                             "end_ms": end_ms,
                             "backlog": queue.qsize(),
-                            "memory_backed": path.is_relative_to(
-                                spool_manager.memory_root
-                            )
+                            "memory_backed": path.is_relative_to(spool_manager.memory_root)
                             if spool_manager.memory_root is not None
                             else False,
                         }
@@ -426,6 +419,7 @@ def create_meeting_router(base) -> APIRouter:
                 message = await websocket.receive()
                 if message.get("type") == "websocket.disconnect":
                     disconnected = True
+                    transport_open = False
                     await flush_chunk(notify=False)
                     break
                 if message.get("text") is not None:
@@ -440,17 +434,13 @@ def create_meeting_router(base) -> APIRouter:
                     if kind == "stop":
                         await flush_chunk()
                         break
-                    raise EdgeProtocolError(
-                        f"unsupported meeting control message: {kind}"
-                    )
+                    raise EdgeProtocolError(f"unsupported meeting control message: {kind}")
                 binary = message.get("bytes")
                 if binary is None:
                     continue
                 frame = AudioFrame.decode(binary)
                 if frame.stream != STREAM_MIC:
-                    raise EdgeProtocolError(
-                        "meeting client may only send microphone frames"
-                    )
+                    raise EdgeProtocolError("meeting client may only send microphone frames")
                 observation = tracker.observe(frame)
                 if observation.duplicate_or_old:
                     continue
@@ -571,6 +561,7 @@ def create_meeting_router(base) -> APIRouter:
                 )
         except WebSocketDisconnect:
             failed = False
+            transport_open = False
         except Exception as exc:
             failed = True
             if meeting_id is not None:
@@ -580,16 +571,13 @@ def create_meeting_router(base) -> APIRouter:
                         row.state = "interrupted"
                         row.ended_at = utcnow()
                         db.commit()
-            try:
-                await send_json(
-                    {
-                        "type": "error",
-                        "code": "meeting_failed",
-                        "message": str(exc)[:500],
-                    }
-                )
-            except RuntimeError:
-                pass
+            await send_json(
+                {
+                    "type": "error",
+                    "code": "meeting_failed",
+                    "message": str(exc)[:500],
+                }
+            )
         finally:
             if current_spool is not None:
                 current_spool.cleanup()

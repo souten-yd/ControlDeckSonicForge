@@ -3,7 +3,7 @@
   "service": {
     "id": "sonic-forge",
     "version": "0.1.0",
-    "state": "degraded"
+    "state": "available"
   },
   "localization": {
     "ui_locales": [
@@ -18,7 +18,7 @@
     "default_content_language": "auto"
   },
   "setup": {
-    "state": "setup_required",
+    "state": "completed",
     "profile": "speech-essentials",
     "action": {
       "kind": "open_route",
@@ -38,12 +38,12 @@
       {
         "id": "game-audio",
         "state": "setup_required",
-        "reason_code": "component_not_installed"
+        "reason_code": "optional_component_not_installed"
       },
       {
         "id": "music",
         "state": "setup_required",
-        "reason_code": "component_not_installed"
+        "reason_code": "optional_component_not_installed"
       }
     ]
   },
@@ -112,7 +112,7 @@
       "id": "audio.sfx.generate",
       "state": "setup_required",
       "quality_tier": "experimental",
-      "reason_code": "component_not_installed",
+      "reason_code": "optional_component_not_installed",
       "features": {
         "variations": true,
         "loop": true
@@ -126,7 +126,7 @@
       "id": "music.generate",
       "state": "setup_required",
       "quality_tier": "experimental",
-      "reason_code": "component_not_installed",
+      "reason_code": "optional_component_not_installed",
       "features": {
         "instrumental": true,
         "bpm_hint": true,

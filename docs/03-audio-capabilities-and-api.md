@@ -5,30 +5,52 @@ Date: 2026-08-25
 
 ## 1. API philosophy
 
-Public callers describe **what they want**, not which internal Python package to call.
+Public callers describe **what they want**, not which internal Python package/model to call.
 
-Bad public contract:
+Bad stable contract:
 
 ```json
 {"engine":"gpt-sovits","model":"foo.ckpt","temperature":0.8}
 ```
 
-Preferred high-level contract:
+Preferred:
 
 ```json
 {
-  "task":"speech.synthesize",
-  "input":{"text":"こんにちは"},
+  "task":"speech.tts.synthesize",
+  "input":{"text":"こんにちは / Hello"},
   "profile":"character-dialogue",
   "quality":"balanced"
 }
 ```
 
-Engine/model pinning remains possible through an optional advanced `routing` object and is never required for ordinary callers.
+Engine/model pinning is an optional Expert `routing` hint and never required for ordinary callers.
 
-## 2. Capability namespace
+The stable API is intentionally smaller than the full UI feature set. Do not add a new workflow/tool contract merely because one engine exposes another knob.
 
-### 2.1 TTS
+## 2. Language contract
+
+Initial public normalized values:
+
+```text
+content_language = auto | ja | en
+ui_locale        = auto | ja | en        UI/settings concept, not an inference requirement
+```
+
+Internally SonicForge may retain BCP-47/localized metadata such as `ja-JP` or `en-US`, but normal callers should not be forced to choose a region unless it materially changes the requested voice/output.
+
+Rules:
+
+- Japanese and English are first-class speech languages.
+- `auto` is convenient for unknown/mixed content.
+- when the language is known, explicit `ja`/`en` is preferred for predictable routing/pronunciation.
+- capability metadata advertises the actual languages tested/available for the installed route.
+- requesting an unsupported language fails clearly; do not silently synthesize/transcribe with the wrong language.
+- language support is metadata, **not** a combinatorial capability name. Do not create `speech.asr.ja_en`, `speech.asr.en_fr`, etc.
+
+## 3. Capability namespace
+
+### 3.1 TTS
 
 ```text
 speech.tts.synthesize
@@ -41,7 +63,7 @@ speech.tts.dialogue_batch
 speech.tts.pronunciation
 ```
 
-### 2.2 ASR
+### 3.2 ASR
 
 ```text
 speech.asr.transcribe
@@ -50,10 +72,18 @@ speech.asr.timestamps
 speech.asr.segment
 speech.asr.diarize          optional
 speech.asr.align            optional
-speech.asr.ja_en            optional
 ```
 
-### 2.3 Audio/SFX
+### 3.3 Localization/QA
+
+These are high-level SonicForge capabilities, not additional model IDs:
+
+```text
+speech.localization.batch
+speech.qa.roundtrip         optional heuristic
+```
+
+### 3.4 Audio/SFX
 
 ```text
 audio.sfx.generate
@@ -68,9 +98,11 @@ audio.processing.resample
 audio.processing.convert
 audio.processing.fade
 audio.processing.loop_points
+audio.qa.loudness
+audio.qa.loop_seam
 ```
 
-### 2.4 Music
+### 3.5 Music
 
 ```text
 music.generate
@@ -83,7 +115,7 @@ music.accompaniment         optional
 music.lyrics_to_song        later
 ```
 
-### 2.5 Packaging
+### 3.6 Packaging
 
 ```text
 asset.pack.generic
@@ -92,13 +124,11 @@ asset.pack.web
 asset.pack.dialogue
 ```
 
-## 3. Capability document
+## 4. Capability document
 
 `GET /addon/v1/capabilities`
 
-The response is runtime-derived, not hard-coded UI configuration.
-
-Each capability includes:
+Runtime-derived example:
 
 ```json
 {
@@ -108,7 +138,8 @@ Each capability includes:
   "reason_code": null,
   "reason": null,
   "features": {
-    "languages": ["ja"],
+    "languages": ["ja", "en"],
+    "mixed_language": true,
     "streaming": true,
     "voice_clone": true
   },
@@ -128,11 +159,11 @@ setup_required
 unavailable
 ```
 
-The UI, workflow catalog and agent descriptions derive feature availability from this document.
+The UI/workflow/agent descriptions derive availability from this document.
 
-## 4. Generic create request
+Keep state meanings distinct from install catalog state. `installed`, `available`, `recommended`, `loaded`, and `running` are not synonyms.
 
-The stable cross-domain job request should support a generic task envelope.
+## 5. Generic create request
 
 ```json
 {
@@ -155,32 +186,46 @@ The stable cross-domain job request should support a generic task envelope.
 }
 ```
 
-`routing` is advanced/optional. Unknown user-provided engine/model IDs must be rejected cleanly rather than passed to arbitrary loaders.
+Stable wire quality values may remain:
 
-## 5. TTS request
+```text
+fast
+balanced
+quality
+```
 
-Example normalized request:
+User-facing copy is:
+
+```text
+Fast / Recommended / High quality
+高速 / おすすめ / 高品質
+```
+
+`routing` is Expert/optional. Unknown engine/model IDs are rejected cleanly rather than forwarded to arbitrary loaders.
+
+## 6. TTS request
 
 ```json
 {
   "task": "speech.tts.synthesize",
   "input": {
-    "text": "おはよう。今日もよろしくね。",
-    "language": "ja",
+    "text": "おはよう。Ready to go?",
+    "content_language": "auto",
     "voice_id": "voice:character-a",
     "style": {
       "preset": "cheerful",
       "strength": 0.7,
       "speed": 1.0,
       "pitch": 0.0
-    }
+    },
+    "pronunciation_dictionary_id": "dictionary:project-main"
   },
   "profile": "character-dialogue",
   "quality": "balanced"
 }
 ```
 
-Normalized fields are best-effort. An adapter may ignore unsupported non-required fields only when capability metadata explicitly says they are unsupported; UI should not expose unavailable controls.
+Normalized controls are capability-dependent. UI does not expose unsupported fields merely as disabled clutter.
 
 ### Voice identity
 
@@ -190,23 +235,42 @@ Use logical IDs:
 voice:<uuid-or-slug>
 ```
 
-A voice record may refer to:
+A voice record may represent:
 
 - built-in engine speaker
 - imported trained model
 - reference-audio clone recipe
 - voice-design recipe
 
-Callers do not pass raw checkpoint paths.
+Voice metadata includes supported/preferred languages. Callers never use raw checkpoint paths as identity.
 
-## 6. ASR request
+## 7. Pronunciation dictionary
+
+Project-scoped logical dictionary:
+
+```json
+{
+  "dictionary_id": "dictionary:project-main",
+  "entries": [
+    {
+      "surface": "SonicForge",
+      "language": "ja",
+      "pronunciation": "ソニックフォージ"
+    }
+  ]
+}
+```
+
+Stable entries describe desired pronunciation. Engine-specific phoneme syntax belongs to adapter/Expert extensions.
+
+## 8. ASR request
 
 ```json
 {
   "task": "speech.asr.transcribe",
   "input": {
     "asset_id": "asset:...",
-    "language": "ja",
+    "content_language": "auto",
     "timestamps": "segment",
     "punctuation": true,
     "normalize_text": true
@@ -215,48 +279,53 @@ Callers do not pass raw checkpoint paths.
 }
 ```
 
-Result example:
+Result:
 
 ```json
 {
   "text": "...",
-  "language": "ja",
+  "detected_language": "ja",
   "segments": [
-    {"start_ms":0,"end_ms":1820,"text":"..."}
+    {
+      "start_ms": 0,
+      "end_ms": 1820,
+      "text": "...",
+      "language": "ja"
+    }
   ],
   "engine_metadata": {},
   "asset_id": null
 }
 ```
 
-Long transcripts may be stored as an asset/document with a bounded summary in the Host Job result.
+Segment language is optional and emitted only if the route can support it reliably.
+Long transcripts may be stored as assets/documents with bounded Host Job summaries.
 
-## 7. Streaming ASR/TTS
+## 9. Streaming ASR/TTS
 
-Streaming requires a session protocol separate from durable batch generation.
-
-Conceptual endpoints:
+Conceptual protocol:
 
 ```text
-POST /addon/v1/realtime/sessions
-WS   /addon/v1/realtime/sessions/{id}
+POST   /addon/v1/realtime/sessions
+WS     /addon/v1/realtime/sessions/{id}
 DELETE /addon/v1/realtime/sessions/{id}
 ```
 
-Session requirements:
+Requirements:
 
-- service token / authorized user context
+- scoped authorized session
+- explicit audio format negotiation
+- language mode
 - bounded concurrent sessions
-- explicit sample format negotiation
 - backpressure
-- heartbeats/timeouts
+- heartbeat/timeout/reconnect semantics
 - cancellation/close
-- resource lease when GPU-backed
-- no raw Host cookies
+- Resource Broker lease when GPU-backed
+- no raw Host credentials
 
-For microphone capture, browser permissions remain in the isolated SonicForge view. Audio is sent to SonicForge through the host-mediated proxy path.
+Do not freeze detailed frame semantics until real engine prototypes establish requirements.
 
-## 8. SFX/game-audio request
+## 10. SFX request
 
 ```json
 {
@@ -266,26 +335,26 @@ For microphone capture, browser permissions remain in the isolated SonicForge vi
     "duration_sec": 0.8,
     "category": "ui.confirm",
     "loop": false,
-    "variation_count": 4
+    "variation_count": 3
   },
   "profile": "game-ui",
   "quality": "balanced"
 }
 ```
 
-Game-oriented normalized metadata should include when relevant:
+Variation count is bounded; the Easy UI should not encourage large candidate batches by default.
 
-- `category`
-- `loopable`
-- loop start/end
-- peak level
-- integrated loudness if measured
+Useful normalized metadata:
+
+- category
+- loopable / loop start/end
+- peak level / integrated loudness when measured
 - duration
 - sample rate/channels
 - variation group id
 - tags
 
-## 9. Music request
+## 11. Music request
 
 ```json
 {
@@ -295,22 +364,72 @@ Game-oriented normalized metadata should include when relevant:
     "duration_sec": 90,
     "instrumental": true,
     "bpm": 118,
-    "key": null,
-    "time_signature": "4/4",
-    "loop": true
+    "loop": true,
+    "variation_count": 2
   },
   "profile": "game-bgm",
   "quality": "balanced"
 }
 ```
 
-Engine-specific lyric/section controls live behind optional feature extensions until a stable normalized contract is proven.
+Engine-specific lyric/section/repaint controls remain optional namespaced extensions until a stable normalized contract is proven.
 
-## 10. Output asset contract
+## 12. Localization batch
 
-Every generated audio artifact becomes a SonicForge asset record.
+Localization Studio can use a dedicated SonicForge endpoint/capability while keeping the public Host executor set small.
 
-Required fields:
+Conceptual request:
+
+```json
+{
+  "project_profile_id": "project-profile:game-a",
+  "lines": [
+    {
+      "line_id": "npc_001",
+      "character_id": "character:guide",
+      "texts": {
+        "ja": "こっちだよ。",
+        "en": "Over here."
+      },
+      "voice_id": "voice:guide",
+      "style": "friendly"
+    }
+  ],
+  "qa": {
+    "roundtrip_asr": true
+  }
+}
+```
+
+This creates durable per-batch/per-line state and logical JP/EN assets.
+
+The ControlDeck public workflow catalog does **not** need a fifth permanent executor solely for Localization. It may invoke generic speech generation/batch contracts or a future additive executor only if real workflow use proves the need.
+
+## 13. Automatic QA result
+
+QA is evidence about checks actually performed.
+
+Example:
+
+```json
+{
+  "status": "warning",
+  "checks": [
+    {"id":"decode","state":"passed"},
+    {"id":"clipping","state":"passed"},
+    {"id":"tts_asr_roundtrip","state":"warning","score":0.91},
+    {"id":"semantic_naturalness","state":"not_checked"}
+  ]
+}
+```
+
+Never return an empty warning list as if an unverifiable requirement was checked.
+
+## 14. Output asset contract
+
+Every generated artifact becomes a SonicForge asset.
+
+Required:
 
 ```text
 asset_id
@@ -329,9 +448,10 @@ generation_profile
 provenance_id
 ```
 
-Useful optional fields:
+Useful optional:
 
 ```text
+content_language
 loudness_lufs
 true_peak_dbfs
 loop_start_samples
@@ -340,13 +460,15 @@ bpm
 key
 tags
 variation_group
+localization_line_id
 waveform_preview
 spectrogram_preview
 ```
 
-Raw local storage paths are internal and never included in Host-facing asset metadata.
+The asset `sha256` is a content identity/integrity field and is unrelated to release publisher authorization.
+Raw local paths are never Host-facing metadata.
 
-## 11. Provenance contract
+## 15. Provenance contract
 
 At minimum:
 
@@ -360,6 +482,7 @@ model_revision
 model_license_id
 input_asset_ids
 input_voice_ids
+content_language
 prompt_hash or prompt text according to privacy policy
 seed when supported
 normalized parameters
@@ -368,11 +491,9 @@ SonicForge version
 created_at
 ```
 
-For voice clone/reference operations also record rights/consent reference metadata; see security document.
+Voice clone/reference operations additionally record rights/consent metadata.
 
-## 12. Engine adapter interface
-
-Conceptual Python boundary:
+## 16. Engine adapter interface
 
 ```python
 class EngineAdapter(Protocol):
@@ -385,34 +506,27 @@ class EngineAdapter(Protocol):
     async def unload(self) -> None: ...
 ```
 
-The core communicates with heavy workers over IPC/HTTP and does not import the adapter's heavy ML dependencies into the core process.
+Heavy adapters run out of the core process.
 
-## 13. Routing
+## 17. Routing
 
 Routing considers:
 
 1. required capability/features
-2. language (Japanese preference)
-3. requested voice/profile
-4. quality/latency preference
+2. explicit/auto content language
+3. requested voice/project profile
+4. quality/latency policy
 5. hardware/backend availability
-6. model availability/license state
-7. estimated VRAM/resource wait
-8. explicit user pin, if any
+6. model installation/license state
+7. locally measured performance/resource estimates
+8. current Resource Broker constraints
+9. explicit Expert engine/model pin
 
-Suggested quality presets:
+Japanese specialization does not justify routing English to a Japanese-only model. Use a language-appropriate adapter.
 
-```text
-fast
-balanced
-quality
-```
+## 18. Stable Workflow executors
 
-Presets map to routing policy, not globally fixed model names.
-
-## 14. Workflow executors
-
-Recommended stable executors:
+Keep the first frozen set deliberately small:
 
 ```text
 sonic.speech.synthesize
@@ -421,38 +535,30 @@ sonic.audio.generate
 sonic.music.generate
 ```
 
-Input/output JSON Schemas live under `schemas/` and must validate both at Host boundary and SonicForge boundary.
+Do not create an executor for every capability. Rich capability metadata exists for discovery/routing.
 
-## 15. Agent tools
+## 19. Agent tools
 
-### `sonic.capabilities`
+Initial stable set:
 
-Returns bounded capability/runtime information intended for planning.
+```text
+sonic.capabilities
+sonic.generate
+sonic.transcribe
+sonic.inspect
+sonic.pack
+```
 
-### `sonic.generate`
+Agents can request language/task/profile without knowing model IDs.
+No tool accepts arbitrary Host paths.
 
-Generic TTS/SFX/music generation by stable task id.
+## 20. Error model
 
-### `sonic.transcribe`
-
-Transcribes a Host-granted audio asset.
-
-### `sonic.inspect`
-
-Returns bounded audio/provenance metadata.
-
-### `sonic.pack`
-
-Commits an existing SonicForge asset into the current authorized project output grant.
-
-Agent tools never accept arbitrary host filesystem paths.
-
-## 16. Error model
-
-Stable categories:
+Stable categories include:
 
 ```text
 invalid_request
+unsupported_language
 capability_unavailable
 setup_required
 engine_unavailable
@@ -468,19 +574,20 @@ output_validation_failed
 internal_error
 ```
 
-Errors include a stable machine code, human message, retryability and optional remediation action. Do not leak stack traces, tokens or absolute paths.
+Errors include stable machine code, localized/presentable information, retryability and optional remediation action; never leak secrets/absolute paths/stack traces.
 
-## 17. Audio output validation
+## 21. Output validation
 
-Before an asset is marked succeeded, validate:
+Before success:
 
 - file decodes
 - duration is sane/non-zero
-- sample rate/channels match declared metadata
-- no NaN/invalid samples
-- file hash/size recorded
-- loop points are in bounds
-- requested codec/container is valid
-- provenance exists
+- sample rate/channels match metadata
+- samples are valid
+- hash/size recorded
+- loop points in bounds
+- codec/container valid
+- required provenance exists
+- requested deterministic profile constraints are actually checked
 
-Optional profile-specific validators can enforce loudness/peak/length constraints for game assets.
+Profile-specific validators can enforce loudness/peak/duration/loop requirements.

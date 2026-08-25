@@ -689,10 +689,6 @@ class JobManager:
                     self._watch_host_cancel(job_id, execution),
                     name=f"sonicforge-host-control-{job_id}",
                 )
-            if self._gpu_required(request) and execution is None:
-                raise WorkerError(
-                    "GPU work requires a ControlDeck-managed Host Job and Resource Broker lease"
-                )
             if execution is not None:
                 lease_renew = await self._acquire_resource(
                     job_id, request, execution

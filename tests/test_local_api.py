@@ -50,7 +50,10 @@ def test_trusted_local_asr_needs_no_control_deck_auth(env, monkeypatch):
         assert job["result"]["text"] == "fake transcription"
 
 
-def test_trusted_local_tts_needs_no_control_deck_auth(env):
+def test_trusted_local_tts_needs_no_control_deck_auth(env, monkeypatch):
+    from sonicforge.jobs import JobManager
+
+    monkeypatch.setattr(JobManager, "_gpu_required", lambda self, request: True)
     module = load_app()
     with TestClient(module.app) as client:
         response = client.post(

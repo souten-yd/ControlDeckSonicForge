@@ -39,7 +39,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Resource Broker | IMPLEMENTED, HOSTED SPEECH E2E PASS | real ControlDeck Host Jobs and Broker leases completed Japanese Qwen TTS and Kotoba-Whisper ASR on the R9700; live session lease retention remains NOT TESTED |
 | LLM residency hold | IMPLEMENTED ON CONTROLDECK #240 | 120 s TTL + 30 s heartbeat; dead SonicForge stops heartbeat and hold expires |
 | Host AI streaming | IMPLEMENTED ON CONTROLDECK #240 | provider-neutral SSE `text.generate`; reasoning/private chunks suppressed |
-| Local unauthenticated media API | IMPLEMENTED, ROCM DIRECT PATH FAIL | HTTP access policy works, but direct unauthenticated TTS/ASR on an installed ROCm runtime currently lacks a Host identity for the mandatory Broker lease and fails closed; contract correction remains required |
+| Local unauthenticated media API | IMPLEMENTED, REAL JA TTS PASS | trusted-local work remains independent of Host-owned Jobs/Broker credentials; real Japanese Qwen TTS passed without user-facing authentication, while Host-managed executions still acquire Broker leases before GPU work |
 | TTS | CUSTOMVOICE JA PASS, CLONE/DESIGN NOT TESTED | real Qwen3-TTS CustomVoice 0.6B generated a 24 kHz mono Japanese WAV with `Ono_Anna` on R9700 through Host Job/Broker; Clone Base and VoiceDesign remain NOT TESTED |
 | ASR Japanese | REAL MODEL PASS | Kotoba-Whisper v2 transcribed the generated Japanese fixture through scoped `grant:` + Host Job/Broker in 10.057 s; recognition was usable but rendered “SonicForge” imperfectly |
 | ASR multilingual/English | IMPLEMENTED, REAL MODEL NOT TESTED | Whisper large-v3-turbo path |
@@ -223,7 +223,7 @@ Real setup/runtime evidence:
 - ControlDeck restarted on the combined Host changes, reported `/api/v1/health` healthy, accepted the SonicForge v2 manifest, enabled all requested capabilities and projected `sonic-forge` into the effective registry;
 - real Japanese CustomVoice TTS completed through a ControlDeck Host Job and Resource Broker lease and produced a 4.320 s, 24 kHz, mono PCM WAV;
 - real Kotoba-Whisper Japanese ASR consumed that WAV through a scoped `grant:` and completed through a Host Job/Broker lease in 10.057 s;
-- direct trusted-network TTS without Host identity failed closed with `GPU work requires a ControlDeck-managed Host Job and Resource Broker lease`; the advertised unauthenticated ROCm behavior is therefore not yet accepted;
+- the initial direct trusted-network TTS attempt incorrectly required a Host identity for GPU work; after removing that unconditional guard, real Japanese Qwen TTS completed without user-facing authentication as `asset:6df66bb1-32c0-4513-b852-622c10389683`; hosted executions still acquire Broker leases before worker launch;
 - release bundle build produced a 24,288,632-byte linux-x86_64 artifact; disposable Ed25519 signing/CLI verification passed and appended-byte tampering was rejected;
 - real execution exposed and fixed Qwen third-party stdout pollution of the JSON worker protocol and the greedy asset-content route shadowing bug.
 

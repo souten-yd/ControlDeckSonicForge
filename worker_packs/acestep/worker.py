@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 payload = json.loads(sys.stdin.readline())
@@ -16,10 +17,11 @@ print(
 )
 
 try:
-    import acestep
-    from acestep.handler import AceStepHandler
-    from acestep.inference import GenerationConfig, GenerationParams, generate_music
-    from acestep.llm_inference import LLMHandler
+    with redirect_stdout(sys.stderr):
+        import acestep
+        from acestep.handler import AceStepHandler
+        from acestep.inference import GenerationConfig, GenerationParams, generate_music
+        from acestep.llm_inference import LLMHandler
 
     # ACE-Step's upstream resolver gives ACESTEP_CHECKPOINTS_DIR precedence over
     # project_root/checkpoints. SonicForge sets that variable to its own model
@@ -36,22 +38,24 @@ try:
     lm_model = os.environ.get("SONICFORGE_ACESTEP_LM", "acestep-5Hz-lm-0.6B")
     lm_backend = os.environ.get("SONICFORGE_ACESTEP_LM_BACKEND", "pt")
 
-    dit = AceStepHandler()
-    status, ok = dit.initialize_service(
-        project_root=project_root,
-        config_path=dit_model,
-        device=device,
-    )
+    with redirect_stdout(sys.stderr):
+        dit = AceStepHandler()
+        status, ok = dit.initialize_service(
+            project_root=project_root,
+            config_path=dit_model,
+            device=device,
+        )
     if not ok:
         raise RuntimeError(f"ACE-Step DiT initialization failed: {status}")
 
-    llm = LLMHandler()
-    status, ok = llm.initialize(
-        checkpoint_dir=checkpoints,
-        lm_model_path=lm_model,
-        backend=lm_backend,
-        device=device,
-    )
+    with redirect_stdout(sys.stderr):
+        llm = LLMHandler()
+        status, ok = llm.initialize(
+            checkpoint_dir=checkpoints,
+            lm_model_path=lm_model,
+            backend=lm_backend,
+            device=device,
+        )
     if not ok:
         raise RuntimeError(f"ACE-Step LM initialization failed: {status}")
 
@@ -75,7 +79,8 @@ try:
         ),
         flush=True,
     )
-    result = generate_music(dit, llm, params, config, save_dir=str(work))
+    with redirect_stdout(sys.stderr):
+        result = generate_music(dit, llm, params, config, save_dir=str(work))
     if not result.success or not result.audios:
         raise RuntimeError(result.error or "ACE-Step returned no audio")
     source_value = result.audios[0].get("path")

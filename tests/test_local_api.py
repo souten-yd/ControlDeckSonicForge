@@ -64,3 +64,37 @@ def test_trusted_local_tts_needs_no_control_deck_auth(env, monkeypatch):
         job = wait_job(client, response.json()["job_id"])
         assert job["state"] == "succeeded", job
         assert job["result"]["asset_id"].startswith("asset:")
+
+
+def test_local_music_preserves_duration_and_music_controls(env, monkeypatch):
+    from sonicforge.jobs import JobManager
+
+    captured = {}
+    original_create = JobManager.create
+
+    def capture(self, request, *, hosted=None):
+        captured.update(request)
+        return original_create(self, request, hosted=hosted)
+
+    monkeypatch.setattr(JobManager, "create", capture)
+    module = load_app()
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/local/v1/music",
+            json={
+                "prompt": "gentle menu theme",
+                "language": "en",
+                "duration_sec": 10,
+                "bpm": 96,
+                "instrumental": True,
+            },
+        )
+        assert response.status_code == 200, response.text
+        job = wait_job(client, response.json()["job_id"])
+        assert job["state"] == "succeeded", job
+        assert captured["input"] == {
+            "prompt": "gentle menu theme",
+            "duration_sec": 10.0,
+            "instrumental": True,
+            "bpm": 96,
+        }

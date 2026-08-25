@@ -46,7 +46,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Speech Essentials provisioning | CLEAN ROCM INSTALL PASS | isolated `speech-rocm` runtime activated only after all five model snapshots completed; exact revisions recorded in runtime metadata |
 | SFX | IMPLEMENTED, REAL MODEL NOT TESTED | Stable Audio 3 Small-SFX CPU-first; fixed upstream API inspected; model snapshot prefetched only after Stability terms acceptance |
 | Japanese SFX conditioning | IMPLEMENTED | ControlDeck LLM may normalize JP intent to English acoustic prompt; both prompts kept in provenance |
-| Music/BGM | IMPLEMENTED ADAPTER, REAL MODEL NOT TESTED | ACE-Step 1.5 pinned source; setup uses upstream downloader for `acestep-v15-turbo` + `acestep-5Hz-lm-0.6B`; initialization success tuple is checked; upstream AMD/ROCm support does not count as SonicForge target validation |
+| Music/BGM | CLEAN ROCM SETUP + REAL GENERATION PASS | ACE-Step 1.5 pinned source and prepared `acestep-v15-turbo` + `acestep-5Hz-lm-0.6B`; real target generation produced a 10.000 s, 48 kHz stereo WAV without model-cache growth |
 | Localization Studio | IMPLEMENTED | JP/EN lines, durable render, `pending/failed/changed/all` retry modes |
 | Typed Pipeline | IMPLEMENTED | type checking, `start_at`, `stop_after`, durable execution |
 | OpenCode / Agent `sonic.pipeline` | IMPLEMENTED CONTRACT, MCP E2E NOT TESTED | same ControlDeck Agent MCP, no second SonicForge MCP; six frozen initial Agent Tools |
@@ -228,6 +228,8 @@ Real setup/runtime evidence:
 - the first concatenated Japanese/English `auto` run returned only English because one Whisper language decision covered the full clip; long-silence segmentation now re-runs detection per region, and the same fixture returned both JA and EN segments at 0.72–4.28 s and 4.32–16.72 s;
 - real Qwen Base voice clone completed from a rights-confirmed scoped `grant:` reference as `asset:f5e6a7f3-f943-4359-a41c-6d16c7139d66`, and real VoiceDesign completed from a textual instruction as `asset:c4f59fbc-4a4f-4654-9b96-478404152d4b`;
 - a direct trusted-local two-turn PTT session kept the real ASR/TTS worker processes scoped to one WebSocket: turn 1 completed in 52.266 s and turn 2 in 25.581 s with ordered audio delivery, demonstrating reuse without an avoidable second cold load;
+- clean `music-rocm` provisioning downloaded the pinned ACE-Step runtime/checkpoints into SonicForge-owned paths and activated fingerprint `09bba6cf5968a62ea1f7f449d93475a6df08563e44d05e2cf31a926495ceb525`;
+- the first ACE-Step execution exposed third-party stdout pollution of the worker JSON protocol; redirecting upstream stdout to stderr fixed the boundary, and the retry produced `asset:f3fb4585-0c4c-44ff-974f-99be2bc51192` as a 10.000 s, 48 kHz stereo PCM WAV with unchanged model-cache byte size;
 - release bundle build produced a 24,288,632-byte linux-x86_64 artifact; disposable Ed25519 signing/CLI verification passed and appended-byte tampering was rejected;
 - real execution exposed and fixed Qwen third-party stdout pollution of the JSON worker protocol and the greedy asset-content route shadowing bug.
 

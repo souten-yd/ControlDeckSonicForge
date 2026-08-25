@@ -33,6 +33,9 @@ class LocalGenerateRequest(BaseModel):
     output: OutputSpec = Field(default_factory=OutputSpec)
     routing: RoutingSpec = Field(default_factory=RoutingSpec)
     seed: int | None = None
+    duration_sec: float | None = Field(default=None, ge=0.1, le=600)
+    bpm: int | None = Field(default=None, ge=20, le=300)
+    instrumental: bool = True
 
 
 def _suffix_for_content_type(content_type: str | None) -> str:
@@ -161,9 +164,16 @@ def create_local_router(base) -> APIRouter:
         body: LocalGenerateRequest, task_name: str, request: Request
     ):
         trusted(request)
+        input_value: dict[str, object] = {"prompt": body.prompt}
+        if body.duration_sec is not None:
+            input_value["duration_sec"] = body.duration_sec
+        if task_name == "music.generate":
+            input_value["instrumental"] = body.instrumental
+            if body.bpm is not None:
+                input_value["bpm"] = body.bpm
         task = TaskRequest(
             task=task_name,
-            input={"prompt": body.prompt},
+            input=input_value,
             profile=body.profile,
             quality=body.quality,
             content_language=body.language,

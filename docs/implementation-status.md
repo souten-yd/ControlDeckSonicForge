@@ -65,6 +65,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | M5/edge binary protocol | IMPLEMENTED | `sonic-edge/1`, sequence/sample clock, bounded frame size and capability negotiation |
 | Existing M5/edge client server API | IMPLEMENTED CONTRACT, REAL CLIENT E2E NOT TESTED | direct trusted-LAN live WS for basic media; optional ControlDeck relay for Host LLM paths; firmware/client code is intentionally outside this repository |
 | ControlDeck paired Device Relay | IMPLEMENTED ON #240, E2E NOT TESTED | one-time code; device-scoped token uses the normal ControlDeck maximum 8-hour TTL and rotates on reconnect; upstream receives Host-minted service identity, never device token |
+| Bilingual/mobile browser UX | REAL CHROME PASS | direct service rendered the required JA and EN top-level/task labels at 320x720 with `scrollWidth == innerWidth` and authoritative service state `available` |
 | Wake/VAD | CLIENT/OPTIONAL ENHANCEMENT | not required for SonicForge v1 acceptance unless it changes the server contract |
 | Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
 | Release signing | REAL BUILD/VERIFY/TAMPER PASS | disposable Ed25519 key, canonical byte-exact manifest, onefile `doctor`/service startup and artifact tamper rejection passed |
@@ -240,7 +241,10 @@ Real setup/runtime evidence:
 - the real ACE-Step asset then passed the typed `audio.process` stage with trim, gain, loudness normalization, resampling and mono conversion as `asset:8112b814-0cd3-4c2c-894a-d09ef2a371e0`; package delivery produced `asset:a055cbc7-8d13-4e13-a36e-550a1c769c99`, a 155,959-byte ZIP whose SHA-256, provenance, manifest and HTTP content route were verified;
 - release acceptance first exposed and fixed two real packaging defects: building with a foreign PyInstaller venv omitted runtime dependencies, and Uvicorn's string import omitted `sonicforge.bootstrap`; the corrected 29,987,441-byte onefile bundle passed `doctor`, served `setup_required`, verified against a disposable Ed25519 publisher key, rejected byte tampering, installed fresh as 0.1.0, updated side-by-side to 0.1.1 and rolled an unhealthy 0.1.2 switch back to healthy 0.1.1 through the generic ControlDeck #239 path;
 - real Agent MCP execution completed `sonic.generate` (`job:81c713b8-...`, detached Host Job `f70bd8fa303f`), `sonic.pipeline` (`job:dcabcfa5-...`, detached Host Job `dda2a0410a71`) and `sonic.pack` through opaque `grant:0bc68e65-...`; direct profile exports produced valid web-mobile MP3, Unity OGG and M5 WAV assets;
+- headless real Google Chrome at 320x720 rendered Japanese `スタジオ / ボイス / ライブラリ / ランタイム / 音声生成` and English `Studio / Voices / Library / Runtime / Speech` without horizontal overflow; both views reported the service as `available`;
 - real execution exposed and fixed Qwen third-party stdout pollution of the JSON worker protocol and the greedy asset-content route shadowing bug.
+
+The existing M5 client remains **NOT TESTED** in this acceptance run: no `303a:1001` USB device, `/dev/ttyACM*` device or active TCP client connection was present. The independent `m5companion-bridge.service` was running, but that is not evidence of a connected physical client.
 
 Release signing tests now pass as a five-test focused suite, including direct CLI invocation.
 

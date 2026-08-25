@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from .access import local_access_mode, require_trusted_request
 from .schemas import OutputSpec, Quality, RoutingSpec, TaskRequest
 
 
@@ -50,7 +51,9 @@ def _suffix_for_content_type(content_type: str | None) -> str:
     }.get(value, ".bin")
 
 
-async def _stream_request_to_file(request: Request, target: Path, *, max_bytes: int = 0) -> int:
+async def _stream_request_to_file(
+    request: Request, target: Path, *, max_bytes: int = 0
+) -> int:
     target.parent.mkdir(parents=True, exist_ok=True)
     written = 0
     try:
@@ -60,7 +63,10 @@ async def _stream_request_to_file(request: Request, target: Path, *, max_bytes: 
                     continue
                 written += len(chunk)
                 if max_bytes > 0 and written > max_bytes:
-                    raise HTTPException(status_code=413, detail="local audio upload exceeds configured limit")
+                    raise HTTPException(
+                        status_code=413,
+                        detail="local audio upload exceeds configured limit",
+                    )
                 output.write(chunk)
     except Exception:
         target.unlink(missing_ok=True)
@@ -72,27 +78,36 @@ async def _stream_request_to_file(request: Request, target: Path, *, max_bytes: 
 
 
 def create_local_router(base) -> APIRouter:
-    """Trusted-local API.
+    """Trusted-local API without user-facing authentication.
 
-    These endpoints deliberately do not require ControlDeck authentication.
-    ControlDeck-only operations (grants, project writes, Host Jobs) keep their
-    existing authenticated boundary.
+    `trusted-network` is the default access mode: loopback, private/link-local and
+    non-global local fabrics such as Tailscale are accepted. Set
+    SONICFORGE_LOCAL_ACCESS=strict for loopback-only behavior or `open` only when
+    the operator deliberately places access control elsewhere.
     """
 
     router = APIRouter(prefix="/local/v1", tags=["local"])
 
+    def trusted(request: Request) -> None:
+        require_trusted_request(request, bind_host=base.settings.host)
+
     @router.get("/capabilities")
-    async def local_capabilities():
+    async def local_capabilities(request: Request):
+        trusted(request)
         value = await base.capabilities()
         return {
             **value,
-            "access": "unauthenticated-local",
+            "access": {
+                "authentication": "none",
+                "mode": local_access_mode(),
+            },
             "endpoints": {
                 "asr": "/local/v1/asr",
                 "tts": "/local/v1/tts",
                 "sfx": "/local/v1/sfx",
                 "music": "/local/v1/music",
                 "live": "/addon/v1/live/ws",
+                "meeting": "/addon/v1/meetings/ws",
             },
         }
 
@@ -102,8 +117,14 @@ def create_local_router(base) -> APIRouter:
         language: Literal["auto", "ja", "en"] = "auto",
         quality: Quality = "balanced",
     ):
+        trusted(request)
         suffix = _suffix_for_content_type(request.headers.get("content-type"))
-        target = base.settings.data_dir / "tmp" / "local-upload" / f"{uuid.uuid4().hex}{suffix}"
+        target = (
+            base.settings.data_dir
+            / "tmp"
+            / "local-upload"
+            / f"{uuid.uuid4().hex}{suffix}"
+        )
         await _stream_request_to_file(
             request,
             target,
@@ -124,11 +145,12 @@ def create_local_router(base) -> APIRouter:
         return {"job_id": job.id, "state": job.state}
 
     @router.post("/tts")
-    async def local_tts(body: LocalTtsRequest):
+    async def local_tts(body: LocalTtsRequest, request: Request):
+        trusted(request)
         input_value: dict[str, object] = {"text": body.text}
         if body.voice_id:
             input_value["voice_id"] = body.voice_id
-        request = TaskRequest(
+        task = TaskRequest(
             task="speech.tts.synthesize",
             input=input_value,
             profile=body.profile,
@@ -138,12 +160,15 @@ def create_local_router(base) -> APIRouter:
             routing=body.routing,
             seed=body.seed,
         )
-        job = base.jobs.create(request.model_dump(mode="json"))
+        job = base.jobs.create(task.model_dump(mode="json"))
         return {"job_id": job.id, "state": job.state}
 
-    async def generate(body: LocalGenerateRequest, task: str):
-        request = TaskRequest(
-            task=task,
+    async def generate(
+        body: LocalGenerateRequest, task_name: str, request: Request
+    ):
+        trusted(request)
+        task = TaskRequest(
+            task=task_name,
             input={"prompt": body.prompt},
             profile=body.profile,
             quality=body.quality,
@@ -152,15 +177,15 @@ def create_local_router(base) -> APIRouter:
             routing=body.routing,
             seed=body.seed,
         )
-        job = base.jobs.create(request.model_dump(mode="json"))
+        job = base.jobs.create(task.model_dump(mode="json"))
         return {"job_id": job.id, "state": job.state}
 
     @router.post("/sfx")
-    async def local_sfx(body: LocalGenerateRequest):
-        return await generate(body, "audio.sfx.generate")
+    async def local_sfx(body: LocalGenerateRequest, request: Request):
+        return await generate(body, "audio.sfx.generate", request)
 
     @router.post("/music")
-    async def local_music(body: LocalGenerateRequest):
-        return await generate(body, "music.generate")
+    async def local_music(body: LocalGenerateRequest, request: Request):
+        return await generate(body, "music.generate", request)
 
     return router

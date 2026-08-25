@@ -14,7 +14,9 @@ try:
     import soundfile as sf
     from stable_audio_3 import StableAudioModel
 
-    inp = request.get("input", {}); prompt = str(inp.get("prompt") or inp.get("description") or "").strip()
+    inp = request.get("input", {})
+    user_prompt = str(inp.get("prompt") or inp.get("description") or "").strip()
+    prompt = str(inp.get("_internal_engine_prompt") or user_prompt).strip()
     if not prompt: raise ValueError("SFX generation requires input.prompt or input.description")
     duration = float(inp.get("duration_sec") or 3.0)
     if not 0.1 <= duration <= 120: raise ValueError("duration_sec must be between 0.1 and 120 seconds")
@@ -32,7 +34,10 @@ try:
     if getattr(audio, "ndim", 0) == 3: audio = audio[0]
     if getattr(audio, "ndim", 0) == 2 and audio.shape[0] <= 2: audio = audio.T
     sample_rate = int(getattr(model, "sample_rate", 44100) or 44100); out = work / "output.wav"; sf.write(out, audio, sample_rate)
-    print(json.dumps({"type": "result", "engine_id": "audio.stable-audio-3", "engine_version": "0.1.0", "model_id": model_name, "model_license_id": "Stability-AI-Community", "output_path": str(out), "payload": {"duration_requested": duration, "device": device, "filename": "sfx.wav"}}, ensure_ascii=False), flush=True)
+    normalization = inp.get("_internal_prompt_normalization")
+    result_payload = {"duration_requested": duration, "device": device, "filename": "sfx.wav"}
+    if isinstance(normalization, dict): result_payload["prompt_normalization"] = normalization
+    print(json.dumps({"type": "result", "engine_id": "audio.stable-audio-3", "engine_version": "0.1.0", "model_id": model_name, "model_license_id": "Stability-AI-Community", "output_path": str(out), "payload": result_payload}, ensure_ascii=False), flush=True)
 except Exception as exc:
     print(json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False), flush=True)
     raise

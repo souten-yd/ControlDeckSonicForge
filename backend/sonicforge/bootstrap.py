@@ -4,6 +4,7 @@ from starlette.routing import Mount
 
 from . import app as base
 from .delivery_api import create_delivery_router
+from .job_extensions import install_job_extensions
 from .pipeline_api import create_pipeline_router
 
 
@@ -27,6 +28,7 @@ def _move_frontend_last() -> None:
 def _install_extension_routers() -> None:
     if getattr(app.state, "sonicforge_extension_routers_installed", False):
         return
+    install_job_extensions(base.jobs)
     app.include_router(create_pipeline_router(base))
     app.include_router(create_delivery_router(base))
     _move_frontend_last()

@@ -5,9 +5,9 @@ Last reviewed: 2026-08-25
 
 ## 1. Purpose
 
-This document records the repositories/specifications that informed SonicForge. It does **not** make their internal APIs part of the SonicForge public contract.
+This document records repositories/specifications that informed SonicForge. Their internal APIs are **not** automatically part of SonicForge's public contract.
 
-Before implementing against a reference, verify the current upstream revision, license and runtime behavior again.
+Before implementing against a reference, verify its current revision, license and runtime behavior again.
 
 ## 2. ControlDeck — normative Host source
 
@@ -21,23 +21,29 @@ Read at minimum:
 - `docs/plugin-sdk.md`
 - `backend/app/addons/schema.py`
 - `backend/app/addon_runtime/`
+- `backend/app/features/release_bundle.py`
+- feature trusted catalog/release tests
 - `tools/fake-addon/`
 - Add-on/browser E2E tests
-- `backend/app/applications/` when reasoning about generic external-service lifecycle
 
-Important current rules observed during the 2026-08-25 design pass:
+Important rules observed during the 2026-08-25 design pass:
 
-- Add-on v2 is out-of-process and declarative.
+- Add-on v2 is out-of-process/declarative.
 - ControlDeck does not import Add-on Python/JavaScript.
-- Embedded Add-on view is Host-proxied and isolated.
-- Raw Host session credentials are not Add-on credentials.
+- embedded views are Host-proxied/isolated.
+- raw Host session credentials are not Add-on credentials.
 - Runtime APIs provide scoped Jobs/resources/grants/outputs.
-- Host capability names are allowlisted; SonicForge must not invent new values in its manifest.
-- Add-on manifest/setup checklist does not grant arbitrary shell execution.
+- Host capability values are allowlisted.
+- `setup_checklist` does not grant arbitrary shell execution.
+- feature distribution/install trust is separate from Add-on runtime authority.
 
-If current Host source changes, current Host source wins over copied examples in SonicForge.
+### Current release-verifier compatibility note
 
-## 3. ControlDeck MediaForge — architectural sibling/reference
+The ControlDeck `main` inspected on 2026-08-25 still contained the older per-artifact SHA-pin Release Bundle verifier/catalog flow. SonicForge does not adopt that as its long-term release model; see the MediaForge signing reference below and `docs/13-release-distribution-and-signing.md`.
+
+If current Host source changes, inspect it again rather than relying on this note.
+
+## 3. ControlDeck MediaForge — architectural and release reference
 
 Repository:
 
@@ -49,21 +55,42 @@ Read:
 - `addon.json`
 - `docs/controldeck-integration-plan.md`
 - `docs/base-plan.md`
-- `docs/implementation/mf0-0-environment.md`
+- environment/setup implementation docs
 - `docs/implementation-status.md`
+- `scripts/sign_release.py`
+- release-bundle tests/scripts
 
 Useful precedent:
 
 - strict separation from ControlDeck core
 - lightweight core versus heavy runtime environments
-- Host Resource Broker usage
-- durable jobs
+- Host Resource Broker
+- durable server-owned jobs
 - scoped file grants
 - provenance/lineage
-- capability-driven UI
+- capability-driven UI and measured model promotion
 - evidence-driven development
+- resilient browser reconnection/progress recovery
+- clear distinction between catalog-listed, installed and actually available states
 
-SonicForge intentionally differs in domain and owns its own runtime/data/cache defaults. Do not import MediaForge internal modules or share its venv/database.
+### Publisher-signature release change
+
+Current MediaForge `scripts/sign_release.py` documents the problem with the old approach: ControlDeck pinned each release bundle's SHA-256 in its own catalog, coupling every MediaForge release to a ControlDeck edit.
+
+The replacement is:
+
+- Ed25519 publisher key pair;
+- public key trusted by ControlDeck once;
+- canonical signed manifest containing `schema_version`, `feature_id`, `version`, `platform`, `architecture`, `artifact_name`, `sha256`, `size_bytes`;
+- artifact SHA-256 remains an integrity value inside the signed identity;
+- downgrade rejection remains a Host policy;
+- private signing key is not committed/shipped.
+
+MediaForge v0.6.7 release history explicitly describes it as the first release verified by publisher signature rather than catalog pinning.
+
+SonicForge adopts this direction rather than inventing another release format.
+
+SonicForge still owns independent runtimes/data/cache. Do not import MediaForge private modules or share its venv/database.
 
 ## 4. User reference — GPTSoVITS
 
@@ -71,25 +98,18 @@ Repository:
 
 - https://github.com/souten-yd/GPTSoVITS
 
-Use as reference for:
+Use as reference for prior deployment/audio tooling, not as the SonicForge application architecture.
 
-- prior deployment/audio-tooling work
-- user-specific operational patterns worth reviewing
-
-Do not treat its historical container/UI topology as the SonicForge public architecture.
-
-Upstream engine:
+Upstream:
 
 - https://github.com/RVC-Boss/GPT-SoVITS
 
 Classification:
 
-- TTS / reference/few-shot voice synthesis
+- TTS / reference/few-shot/custom voice
 - **not ASR**
 
-License note at review time:
-
-- upstream repository code is MIT; model/data/voice rights remain separate concerns.
+Code/model/data/voice rights are tracked separately.
 
 ## 5. User reference — StyleBertVITS2WithFileManager
 
@@ -97,15 +117,13 @@ Repository:
 
 - https://github.com/souten-yd/StyleBertVITS2WithFileManager
 
-Observed useful concepts:
+Useful historical concepts:
 
-- `/voice` FastAPI TTS integration
-- model/file management experience
+- `/voice` TTS integration
+- model/file-management experience
 - custom voice-model workflows
 
-Security warning:
-
-The historical reference uses broad `/workspace` file management and root container operation. Those assumptions are **not** copied into SonicForge. SonicForge uses its own scoped model library, non-root worker default and Host grants for Host files.
+Security warning: broad `/workspace` file management/root-container assumptions are not copied into SonicForge. Use scoped model libraries, non-root workers and Host grants.
 
 Upstream:
 
@@ -113,12 +131,10 @@ Upstream:
 
 Classification:
 
-- Japanese-oriented TTS / style and character-voice synthesis
+- Japanese-oriented TTS / character/style voice
 - **not ASR**
 
-License note at review time:
-
-- upstream code/package is AGPL-3.0; voice/model assets may have separate terms.
+Voice/model terms may differ from code/package licensing.
 
 ## 6. Qwen3-TTS
 
@@ -126,20 +142,18 @@ Official repository:
 
 - https://github.com/QwenLM/Qwen3-TTS
 
-Why it is the initial general TTS candidate:
+Current official documentation reviewed on 2026-08-25 explicitly lists **Japanese and English** among ten major supported languages and describes:
 
-- Japanese support
-- multiple model sizes/families
-- voice cloning
-- custom voice / voice design variants
-- style control
-- streaming-oriented use cases
+- 0.6B / 1.7B families
+- Base rapid voice clone
+- CustomVoice
+- VoiceDesign
+- streaming
+- natural-language control
 
-License note at review time:
+This makes Qwen3-TTS a strong first **bilingual** TTS candidate, but local Japanese/English/mixed quality and target-hardware performance still require measurement.
 
-- official repository/package is Apache-2.0; verify each distributed model card/revision before automated installation.
-
-SonicForge must benchmark Japanese quality and target-hardware performance rather than inheriting upstream claims as product guarantees.
+Do not treat upstream latency/quality claims as SonicForge support evidence.
 
 ## 7. Kotoba-Whisper v2.0
 
@@ -147,22 +161,15 @@ Model:
 
 - https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0
 
-Classification:
-
-- Japanese ASR
+Classification: Japanese ASR candidate.
 
 Why evaluate:
 
 - Japanese-distilled Whisper large-v3 lineage
-- published speed/accuracy motivation
-- standard Transformers ecosystem
-- potential alternative runtimes in the Whisper ecosystem
+- Japanese-specific speed/accuracy motivation
+- standard Transformers/Whisper ecosystem
 
-License note at review time:
-
-- model card reports Apache-2.0.
-
-Upstream benchmark numbers are reference only until reproduced on SonicForge target hardware/data.
+Use upstream benchmark numbers as reference only until reproduced locally.
 
 ## 8. ReazonSpeech
 
@@ -170,122 +177,108 @@ Repository:
 
 - https://github.com/reazon-research/ReazonSpeech
 
-Model organization:
+Models:
 
 - https://huggingface.co/reazon-research
 
-Classification:
+Classification: Japanese ASR ecosystem/candidate.
 
-- Japanese ASR corpus/model ecosystem
+Why evaluate:
 
-Why evaluate K2/Zipformer family:
-
-- Japanese-first
+- Japanese-focused
 - efficient/CPU-friendly deployment direction
-- sherpa-onnx ecosystem
-- Japanese/ja-en model variants
+- useful alternate route for always-available/streaming speech
 
-Choose the exact current model revision only after benchmarking; do not freeze a stale model name into the public API.
+Choose the exact current model revision only after local benchmark.
 
-## 9. ACE-Step 1.5
+## 9. English/multilingual ASR family
+
+Initial evaluation direction:
+
+- a current Whisper large-v3-turbo / faster-whisper / whisper.cpp-compatible multilingual route or measured successor
+
+Purpose:
+
+- English ASR
+- Japanese/English mixed speech
+- practical CPU/GPU/Vulkan-style deployment alternatives where appropriate
+
+Do not force Japanese-specialized Kotoba/Reazon models to become English defaults merely for implementation uniformity.
+
+## 10. ACE-Step 1.5
 
 Official repository:
 
 - https://github.com/ace-step/ACE-Step-1.5
 
-Classification:
+Classification: local music generation/editing candidate.
 
-- local music generation/editing candidate
+Evaluate actual target AMD/ROCm compatibility, BGM usefulness, duration/loop behavior, latency/VRAM and model terms before promotion.
 
-Why evaluate:
-
-- current 2026 project generation
-- local deployment emphasis
-- AMD/Intel/Mac/CUDA support advertised upstream
-- music generation plus transform/edit-oriented capabilities
-
-License note at review time:
-
-- repository is MIT. Verify model weights and any bundled/optional model terms independently.
-
-Target AMD/ROCm compatibility must be proven locally before marking recommended.
-
-## 10. Stable Audio 3
+## 11. Stable Audio 3
 
 Official repository:
 
 - https://github.com/Stability-AI/stable-audio-3
 
-Classification:
+Classification: audio/SFX candidate.
 
-- audio/SFX generation candidate
+Evaluate `small-sfx` or current suitable family for UI sounds, impacts, ambience, loops and variations.
 
-Why evaluate `small-sfx` family:
+Repository code license and model-weight terms are separate records.
 
-- SFX-oriented model family
-- lightweight/CPU-oriented deployment is documented upstream
-- good fit for game/UI/ambience generation if quality passes local tests
-
-License distinction:
-
-- code repository license and model-weight license are not the same thing.
-- model terms/license must be stored in SonicForge's model catalog and surfaced during setup/export as applicable.
-
-## 11. TangoFlux
+## 12. TangoFlux
 
 Official repository:
 
 - https://github.com/declare-lab/TangoFlux
 
-Classification:
+Classification: text-to-audio/SFX alternative candidate.
 
-- text-to-audio/SFX alternative candidate
+Adopt only for measured benefit/capability gap, not simply to increase engine count.
 
-Use only as an evaluation alternative until license, target platform, quality and performance are measured.
+## 13. Deterministic audio processing
 
-## 12. Audio processing references
+Prefer conventional deterministic tooling for:
 
-SonicForge should prefer conventional deterministic audio tooling for:
-
-- decoding/probing
-- resampling
-- normalization/loudness
+- decode/probe
+- resample
 - trim/fade
-- codec conversion
-- channel conversion
+- normalization/loudness
+- codec/channel conversion
+- loop analysis
 
-`ffmpeg`/`ffprobe` are practical candidates but remain external system dependencies unless SonicForge explicitly packages them. Invocation must use validated argv, never shell strings.
+`ffmpeg`/`ffprobe` are practical candidates. Invoke with validated argv, never arbitrary shell strings.
 
-## 13. Research discipline
+## 14. Research record required for every engine/model
 
-For every new engine/model considered, add a record with:
+Record:
 
 ```text
-name
-source repository/model page
-review date
-source revision/tag
-task/capabilities
+name/source
+review date/source revision
+tasks/capabilities/languages
 code license
 model license/terms
 hardware claims
-actual SonicForge hardware results
+actual SonicForge hardware measurements
 runtime dependencies
-estimated/downloaded size
+download/disk size
 known risks
-promotion state: rejected | experimental | supported | recommended
+promotion by capability/language: rejected | experimental | supported | recommended
 ```
 
-Do not use repository popularity as an adoption criterion.
+Do not use popularity as an adoption criterion.
 
-## 14. Upstream versus local evidence
+## 15. Evidence vocabulary
 
 Always distinguish:
 
 ```text
-UPSTREAM CLAIM   information published by an upstream project/model card
-LOCAL MEASURED   result actually reproduced on SonicForge target hardware
+UPSTREAM CLAIM   published by upstream project/model card
+SOURCE INSPECTED contract/source behavior confirmed by repository inspection
+LOCAL MEASURED   reproduced by SonicForge on target hardware
 NOT TESTED       not yet verified
 ```
 
-Only `LOCAL MEASURED` evidence may be used to declare a SonicForge engine recommended for a specific supported hardware configuration.
+Only `LOCAL MEASURED` evidence may declare a SonicForge engine recommended for a specific capability/language/hardware configuration.

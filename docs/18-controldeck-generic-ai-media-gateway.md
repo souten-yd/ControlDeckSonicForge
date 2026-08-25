@@ -5,32 +5,34 @@ Date: 2026-08-25
 
 ## 1. Decision
 
-SonicForge adopts the same host-boundary philosophy already used by MediaForge.
+SonicForge follows the same Host-boundary philosophy already used by MediaForge.
 
-ControlDeck owns a generic AI/media **control plane**; SonicForge owns audio-domain execution.
+ControlDeck owns the generic AI/media **control plane**. SonicForge owns speech/audio/music domain execution.
 
-This is not a request to move Qwen, Whisper, Stable Audio, ACE-Step or voice/audio semantics into ControlDeck.
+This does **not** move Qwen, Whisper, Stable Audio, ACE-Step, voice semantics, audio profiles or SonicForge routing into ControlDeck.
 
 ## 2. Shared ControlDeck control plane
 
-SonicForge consumes these generic Host primitives:
+SonicForge consumes generic Host primitives:
 
 ```text
 ControlDeck Generic AI / Media Gateway
 ├─ scoped Add-on runtime auth
-├─ Host Jobs / progress / cancel
-├─ Resource Broker / queue / lease / residency
+├─ Host Jobs / progress / cancel / active-job credential refresh
+├─ Resource Broker / queue / lease / lease credential refresh
 ├─ Host AI router
 │  ├─ text.generate
 │  └─ vision.analyze
+├─ provider-neutral SSE text streaming
 ├─ explicit Host AI release
+├─ renewable AI residency holds
 ├─ scoped input grants
 ├─ project/output grants + commit receipt
 ├─ Agent MCP projection (OpenCode etc.)
 ├─ Workflow executor projection
 ├─ embedded HTTP relay
 ├─ embedded WebSocket relay
-└─ generic Device Session relay (future Host primitive)
+└─ generic paired Device Relay
 ```
 
 SonicForge owns:
@@ -40,52 +42,53 @@ TTS / ASR / SFX / music engines
 voice profiles / rights / pronunciation
 Localization Studio
 Typed Media Pipeline
-live audio semantics
-M5 wake/VAD/AEC/turn behavior
-asset/audio format profiles
+audio/live-session semantics
+meeting / translation behavior
+asset/audio delivery profiles
 SonicForge provenance and QA
+sonic-edge/1 protocol semantics
 ```
 
 ## 3. Gateway discovery
 
-New ControlDeck hosts expose:
+ControlDeck Gateway 1.4 exposes:
 
 ```text
 GET /api/v1/addon-runtime/sonic-forge/gateway/capabilities
 ```
 
-SonicForge's Host client supports this versioned discovery document.
+SonicForge uses this versioned discovery document to learn which generic Host facilities are actually granted and available.
 
-Compatibility rule:
+Compatibility rules:
 
-- if Gateway v1 exists, use it;
-- if the Host returns 404, project the existing service-token grants and `/ai/capabilities` response into the same local shape;
-- never treat discovery as authorization; the dedicated execution endpoint remains authoritative;
-- reject a gateway response that changes `addon_id` or uses an unsupported major protocol version.
-
-This permits SonicForge to work against current ControlDeck while the generic gateway consolidation is merged independently.
+- use Gateway discovery when present;
+- if an older Host returns 404, project existing service-token grants and `/ai/capabilities` into the local compatibility shape;
+- discovery is descriptive, not authorization;
+- every execution endpoint remains authoritative for its own capability/scope;
+- reject a response that changes `addon_id` or uses an unsupported major protocol version;
+- a feature that genuinely requires a newer Host primitive must report unavailable rather than silently weakening the boundary.
 
 ## 4. MediaForge alignment
 
-MediaForge already uses the same generic Host endpoint families for:
+MediaForge already uses the same generic Host families for:
 
-- Host Jobs
-- Resource Broker
-- scoped grants/outputs
-- Host AI capabilities/complete/release
-- Agent/OpenCode execution
+- Host Jobs;
+- Resource Broker;
+- scoped grants/outputs;
+- Host AI capability/complete/release;
+- Agent/OpenCode execution.
 
-SonicForge intentionally follows this rather than inventing a second audio-specific Host gateway.
+MediaForge currently does **not** request `devices.relay` or declare a Device Relay. Device Relay therefore remains an additive generic Host primitive and does not alter current MediaForge behavior.
 
-The generic Host test remains:
+The design test for every ControlDeck addition remains:
 
-> Would the primitive remain useful if SonicForge were replaced with MediaForge, Blender/CAD or another Add-on?
+> Would this primitive still make sense for MediaForge, Blender/CAD or another Add-on?
 
-If not, keep it in SonicForge.
+If not, keep the behavior in SonicForge.
 
 ## 5. Typed Media Pipeline execution model
 
-SonicForge owns typed pipeline stages:
+SonicForge owns typed stages:
 
 ```text
 speech.asr      audio -> text
@@ -104,60 +107,90 @@ text  -> Host LLM -> TTS -> audio
 text  -> TTS -> audio
 text  -> SFX -> audio
 text  -> Music -> audio
+audio -> audio.process -> audio
 ```
 
-The user/agent may choose `start_at` and `stop_after` where the input/output media types remain valid.
+The caller may select `start_at` and `stop_after` where media types remain valid. Invalid chains such as `LLM -> ASR` are rejected before execution.
 
-Examples:
+The durable runner is implemented and is also exposed to agents through `sonic.pipeline` using the existing ControlDeck Agent MCP.
 
-```text
-start at LLM, stop after TTS
-  text input -> generated reply audio
+## 6. Resource admission and residency
 
-start at ASR, stop after LLM
-  audio input -> generated reply text
+### 6.1 Batch / durable pipelines
 
-start at TTS, stop after TTS
-  text input -> speech audio
-```
-
-`LLM -> ASR` is rejected because ASR requires audio input.
-
-## 6. Stage-local Resource Broker admission
-
-A pipeline does not hold one GPU lease for its entire lifetime.
-
-Required ordering:
+Heterogeneous batch pipelines use stage-local admission:
 
 ```text
-ASR
-  -> request SonicForge ASR lease
-  -> execute
-  -> release
+ASR worker lease
+ -> execute
+ -> release
 
 Host LLM
-  -> ControlDeck AI router performs its own Broker admission
-  -> complete
-  -> SonicForge requests Host `ai.release` when the AI turn is finished
+ -> ControlDeck performs its own admission
+ -> execute
+ -> release when the turn is finished
 
-TTS
-  -> request SonicForge TTS lease
-  -> execute
-  -> release
+TTS worker lease
+ -> execute
+ -> release
 ```
 
-The same pattern applies when a pipeline contains SFX/music stages.
+A single Add-on lease is never held blindly around ASR -> Host LLM -> TTS.
 
-Benefits:
+### 6.2 Live voice sessions
 
-- avoids deadlock between Add-on GPU work and Host LLM GPU work;
-- lets ControlDeck choose which resident workload yields;
-- exposes accurate stage resource telemetry;
-- makes long-lived voice sessions coexist with other ControlDeck workloads.
+Low-latency voice is different because repeated cold loads are unacceptable.
 
-## 7. OpenCode and coding agents
+During an active live session, SonicForge may keep ASR/TTS workers resident with matching session-scoped Broker leases while ControlDeck keeps its selected LLM warm using a renewable AI residency hold.
 
-OpenCode should not connect directly to SonicForge over a private MCP server.
+```text
+live session start
+ -> LLM residency hold (Host-owned)
+ -> persistent ASR + lease
+ -> persistent TTS + lease when capacity permits
+
+turn 1
+turn 2
+turn 3
+...
+
+session end
+ -> stop workers
+ -> release leases
+ -> release LLM hold
+```
+
+Residency is never permission to overcommit VRAM. If all residents do not fit, Broker accounting remains authoritative and SonicForge must explicitly evict/reload, route or queue rather than self-deadlock or OOM.
+
+While an LLM residency hold is active, SonicForge does not call `ai.release` after every live turn.
+
+## 7. Long-running credential behavior
+
+The normal Add-on service bearer remains short-lived. Its TTL is an internal safety mechanism, not a user-visible processing-duration limit.
+
+Long-running active work can receive same-scope replacement credentials from an authoritative liveness object:
+
+- active Host Job credential refresh;
+- active Resource Broker lease refresh;
+- active AI residency hold heartbeat.
+
+This allows long setup/localization/meeting/live operations without creating an unlimited bearer credential.
+
+If SonicForge dies, the corresponding heartbeat/renew loops stop and Host TTL cleanup returns the system to normal policy.
+
+## 8. Host AI streaming
+
+For voice chat, translation and other latency-sensitive flows, SonicForge uses provider-neutral Host SSE streaming.
+
+```text
+POST /api/v1/addon-runtime/sonic-forge/ai/stream
+```
+
+ControlDeck owns provider/model choice and admission. SonicForge receives only the public content stream required by the task. Private/thinking/reasoning chunks are not projected to the Add-on.
+
+## 9. OpenCode and coding agents
+
+OpenCode does not connect to a private SonicForge MCP server.
 
 Preferred path:
 
@@ -166,212 +199,160 @@ OpenCode
  -> ControlDeck Agent MCP
  -> SonicForge agent contribution
  -> durable Host/SonicForge Job
- -> Typed Pipeline or direct generation task
+ -> direct generation or Typed Pipeline
  -> Asset
- -> optional ControlDeck project output grant
+ -> optional project output grant
  -> commit receipt
 ```
 
-SonicForge capabilities include direct asset generation for:
+Current agent tools include capability inspection, generation, transcription, asset inspection, project placement and `sonic.pipeline`.
 
-- voice/TTS
-- transcription
-- SFX/SE
-- ambience
-- BGM/music
-- asset inspection
-- project placement
-
-A `sonic.pipeline` agent tool is justified once the server-side runner is complete because the user has an explicit multi-stage start/stop requirement. It must not be exposed before execution exists.
-
-## 8. Delivery and receiving model
+## 10. Delivery and receiving model
 
 Generation and delivery are separate concerns.
 
-### 8.1 Durable asset
+### 10.1 Durable Asset
 
-Default for generated BGM/SE/voice and processed audio.
+Default for generated BGM/SE/voice and processed audio. The Asset stores provenance and QA.
 
-Produces a SonicForge asset ID with provenance and QA.
-
-### 8.2 PC download
+### 10.2 PC/browser download
 
 ```text
-asset -> authenticated HTTP download
+asset -> HTTP content route
 ```
 
-Use WAV/FLAC for editing/master assets and OGG/MP3 only when a delivery profile requests them.
+Canonical editing/master output remains WAV where appropriate; OGG/MP3 are derived delivery profiles.
 
-### 8.3 ControlDeck project/game asset
+### 10.3 ControlDeck project/game asset
 
 ```text
 asset -> scoped project output grant -> commit -> receipt
 ```
 
-Game profiles belong to SonicForge, for example:
+Game-specific audio semantics remain in SonicForge; ControlDeck only guards the destination.
 
-- Unity-oriented WAV/OGG profile
-- Unreal-oriented WAV profile
-- Godot-oriented WAV/OGG profile
-- generic web/mobile MP3/OGG profile
+### 10.4 Mobile/PC live audio
 
-ControlDeck does not know engine-specific audio semantics; it only guards the project destination.
+Use WebSocket for current low-latency half-duplex/live-session traffic. WebRTC remains optional future work only if measured full-duplex/AEC requirements justify it.
 
-### 8.4 Mobile/PC live audio
+## 11. M5 / edge client paths
 
-Use the existing embedded WebSocket relay for bounded session/event traffic when WebSocket is sufficient.
+SonicForge publishes the server contract only. Device firmware/client implementation is outside this repository.
 
-### 8.5 M5 edge device
+Two paths coexist intentionally.
 
-M5 devices must not receive Host browser cookies, Add-on service tokens, or direct access to the loopback SonicForge origin.
-
-Target path:
+### 11.1 Direct trusted LAN / Tailscale
 
 ```text
-M5
- -> ControlDeck paired Device Session (future generic Host primitive)
- -> bounded relay scoped to SonicForge session
+existing edge client
+ -> SonicForge /addon/v1/live/ws
+```
+
+Use this for local ASR/TTS/PTT/dictation when no Host-owned capability is required. Default `trusted-network` policy permits local/private/non-global peers without user-facing authentication.
+
+This is not permission to expose an unauthenticated SonicForge service to the public Internet.
+
+### 11.2 Optional ControlDeck Device Relay
+
+```text
+existing edge client
+ -> ControlDeck paired Device Relay
+ -> Host-minted SonicForge service identity
  -> SonicForge live pipeline
 ```
 
-Until generic Device Session exists, M5 live access is not declared production-ready.
+Use this when the flow needs Host-owned functions such as ControlDeck LLM routing or user-scoped Host policy.
 
-## 9. Voice chat presets
+The device never receives a browser cookie or Add-on service token. It receives only a relay/device-scoped credential.
 
-### 9.1 Push-to-talk v1
+Device credentials use the normal ControlDeck Add-on maximum TTL policy (currently 8 hours). There is no special 30-day device-token exception. A successful reconnect may receive a rotated same-scope replacement.
+
+## 12. Low-latency voice and translation
+
+Current voice path:
 
 ```text
-M5/mobile mic
- -> bounded PCM stream
- -> ASR
- -> Host LLM
- -> TTS
- -> bounded playback stream
+mic PCM
+ -> RAM-first spool
+ -> persistent ASR
+ -> ControlDeck SSE LLM
+ -> speakable clause chunker
+ -> persistent TTS
+ -> bounded ordered audio-delivery queue
+ -> progressive WebSocket playback
 ```
 
-This is the first production target.
+LLM intake, TTS synthesis and audio delivery overlap. Chunk N+1 may be synthesized while chunk N is being delivered, while one ordered sender preserves client frame order.
 
-### 9.2 Wake/VAD v1.1
+Simultaneous translation is a pipeline preset:
 
-Device-side wake/VAD chooses when an utterance begins/ends. Server still owns ASR/LLM/TTS.
+```text
+speech
+ -> ASR
+ -> ControlDeck streaming translation
+ -> target-language TTS
+ -> progressive playback
+```
 
-### 9.3 Full duplex v2
+## 13. Meeting / dictation
 
-AEC + barge-in + cancel-current-TTS.
+Long sessions are not one huge PTT buffer.
 
-Do not make full duplex mandatory for initial M5 support.
+```text
+continuous PCM
+ -> RAM-first bounded processing chunks
+ -> persistent ASR
+ -> finalized timestamped segment -> SQLite
+ -> optional translation
+ -> repeat without total duration limit
+ -> optional hierarchical final summary
+```
 
-## 10. Live transport framing
+Processing chunk size is not a meeting duration limit. Finalized transcript remains durable even if the transport disconnects.
 
-SonicForge `sonic-edge/1` binary framing includes:
+## 14. Prompt normalization through Host AI
 
-- protocol magic/version
-- mic vs speaker stream
-- sequence number
-- sample clock
-- payload length
-- bounded payload size
-
-A bounded queue prevents unlimited latency growth.
-
-Policy distinction:
-
-- microphone uplink overflow should normally terminate/restart the utterance rather than silently losing semantic input;
-- playback downlink may discard stale frames after a newer turn supersedes them.
-
-## 11. Prompt normalization through Host AI
-
-Some audio models are stronger with English conditioning text. SonicForge may use ControlDeck `text.generate` to normalize/translate a Japanese user prompt for an engine while retaining the original intent.
-
-Example:
+SonicForge may use Host `text.generate` to normalize a Japanese prompt for an audio engine that performs better with English acoustic conditioning.
 
 ```text
 Japanese SFX intent
- -> Host text.generate: concise English acoustic description
- -> Host ai.release
+ -> Host text.generate
+ -> concise English acoustic description
+ -> release Host AI when no residency hold is needed
  -> Stable Audio worker
 ```
 
-The original prompt and engine-conditioning prompt are both retained in provenance. This is an orchestration detail, not a public requirement for users to write English prompts.
+Both the original prompt and engine-conditioning prompt remain in provenance.
 
-## 12. Migration and compatibility
+## 15. Implemented status
 
-No existing MediaForge or SonicForge execution endpoint is renamed by this design.
+Implemented on SonicForge / ControlDeck branches, pending local target validation:
 
-Gateway discovery is additive.
+- typed pipeline compile + durable runner;
+- `sonic.pipeline` Agent tool;
+- stage-local batch admission;
+- Host AI complete/stream/release;
+- LLM residency hold + heartbeat;
+- long Host Job credential refresh;
+- persistent ASR/TTS live workers;
+- progressive LLM -> TTS with overlapped ordered delivery;
+- meeting/dictation session model;
+- `sonic-edge/1` server framing;
+- generic Device Relay in ControlDeck Gateway 1.4;
+- trusted-LAN direct local path;
+- RAM-first spool with disk fallback.
 
-SonicForge must remain usable with an older Host by falling back to the existing endpoint set where possible.
+Real heavy-model, AMD/ROCm, browser and existing-device E2E evidence remains `NOT TESTED` until `SF受入確認` runs on the target machine.
 
-New features that genuinely require a new Host primitive, especially paired Device Sessions, must advertise `unavailable` rather than opening an insecure direct-LAN workaround.
-
-## 13. Implementation order
-
-### PIPE-0 — complete
-
-- typed pipeline request schema
-- text/audio stage type checking
-- start/stop compile rules
-- delivery mode schema
-- M5/device descriptor schema
-- bounded `sonic-edge/1` audio frame helpers
-
-### GATE-0 — implemented on branches, not E2E validated
-
-- ControlDeck generic gateway discovery branch
-- SonicForge discovery client with legacy projection
-
-### PIPE-1 — next
-
-- durable server-side pipeline Job runner
-- stage-local resource admission
-- Host AI complete/release stage
-- ASR/TTS/SFX/music task adapters
-- asset/text terminal result
-- pipeline provenance
-
-### PIPE-2
-
-- expose `sonic.pipeline` through Agent MCP
-- add workflow projection only if a concrete workflow need justifies it
-- direct project placement delivery
-
-### LIVE-1
-
-- authenticated browser live-session WebSocket
-- PTT turn state
-- bounded PCM framing
-- streaming/session ASR/TTS integration
-
-### HOST-DEVICE-1
-
-Separate ControlDeck PR:
-
-- generic device pairing/session contract
-- revocation and short-lived token
-- Add-on/session target scope
-- rate/byte/session limits
-- bounded WebSocket relay
-
-### M5-1
-
-- CoreS3/PTT firmware integration
-- device capability negotiation
-- PCM 16 kHz mono uplink baseline
-- negotiated playback output
-- display/turn-state events
-
-### M5-2
-
-- WakeNet/VAD
-- optional AEC
-- barge-in/full-duplex only after measured stability
-
-## 14. Non-goals
+## 16. Non-goals
 
 - moving SonicForge engines into ControlDeck;
-- giving M5 devices direct ControlDeck browser credentials;
-- exposing SonicForge loopback service to the LAN as the normal architecture;
-- holding a GPU lease while waiting for Host LLM inference;
-- forcing every generated asset through WebSocket;
-- forcing every live response to become a durable stored asset;
-- adding model names to normal OpenCode/public task contracts.
+- giving edge devices ControlDeck browser cookies or Add-on service tokens;
+- adding a SonicForge-only long-lived credential exception to ControlDeck;
+- exposing an unauthenticated SonicForge endpoint to arbitrary global/public peers by default;
+- holding one batch GPU lease while waiting through unrelated Host LLM work;
+- silently overcommitting VRAM to keep every live model resident;
+- forcing every generated Asset through WebSocket;
+- forcing every live response to become a durable stored Asset;
+- adding model names to normal OpenCode/public task contracts;
+- maintaining M5 firmware inside SonicForge.

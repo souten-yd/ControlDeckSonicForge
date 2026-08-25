@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from dataclasses import dataclass
 from typing import Any
 
 from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
-from .host.residency import AiResidencyHold, create_ai_hold, release_ai_hold, renew_ai_hold
+from .host.residency import (
+    AiResidencyHold,
+    create_ai_hold,
+    refreshed_identity_from_hold,
+    release_ai_hold,
+    renew_ai_hold,
+)
 from .jobs import HostedExecution, JobManager
 from .persistent_workers import PersistentSpeechWorkers
 from .pipeline_schema import PipelineStage
@@ -76,8 +81,6 @@ class LiveSessionResources:
                 asr_device=asr_device,
                 tts_device=tts_device,
             )
-            # Start processes now, but model loading remains lazy until the first
-            # request because exact language/voice model selection is request-specific.
             if self.has_asr:
                 await self.workers.asr.start()
             if self.has_tts:
@@ -146,8 +149,30 @@ class LiveSessionResources:
             self.jobs._renew_lease(execution),
             name=f"sonicforge-live-{kind}-lease-{lease_id}",
         )
-        self.leases.append(SessionLease(kind, execution, device_id if isinstance(device_id, str) else None, renew))
+        self.leases.append(
+            SessionLease(
+                kind,
+                execution,
+                device_id if isinstance(device_id, str) else None,
+                renew,
+            )
+        )
         return device_id if isinstance(device_id, str) else None
+
+    async def _adopt_hold_credential(self, hold: AiResidencyHold) -> None:
+        if self.identity is None:
+            return
+        refreshed = await refreshed_identity_from_hold(
+            self.host_client,
+            self.identity,
+            hold,
+        )
+        if refreshed is self.identity:
+            return
+        self.identity = refreshed
+        # Keep all long-lived lease renewers on the newest service credential too.
+        for lease in self.leases:
+            lease.execution.identity = refreshed
 
     async def _start_ai_hold(self) -> None:
         assert self.identity is not None
@@ -158,6 +183,7 @@ class LiveSessionResources:
                 self.ai_hold = None
                 return
             raise
+        await self._adopt_hold_credential(self.ai_hold)
         if not self.ai_hold.held or not self.ai_hold.hold_id:
             return
         self.ai_heartbeat = asyncio.create_task(
@@ -173,15 +199,15 @@ class LiveSessionResources:
             if self._closed:
                 return
             try:
-                self.ai_hold = await renew_ai_hold(
+                renewed = await renew_ai_hold(
                     self.host_client,
                     self.identity,
                     self.ai_hold.hold_id,
                 )
+                await self._adopt_hold_credential(renewed)
+                self.ai_hold = renewed
             except HostApiError as exc:
                 if exc.status_code in {401, 403, 404, 409, 503}:
-                    # Do not convert a temporary Host failure into a process-wide
-                    # failure. The Host TTL makes stale holds self-cleaning.
                     return
                 raise
 

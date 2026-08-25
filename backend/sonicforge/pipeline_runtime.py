@@ -7,10 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from .db import Asset, Job
+from .audio_process import process_audio
+from .db import Asset, Job, Provenance
 from .host.client import ControlDeckHostClient, HostApiError
 from .host.files import commit_file, read_grant
 from .jobs import HostedExecution, JobManager
+from .pipeline_package import create_package, package_filename
 from .pipeline_schema import PipelineRequest, PipelineStage, compile_pipeline
 from .workers import WorkerError, WorkerResult, execute
 
@@ -252,7 +254,13 @@ class PipelineRuntime:
                 },
             }
         if stage.kind == "audio.process":
-            raise WorkerError("audio.process pipeline execution is not implemented yet")
+            if value.kind != "audio" or value.audio_path is None:
+                raise WorkerError("audio.process pipeline stage requires audio input")
+            return {
+                **common,
+                "task": "audio.process",
+                "input": {"_internal_staged_input": str(value.audio_path)},
+            }
         raise WorkerError(f"unsupported local pipeline stage: {stage.kind}")
 
     async def _worker_stage(
@@ -270,7 +278,7 @@ class PipelineRuntime:
             request = self.jobs._resolve_voice(request)
 
         lease_renew: asyncio.Task | None = None
-        needs_gpu = self.jobs._gpu_required(request)
+        needs_gpu = stage.kind != "audio.process" and self.jobs._gpu_required(request)
         if needs_gpu and execution is None:
             raise WorkerError(
                 f"Pipeline stage {stage.id} requires a ControlDeck Resource Broker lease"
@@ -295,7 +303,21 @@ class PipelineRuntime:
 
         try:
             async with self.jobs.process_lock:
-                result = await execute(self.settings, request, stage_dir, progress)
+                if stage.kind == "audio.process":
+                    assert value.audio_path is not None
+                    result = await process_audio(
+                        value.audio_path,
+                        stage_dir / "output.wav",
+                        stage.parameters,
+                        progress,
+                    )
+                else:
+                    result = await execute(
+                        self.settings,
+                        request,
+                        stage_dir,
+                        progress,
+                    )
         finally:
             if lease_renew is not None:
                 lease_renew.cancel()
@@ -337,8 +359,6 @@ class PipelineRuntime:
             return {"text": value.text, "pipeline": {"stages": trace}}
         if mode == "websocket":
             raise WorkerError("websocket delivery requires a live session")
-        if mode == "package":
-            raise WorkerError("package pipeline delivery is not implemented yet")
         if value.kind != "audio" or value.audio_path is None or final_worker is None:
             raise WorkerError("audio delivery requires generated audio output")
 
@@ -367,6 +387,100 @@ class PipelineRuntime:
             "asset_id": asset_id,
             "pipeline": {"stages": trace},
         }
+        if mode == "package":
+            package_name = package_filename(request.delivery.filename)
+            package_target = (
+                self.settings.data_dir
+                / "tmp"
+                / job_id.replace(":", "_")
+                / "delivery"
+                / package_name
+            )
+            package_manifest = {
+                "schema_version": 1,
+                "type": "sonicforge.pipeline-package",
+                "audio": {
+                    "asset_id": asset_id,
+                    "filename": target.name,
+                    "mime_type": meta["mime_type"],
+                    "size_bytes": meta["size_bytes"],
+                    "sha256": meta["sha256"],
+                    "duration_ms": meta["duration_ms"],
+                    "sample_rate": meta["sample_rate"],
+                    "channels": meta["channels"],
+                },
+                "pipeline": {
+                    "name": request.pipeline,
+                    "start_at": request.start_at,
+                    "stop_after": request.stop_after,
+                    "stages": trace,
+                },
+            }
+            package_meta = create_package(
+                source_audio=target,
+                target=package_target,
+                audio_name=target.name,
+                manifest=package_manifest,
+            )
+            package_asset_id = f"asset:{uuid.uuid4()}"
+            package_provenance_id = f"prov:{uuid.uuid4()}"
+            package_destination = (
+                self.settings.assets_dir
+                / f"{package_asset_id.split(':', 1)[1]}.zip"
+            )
+            package_destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(package_target), package_destination)
+            with self.session_factory() as session:
+                session.add(
+                    Provenance(
+                        id=package_provenance_id,
+                        operation="asset.package",
+                        engine_id="python.zipfile",
+                        engine_version=None,
+                        model_id=None,
+                        model_revision=None,
+                        model_license_id=None,
+                        parameters={
+                            "source_audio_asset_id": asset_id,
+                            "filename": package_name,
+                            "schema_version": 1,
+                        },
+                        qa={
+                            "archive": "passed",
+                            "semantic": "not_checked",
+                        },
+                    )
+                )
+                session.add(
+                    Asset(
+                        id=package_asset_id,
+                        kind="package",
+                        mime_type=package_meta["mime_type"],
+                        relative_path=str(
+                            package_destination.relative_to(self.settings.data_dir)
+                        ),
+                        size_bytes=package_meta["size_bytes"],
+                        sha256=package_meta["sha256"],
+                        duration_ms=None,
+                        sample_rate=None,
+                        channels=None,
+                        job_id=job_id,
+                        provenance_id=package_provenance_id,
+                        metadata_json={
+                            "filename": package_name,
+                            "source_audio_asset_id": asset_id,
+                            "manifest": package_manifest,
+                        },
+                    )
+                )
+                session.commit()
+            return {
+                "asset_id": package_asset_id,
+                "audio_asset_id": asset_id,
+                "content_url": f"/addon/v1/assets/{package_asset_id}/content",
+                "filename": package_name,
+                "pipeline": {"stages": trace},
+            }
         if mode == "http":
             result["content_url"] = f"/addon/v1/assets/{asset_id}/content"
         if mode == "project":

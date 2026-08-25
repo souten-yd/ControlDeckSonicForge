@@ -29,6 +29,16 @@ class PromptAwarePipelineRuntime(PipelineRuntime):
         stage_index: int,
         total_stages: int,
     ) -> tuple[PipelineValue, dict[str, Any], WorkerResult, dict[str, Any]]:
+        if stage.kind != "audio.sfx":
+            return await super()._worker_stage(
+                job_id,
+                stage,
+                value,
+                execution,
+                stage_dir,
+                stage_index,
+                total_stages,
+            )
         request = self._worker_request(stage, value)
 
         start = 0.05 + (stage_index / max(total_stages, 1)) * 0.85
@@ -42,15 +52,12 @@ class PromptAwarePipelineRuntime(PipelineRuntime):
                 result={"message": f"Pipeline {stage.id}: {message}"},
             )
 
-        if stage.kind == "audio.sfx":
-            request = await normalize_sfx_prompt(
-                request,
-                identity=execution.identity if execution is not None else None,
-                host_client=self.host_client,
-                progress=progress,
-            )
-        if stage.kind == "speech.tts":
-            request = self.jobs._resolve_voice(request)
+        request = await normalize_sfx_prompt(
+            request,
+            identity=execution.identity if execution is not None else None,
+            host_client=self.host_client,
+            progress=progress,
+        )
 
         lease_renew: asyncio.Task | None = None
         needs_gpu = self.jobs._gpu_required(request)

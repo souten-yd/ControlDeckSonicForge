@@ -5,6 +5,8 @@ Date: 2026-08-25
 
 This document defines the local-machine acceptance gate for SonicForge and its generic ControlDeck integration changes.
 
+**Mandatory companion:** whenever `SF受入確認` or `SF受入マージ` is invoked, also read and apply `docs/CODEX_LOCAL_ACCEPTANCE_FINAL.md`. The base runbook and that addendum together are normative. Where the addendum explicitly supersedes an older detail in this file, use the addendum.
+
 ## 1. Short commands
 
 When the user says exactly or substantially:
@@ -405,9 +407,9 @@ Do not claim Stable Audio GPU support if only the CPU path was validated.
 
 ## 15. M5 / device acceptance
 
-Start with the simulator, then real CoreS3/M5 hardware.
+Use the user's existing M5/edge client; SonicForge does not own or build device firmware.
 
-PTT baseline:
+PTT/server-contract baseline:
 
 ```text
 pair/connect or trusted-local connect
@@ -422,9 +424,9 @@ playback
 next turn without full model reload
 ```
 
-Check sequence gaps, Wi-Fi reconnect, bounded buffers, state display, and playback underruns.
+Check sequence gaps, Wi-Fi reconnect, bounded buffers, and playback underruns as observable through the existing client and SonicForge server logs/events.
 
-Authentication must not make local use burdensome. For the paired Host relay path, pairing is expected to be infrequent and reconnection automatic. Direct trusted-local SonicForge speech paths should remain possible where configured.
+Authentication must not make local use burdensome. Direct trusted-local SonicForge speech paths should remain possible without user-facing authentication. For the optional paired Host relay path, device credentials follow the normal ControlDeck Add-on maximum TTL (currently 8 hours) and may be replaced on a successful reconnect; there is no special 30-day exception.
 
 ## 16. Packaging / release acceptance
 

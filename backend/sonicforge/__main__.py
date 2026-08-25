@@ -30,7 +30,7 @@ def main() -> int:
     if args.command == "doctor":
         return doctor()
     if args.command == "serve":
-        uvicorn.run("sonicforge.app:app", host=settings.host, port=settings.port, log_level="info")
+        uvicorn.run("sonicforge.bootstrap:app", host=settings.host, port=settings.port, log_level="info")
         return 0
     if args.command == "provision":
         import asyncio

@@ -192,6 +192,7 @@ async def execute(
         proc.stdin.write((json.dumps(payload, ensure_ascii=False) + "\n").encode())
         await proc.stdin.drain()
         proc.stdin.close()
+        await proc.stdin.wait_closed()
         final = None
         while True:
             line = await proc.stdout.readline()

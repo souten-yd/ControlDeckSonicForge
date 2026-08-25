@@ -37,11 +37,21 @@ def _is_local_host(value: str | None) -> bool:
     return not address.is_global and not address.is_unspecified
 
 
+def _is_loopback_bind(value: str) -> bool:
+    value = value.strip().strip("[]")
+    if value.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
 def peer_is_trusted(*, peer_host: str | None, bind_host: str) -> bool:
     mode = local_access_mode()
     if mode == "open":
         return True
-    bind_local = _is_local_host(bind_host)
+    bind_local = _is_loopback_bind(bind_host)
     peer_local = _is_local_host(peer_host)
     if mode == "strict":
         return bind_local and (peer_local or peer_host in {None, "testclient"})

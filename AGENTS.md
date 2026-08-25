@@ -2,160 +2,199 @@
 
 This file is normative for human developers and coding agents working in this repository.
 
-## 1. Read order and document precedence
+## 1. Read order and precedence
 
 Before implementation, read:
 
 1. `AGENTS.md`
 2. `docs/00-master-spec.md`
 3. `docs/01-boundaries-and-contracts.md`
-4. the domain document for the feature being changed
-5. `docs/08-development-process-and-quality-gates.md`
-6. `docs/09-roadmap.md`
+4. `docs/13-release-distribution-and-signing.md` for packaging/release work
+5. `docs/14-bilingual-ux-and-critical-review.md` for product/UI work
+6. the relevant domain document
+7. `docs/08-development-process-and-quality-gates.md`
+8. `docs/09-roadmap.md`
+9. `docs/implementation-status.md`
 
-For ControlDeck integration, also read the current host sources:
+For ControlDeck integration read current Host sources, especially:
 
 - `ControlDeck/docs/design-addon-platform-v2.md`
 - `ControlDeck/docs/plugin-sdk.md`
 - `ControlDeck/backend/app/addons/schema.py`
+- `ControlDeck/backend/app/features/release_bundle.py`
 - `ControlDeck/tools/fake-addon/`
 
-For architectural precedent, read:
+For architectural/release precedent read current MediaForge sources, especially:
 
 - `ControlDeckMediaForge/AGENTS.md`
 - `ControlDeckMediaForge/docs/controldeck-integration-plan.md`
+- `ControlDeckMediaForge/scripts/sign_release.py`
 
-Precedence when documents conflict:
+Precedence for Host-facing behavior:
 
-1. current ControlDeck host contract for host-facing behavior
-2. this `AGENTS.md`
-3. SonicForge master/boundary specifications
-4. feature specifications
-5. roadmap/implementation instructions
+1. current generic ControlDeck contract actually available on the target Host;
+2. this `AGENTS.md` and SonicForge normative design;
+3. feature specifications;
+4. roadmap/implementation notes.
 
-Do not silently reinterpret a contract. Update the design first.
+When a desired SonicForge contract is ahead of current ControlDeck support (for example publisher-signature Release Bundles), treat it as an explicit Host compatibility gate. Do not silently fall back to a weaker permanent architecture.
 
 ## 2. Hard boundaries
 
 1. Never import ControlDeck backend/frontend internals into SonicForge.
 2. Never import MediaForge internals into SonicForge.
-3. Never put SonicForge-specific routes, model names, dependencies, UI strings or business logic into ControlDeck core.
-4. Host integration is HTTP + Add-on Contract v2 + scoped Browser Bridge/Runtime APIs only.
-5. Never share a Python virtual environment with ControlDeck or MediaForge.
-6. SonicForge owns its core environment, runtime packs, state DB, models, assets and work directories.
-7. Cross-Add-on file exchange uses host-issued `asset:` / `grant:` identifiers; never raw host paths.
-8. Public high-level APIs route by capability. Model/engine IDs are optional advanced routing hints, never required business concepts.
-9. GPU inference under ControlDeck must acquire/renew/release a Host Resource Broker lease. Do not build a competing global GPU scheduler.
-10. A missing worker must degrade only its capabilities. The lightweight SonicForge core should remain healthy whenever possible.
+3. Never put SonicForge-specific routes, models, dependencies, UI strings or business logic into ControlDeck core.
+4. Runtime Host integration is HTTP + Add-on v2 + scoped Browser Bridge/Runtime APIs.
+5. Release installation uses the generic trusted Feature mechanism, not an Add-on-supplied arbitrary shell command.
+6. Never share a Python venv/database/runtime registry with ControlDeck or MediaForge.
+7. SonicForge owns its core env, runtime packs, state DB, models, voices, assets and work dirs.
+8. Cross-boundary files use Host `asset:` / `grant:` identifiers; never raw Host project paths.
+9. Public APIs route by capability/task/language. Model/engine IDs are optional Expert hints only.
+10. GPU work under ControlDeck acquires/renews/releases Host Resource Broker leases.
+11. Optional Game Audio/Music absence must not degrade a healthy Speech Essentials service.
+12. Significant preparation/generation is server-owned durable work before expensive compute is spent; browser state is not the sole owner.
 
-## 3. Environment rules
+## 3. Release trust rules
 
-The default structure is:
+SonicForge follows the MediaForge publisher-signature model.
+
+- release authorization uses a trusted Ed25519 publisher public key;
+- sign a canonical manifest that binds feature id, version, platform, architecture, artifact name, SHA-256 and size;
+- SHA-256 remains integrity data inside the signed manifest, not a per-release ControlDeck source pin;
+- publisher private key never enters the repository, runtime bundle or ordinary CI/test jobs;
+- use disposable test keys for verification tests;
+- a valid signature never bypasses Host capability allowlists, downgrade checks, safe extraction, package identity, provisioning or health checks;
+- third-party runtime/model downloads have their own revision/digest/license trust records.
+
+If the current ControlDeck target lacks the generic signature-aware verifier, record the blocker and implement the Host support as a separate generic ControlDeck PR. Do not add SonicForge-specific verifier logic.
+
+## 4. Environment/setup rules
+
+Normal layout:
 
 ```text
-.venv/                         lightweight SonicForge core
-runtimes/<runtime-id>/.venv/  heavy or incompatible ML stacks
+.venv/                         lightweight core/development env
+runtimes/<runtime-id>/.venv/  heavy/incompatible ML stacks
 worker_packs/<pack>/           engine adapters/workers
-data_dir/                      runtime state outside the repository
+data_dir/                      persistent state outside source
 ```
 
-The core environment must not contain heavy inference stacks merely for convenience.
+Rules:
 
-Runtime sharing is allowed only inside SonicForge when lock/fingerprint compatibility is proven. It is forbidden across ControlDeck/MediaForge boundaries.
-
-The default SonicForge cache is independent. Respect explicit `PIP_CACHE_DIR`, `UV_CACHE_DIR`, `HF_HOME` and model library settings; do not overwrite user choices.
-
-## 4. Setup/provisioning rules
-
-The normal user path is a button-driven setup flow.
-
-- `doctor` is read-only.
-- setup is idempotent and resumable.
-- build into staging, validate, then atomically activate.
-- persist setup progress server-side; do not rely on browser localStorage.
-- show planned downloads, disk requirements and license/terms before gated downloads.
-- never silently accept a third-party model license for the user.
-- never silently invoke `sudo` or modify ROCm/kernel/system drivers.
-- missing system prerequisites must become an actionable setup state.
-- failed setup must leave the last known-good runtime usable.
+- core stays light and starts without torch/models;
+- runtime sharing is allowed only inside SonicForge when fingerprint compatibility is proven;
+- `doctor` is read-only;
+- provisioning is idempotent/resumable and builds into staging before atomic activation;
+- default first setup is `speech-essentials` (Japanese + English TTS/ASR);
+- Game Audio and Music are optional contextual one-click packs;
+- do not silently invoke sudo, modify drivers/kernel, or accept third-party terms;
+- failed setup leaves the last known-good runtime usable;
+- UI and CLI use the same setup orchestration logic.
 
 ## 5. Security rules
 
-- `shell=True` is forbidden.
-- subprocess arguments are arrays and validated.
-- no prompt/user text concatenation into shell, SQL, paths or command lines.
-- no secrets in source, manifest, URLs, job results or logs.
+- `shell=True` forbidden.
+- subprocess argv is fixed/validated.
+- no prompt/user input concatenated into shell, SQL or filesystem paths.
+- no secrets/signing key material in source, manifests, URLs, logs or job results.
 - no ControlDeck session Cookie/Authorization forwarding.
-- service tokens are short-lived and audience/add-on scoped.
-- normalize real paths and enforce containment for every local file operation.
-- external audio/reference uploads are treated as untrusted input.
-- generated assets must include provenance and engine/model/license metadata sufficient for later audit.
-- voice clone/import requires explicit rights/consent metadata in the library workflow.
+- service credentials are short-lived and audience/Add-on scoped.
+- realpath containment for local files; reject symlink escape.
+- treat uploaded audio, archives and model files as untrusted.
+- generated assets require provenance/model/license metadata.
+- reusable voice clone/import requires explicit rights/consent metadata.
+- QA reports only checks actually performed; use `not_checked` rather than implying success.
 
-## 6. Audio architecture rules
-
-Use stable adapter interfaces. The core must not depend on a specific engine implementation.
+## 6. Audio/language architecture
 
 Primary capability groups:
 
 ```text
 speech.tts.*
 speech.asr.*
+speech.localization.*
+speech.qa.*
 audio.sfx.*
 audio.processing.*
+audio.qa.*
 music.*
 asset.pack.*
 ```
 
-TTS engines such as Qwen3-TTS, GPT-SoVITS and Style-Bert-VITS2 are TTS/voice engines. They are not ASR engines.
+Japanese and English are first-class product languages. `ui_locale`, `content_language`, and voice language metadata are separate concepts.
 
-ASR should be Japanese-first and adapter-based. Initial preferred candidates are documented in `docs/04-engine-model-strategy.md`.
+GPT-SoVITS and Style-Bert-VITS2 are TTS/voice engines, not ASR engines.
+
+Do not force the same ASR model for Japanese and English. Route by measured language/task quality.
+
+Do not create combinatorial language capabilities such as `speech.asr.ja_en`; language support belongs in capability metadata/request fields.
 
 ## 7. UI rules
 
-- simple mode is the default; advanced settings use progressive disclosure.
-- unavailable capabilities are explained rather than silently hidden when the Add-on is enabled.
-- setup/waiting/loading states always include a short reason and an actionable next step where possible.
-- opaque embedded view rules from ControlDeck apply: no reliance on shared-origin cookies/localStorage.
-- theme/locale/safe-area changes are handled through the host bridge.
-- mobile may use a companion layout instead of squeezing a desktop DAW-like workspace into 320 px.
-- do not build a node graph as the primary UX. Presets/tasks/conversation-style generation come first.
+Use the current baseline:
+
+```text
+Top level: Studio / Voices / Library / Runtime
+Studio: Speech / Transcribe / SFX / Music / Localization
+Settings: Easy / Customize / Expert
+```
+
+Rules:
+
+- ordinary tasks work entirely in Easy/Customize;
+- no always-visible model picker;
+- show a control only when relevant and supported;
+- recommended quality is the default; model choice is routing policy;
+- Preview and bounded candidate comparison where useful;
+- Japanese and English UI strings from localization keys;
+- embedded view follows opaque Host isolation; no shared cookie/localStorage assumptions;
+- reconnect dead sockets on visibility return and reload authoritative server state;
+- running job progress survives navigation/backgrounding;
+- queued cancel settles immediately when no work has started; running cancel is owned by the active worker/job;
+- distinguish listed / installed / available / loaded / running / recommended / experimental;
+- mobile must remain usable without labels collapsing/wrapping into unusable layouts;
+- do not build a node graph as primary UX.
 
 ## 8. Public contract freeze
 
-Before the end of roadmap phase SF1, freeze:
+Before the end of SF1 freeze:
 
 - `addon.json` contribution IDs
-- public JSON schemas
-- agent tool IDs
-- workflow executor IDs
-- capability names
+- four initial workflow executor IDs
+- five initial agent tool IDs
+- `auto|ja|en` content language contract
+- public JSON schemas/error codes
+- capability naming principles
 - asset/provenance required fields
-- setup state model
+- setup state/profile names
 
-After freeze, changes are additive by default. Breaking changes require an explicit migration document and version bump.
+Do not freeze every detailed capability as a separate Host executor. After freeze, prefer additive extensions.
 
 ## 9. Development process
 
-- one PR = one independently reviewable slice
-- tests are added with the change
-- do not edit ControlDeck and SonicForge in the same PR/repository
-- if a Host change is truly required, first write one sentence explaining why it cannot be solved within the current generic contract
-- Host changes must be generic enough for another future Add-on to use
-- update `docs/09-roadmap.md` or implementation status evidence when a phase materially changes
+- one PR = one independently reviewable slice;
+- tests accompany behavior;
+- ControlDeck Host changes are separate PRs and generic;
+- MediaForge is reference, not a code dependency;
+- real engine promotion requires measured target-hardware evidence;
+- UI changes require real browser checks in Japanese and English when applicable;
+- update `docs/implementation-status.md` with what was actually executed and what remains `NOT TESTED`.
 
 ## 10. Definition of done
 
 Build/lint/unit tests are necessary but insufficient.
 
-A feature is complete only when there is evidence of the real behavior relevant to that feature, for example:
+Relevant real evidence includes:
 
-- clean environment provisioning executed
-- real service health request
-- real TTS/ASR/audio generation with measured latency/memory where applicable
-- Resource Broker lease lifecycle observed for GPU work
-- cancellation observed
-- real browser embedded-view assertion for UX work
-- produced asset inspected and provenance verified
+- signed release build/self-verification and negative tamper cases for release work;
+- clean Speech Essentials provisioning;
+- real service health/capability responses;
+- real Japanese/English TTS/ASR fixtures for speech work;
+- Resource Broker lease lifecycle for GPU work;
+- queued/running cancellation;
+- browser reconnect/reattach for UX work;
+- generated asset validation/provenance;
+- scoped project export;
+- no falsely claimed checks or support.
 
-Record what was NOT TESTED. Never turn assumptions into evidence.
+Record untested areas explicitly.

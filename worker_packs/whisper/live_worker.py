@@ -7,6 +7,8 @@ import signal
 import sys
 from pathlib import Path
 
+from worker_packs.whisper.audio_segments import merge_transcripts, split_on_long_silence
+
 
 def _parent_death_guard() -> None:
     if sys.platform != "linux":
@@ -59,7 +61,7 @@ def asr_pipe(model_id: str):
     return value
 
 
-def run(request_id: str, request: dict) -> None:
+def run(request_id: str, request: dict, work_dir: Path) -> None:
     inp = request.get("input", {})
     audio = inp.get("_internal_staged_input")
     if not audio:
@@ -86,15 +88,21 @@ def run(request_id: str, request: dict) -> None:
     if generate_kwargs:
         call_kwargs["generate_kwargs"] = generate_kwargs
     emit(request_id, {"type": "progress", "progress": 0.55, "message": "Transcribing"})
-    result = pipe(str(audio_path), **call_kwargs)
+    segments = (
+        split_on_long_silence(audio_path, work_dir / "asr-segments")
+        if lang == "auto"
+        else [(audio_path, 0.0)]
+    )
+    result = merge_transcripts(
+        [(pipe(str(segment), **call_kwargs), offset) for segment, offset in segments]
+    )
     chunks = []
     for item in result.get("chunks", []) or []:
-        timestamp = item.get("timestamp") or (None, None)
         chunks.append(
             {
                 "text": item.get("text", ""),
-                "start": timestamp[0],
-                "end": timestamp[1],
+                "start": item.get("start"),
+                "end": item.get("end"),
             }
         )
     emit(
@@ -119,7 +127,7 @@ for line in sys.stdin:
     try:
         envelope = json.loads(line)
         request_id = str(envelope["request_id"])
-        run(request_id, envelope["request"])
+        run(request_id, envelope["request"], Path(envelope["work_dir"]).resolve())
     except Exception as exc:
         request_id = str(locals().get("request_id") or "unknown")
         emit(request_id, {"type": "error", "message": str(exc)[:1000]})

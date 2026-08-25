@@ -7,6 +7,8 @@ import signal
 import sys
 from pathlib import Path
 
+from worker_packs.whisper.audio_segments import merge_transcripts, split_on_long_silence
+
 
 def _parent_death_guard() -> None:
     """Ensure a persistent GPU worker cannot outlive a killed SonicForge parent."""
@@ -91,15 +93,21 @@ def handle(payload: dict) -> None:
     call_kwargs = {"return_timestamps": True}
     if generate_kwargs:
         call_kwargs["generate_kwargs"] = generate_kwargs
-    result = pipe(str(audio_path), **call_kwargs)
+    segments = (
+        split_on_long_silence(audio_path, Path(payload["work_dir"]) / "asr-segments")
+        if lang == "auto"
+        else [(audio_path, 0.0)]
+    )
+    result = merge_transcripts(
+        [(pipe(str(segment), **call_kwargs), offset) for segment, offset in segments]
+    )
     chunks = []
     for item in result.get("chunks", []) or []:
-        timestamp = item.get("timestamp") or (None, None)
         chunks.append(
             {
                 "text": item.get("text", ""),
-                "start": timestamp[0],
-                "end": timestamp[1],
+                "start": item.get("start"),
+                "end": item.get("end"),
             }
         )
     _emit(

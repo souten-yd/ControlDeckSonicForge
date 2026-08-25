@@ -5,53 +5,88 @@ Date: 2026-08-25
 
 ## 1. Executive rule
 
-SonicForge is an **out-of-process Add-on v2 service**. ControlDeck is the generic host. MediaForge is a sibling Add-on.
+SonicForge is an **out-of-process ControlDeck Add-on v2 service** distributed as a generic trusted ControlDeck feature. ControlDeck is the generic host. MediaForge is a sibling Add-on and architectural precedent.
 
-The architecture succeeds only if each repository can evolve independently without importing the other's private implementation.
+Each repository must evolve independently without importing another repository's private implementation.
 
 ## 2. Ownership matrix
 
 | Concern | ControlDeck | SonicForge | MediaForge |
 |---|---|---|---|
+| trusted publisher / feature install policy | owns generic trust/install mechanism | publishes signed feature | publishes signed feature |
 | Add-on install/enable/effective registry | owns | consumes | consumes |
 | manifest validation | owns | declares | declares |
-| host navigation/shell | owns generic slots | contributes Audio entry | contributes Media entry |
+| host navigation/shell | owns generic slots | contributes Audio | contributes Media |
 | embedded view proxy/sandbox | owns | consumes | consumes |
 | theme/locale/safe-area bridge | owns | consumes | consumes |
-| authentication identity | owns | introspects scoped token | introspects scoped token |
-| RBAC/host permissions | owns | requests fixed host capabilities | requests fixed host capabilities |
-| durable global Jobs | owns | attaches/updates jobs | attaches/updates jobs |
+| authentication identity/RBAC | owns | consumes scoped authority | consumes scoped authority |
+| durable global Jobs | owns | attaches/updates | attaches/updates |
 | GPU Resource Broker | owns | requests leases | requests leases |
 | project/file grants | owns | consumes grants | consumes grants |
-| raw project paths | owns only | forbidden | forbidden |
-| TTS/ASR business logic | none | owns | none |
-| audio/music generation | none | owns | none |
+| raw project paths | Host-internal only | forbidden | forbidden |
+| TTS/ASR/localization business logic | none | owns | none |
+| SFX/audio/music generation | none | owns | none |
 | image/video/3D generation | none | none | owns |
-| engine/model registry | generic host models only | owns audio engine registry | owns media engine registry |
-| worker Python dependencies | none | owns | owns |
-| SonicForge asset/provenance DB | none | owns | none |
-| MediaForge asset/provenance DB | none | none | owns |
+| audio engine/model registry | none | owns | none |
+| media engine/model registry | none | none | owns |
+| worker dependencies/runtimes | none | owns | owns |
+| SonicForge DB/assets/voices | none | owns | none |
+| MediaForge DB/assets | none | none | owns |
 
-## 3. ControlDeck contracts SonicForge must obey
+## 3. Two distinct contracts
 
-Current host baseline:
+Do not conflate **feature distribution trust** with **runtime Add-on authority**.
 
-- Add-on contract: `>=2.0 <3.0`
-- runtime kind: `external-service`
-- runtime URL: HTTPS or loopback HTTP
-- default SonicForge loopback: `http://127.0.0.1:9140`
-- host-mediated embedded proxy; browser must not access the loopback service directly from the HTTPS ControlDeck origin
-- opaque iframe origin; no `allow-same-origin`
-- ControlDeck strips Host Cookie/Authorization before proxying upstream
-- service authentication uses short-lived Add-on service tokens
-- Runtime API service identity must match Add-on ID/audience/path
-- Host picker/export/project access uses scoped grants rather than paths
-- GPU/resource work uses Runtime Resource APIs
-- unavailable execution contributions are removed from executable discovery; navigation remains visible for enabled Add-ons with an explanatory state
+### 3.1 Feature distribution
 
-### Current Host capabilities relevant to SonicForge
+Target generic flow:
 
-Use only existing allowlisted capabilities unless a separately reviewed generic host change is required:
+```text
+trusted publisher public key in ControlDeck
+ -> signed SonicForge release manifest
+ -> artifact identity/size/SHA verification
+ -> safe feature bundle install
+ -> bounded provision/smoke/health
+ -> atomic version activation/rollback
+```
+
+SonicForge adopts MediaForge's publisher-signature direction. SHA-256 remains inside the signed manifest; it is not the per-release authorization pin.
+
+Detailed contract: `13-release-distribution-and-signing.md`.
+
+### 3.2 Runtime Add-on authority
+
+After installation, SonicForge uses Add-on v2:
+
+- declarative manifest/contributions
+- scoped service/request tokens
+- Host Runtime APIs
+- Browser Bridge
+- Host Jobs/resources/grants/outputs
+
+A valid release signature does not grant additional runtime capabilities.
+
+## 4. ControlDeck runtime contracts SonicForge must obey
+
+Baseline:
+
+- Add-on contract `>=2.0 <3.0`
+- runtime `external-service`
+- HTTPS or loopback HTTP service URL
+- default SonicForge origin `http://127.0.0.1:9140`
+- Host-mediated embedded proxy for HTTPS ControlDeck
+- opaque iframe origin; no privileged same-origin shortcut
+- Host Cookie/Authorization stripped before upstream proxying
+- short-lived Add-on service/request credentials
+- Runtime identity must match Add-on ID/audience/path
+- file/project access through scoped grants rather than paths
+- GPU work through Resource Broker
+- enabled navigation remains understandable when the service/capability is unavailable
+- unavailable execution contributions are excluded from executable discovery as required by Host policy
+
+### Current relevant Host capabilities
+
+Use only values accepted by the current Host schema:
 
 ```text
 context.read
@@ -67,30 +102,39 @@ resources.acquire
 ai.inference
 ```
 
-Do not invent Sonic-specific host capability names in the manifest.
+Do not invent `sonic.*` Host capabilities. Sonic-specific capability names belong to SonicForge's own runtime capability document, not ControlDeck's privilege system.
 
-## 4. Proposed SonicForge manifest contributions
+## 5. SonicForge public Add-on contributions
 
-The first public contract should remain small:
+Keep the frozen Host-facing surface intentionally small.
 
-### Navigation / view
+### Navigation / embedded view
 
-- `workspace` -> `/x/sonic-forge/workspace`
-- embedded view path `/`
-- mobile mode `companion` unless the compact UI proves viable
+```text
+workspace -> /x/sonic-forge/workspace
+```
+
+One Host navigation entry only: `Audio / オーディオ`.
+
+Do not duplicate Studio tasks as Host quick actions unless a real shortcut use case emerges. The current draft intentionally has no quick actions.
 
 ### Settings
 
-- `settings` -> `/x/sonic-forge/workspace/settings`
+```text
+settings -> /x/sonic-forge/workspace/settings
+```
 
-### Commands
+### Command
 
-- `create-audio` -> task chooser / quick create
-- optional later commands may be added, not required for v1 contract freeze
+```text
+create-audio
+```
+
+The command opens/routes into the Studio task chooser rather than creating a parallel editor.
 
 ### Workflow executors
 
-Prefer a small set of stable task-level executors rather than one executor per model:
+Freeze four task-level executors initially:
 
 ```text
 sonic.speech.synthesize
@@ -99,11 +143,9 @@ sonic.audio.generate
 sonic.music.generate
 ```
 
-A later additive executor may support transform/edit operations.
+Localization Studio is an application workflow/capability and does not require another frozen Host executor unless actual external workflow use proves it necessary.
 
 ### Agent tools
-
-Initial set:
 
 ```text
 sonic.capabilities
@@ -113,170 +155,187 @@ sonic.inspect
 sonic.pack
 ```
 
-`sonic.generate` uses a task/capability field; agents should not need to call engine-specific tools.
+Agents request task/language/profile. Engine/model IDs are optional advanced hints, not required tool concepts.
 
 ### Context actions
 
-Initial candidates:
+Initial useful actions:
 
-- `transcribe-audio`
-- `open-in-sonic-forge`
-- `create-variation`
-- `pack-audio-to-project`
+```text
+transcribe-audio
+open-audio
+```
 
-Context actions consume Host-validated `grant:` IDs, never raw paths.
+Additional actions are additive only when they provide a distinct context workflow.
 
 ### Setup checklist
 
-At minimum:
+Expose user-meaningful capability packs, not internal workers:
 
 ```text
 core
-recommended-speech
-recommended-asr
-recommended-audio
-recommended-music
+speech-essentials
+game-audio
+music
 ```
 
-The actual setup state is reported by health/setup APIs. The manifest only declares stable checklist IDs/labels.
+TTS/ASR may use separate internal runtimes while remaining one user-facing Speech Essentials setup unit.
 
-## 5. Health and capability health
+## 6. Language boundary
 
-Add-on process health and individual engine health are separate.
-
-Top-level states follow ControlDeck:
+UI locale, content language and voice language are separate.
 
 ```text
-available
- degraded
- unavailable
- setup_required
+ui_locale         auto | ja | en
+content_language  auto | ja | en initially
+voice_language    voice-profile metadata
 ```
 
-SonicForge should keep the core available/degraded while optional workers are missing.
+ControlDeck provides locale through the generic Host bridge. SonicForge owns audio-language routing and speech-quality policy.
 
-Example capability document:
+Do not add language-specific ControlDeck routes/permissions. Do not create combinatorial Host capabilities such as `speech.asr.ja_en`.
+
+## 7. Health versus optional capability state
+
+Add-on/core health and optional pack availability are distinct.
+
+Example after Speech Essentials is working:
 
 ```text
-speech.tts.synthesize          available
-speech.tts.voice_clone         available
-speech.asr.transcribe          available
-audio.sfx.generate             setup_required
-music.generate                 unavailable
+SonicForge core               available
+speech.tts.synthesize         available (ja/en)
+speech.asr.transcribe         available (ja/en)
+speech.localization.batch     available
+audio.sfx.generate            setup_required (optional pack missing)
+music.generate                setup_required (optional pack missing)
 ```
 
-Each unavailable/degraded capability includes a reason code and a user-facing remediation hint.
+This overall service is **available**, not degraded merely because optional Game Audio/Music have not been installed.
 
-## 6. Job boundary
+Use degraded/unavailable only when an expected/installed capability or core behavior is actually impaired.
 
-ControlDeck Job = user-visible durable unit of work.
-SonicForge internal task/worker step = implementation detail.
+## 8. Job boundary
+
+ControlDeck Job = global durable user-visible work item.  
+SonicForge worker phases = implementation detail.
 
 Rules:
 
-- UI, workflow and agent invocation create/attach a Host Job when durable work begins.
-- Resource waiting does not consume an execution runner slot in ControlDeck.
-- SonicForge can have detailed internal phases, but normalizes them to Host progress/status.
-- high-frequency diffusion/token/step telemetry stays inside SonicForge.
-- cancellation is polled/propagated to the active worker.
-- terminal Host result remains bounded; large audio is referenced as an asset/output.
+- create/attach durable ownership before significant preparation/generation;
+- browser memory is never the only owner of expensive work;
+- resource waiting does not consume unrelated execution slots;
+- high-frequency engine telemetry stays local and is normalized to bounded Host progress;
+- cancellation reaches waiting request/active worker appropriately;
+- terminal Host result is bounded; large audio/transcript is an asset/reference;
+- reopening/backgrounding reconnects to authoritative server/Host Job state.
 
-## 7. Resource Broker boundary
+## 9. Resource Broker boundary
 
-GPU jobs request a Host lease using estimates such as:
+GPU request examples may contain:
 
 ```text
-resource_class       gpu.compute
-device               auto
-vram_estimate_bytes  engine/profile estimate
-execution_mode       shared | exclusive-preferred | exclusive-required
-priority             bounded by host subject class
-interactive          true/false
-model_residency_key  opaque stable residency fingerprint
+resource_class
+device = auto
+vram_estimate_bytes
+execution_mode
+priority within Host ceiling
+interactive
+model_residency_key
 ```
 
-The runtime client must not set a forged owner; Host derives `addon:sonic-forge`.
+Host derives owner from authenticated Add-on identity; SonicForge cannot forge another owner.
 
-SonicForge owns per-engine local worker pools and their process lifecycle, but not cross-application GPU arbitration.
+SonicForge owns local worker lifecycle/model residency decisions but not cross-application GPU arbitration.
 
-## 8. File and asset boundary
+If SonicForge uses ControlDeck generic AI inference for orchestration/analysis and then needs GPU locally, use the generic Host AI release/yield contract where appropriate rather than reaching into LLM process internals.
 
-When embedded in ControlDeck:
+## 10. File and asset boundary
 
 Input:
 
 ```text
-Host file/project picker
+Host picker/context
  -> grant:<id>
- -> SonicForge Runtime grant metadata/content API
- -> private job staging
+ -> Runtime grant metadata/content
+ -> private SonicForge staging
 ```
 
 Output:
 
 ```text
-SonicForge generated asset
- -> Host output staging API
- -> commit into granted destination
- -> logical Host/project result
+SonicForge asset
+ -> Host output staging
+ -> scoped commit
+ -> logical project result
 ```
 
-Forbidden in host-facing protocol:
+Forbidden in Host-facing payload/result metadata:
 
 - `/home/...`
 - `/share/...`
-- repository absolute paths
-- ControlDeck project root paths
-- symlink-derived escape paths
+- ControlDeck project root
+- repository absolute path
+- symlink-derived escape path
 
-Standalone SonicForge may support local filesystem paths behind its own authorization model, but these must never leak into the Add-on protocol.
+Standalone/local internal storage never weakens the Add-on protocol boundary.
 
-## 9. SonicForge and MediaForge relationship
+## 11. SonicForge / MediaForge relationship
 
-No direct imports and no shared venv/database.
+No direct imports and no shared venv/database/runtime registry.
 
 Allowed reuse:
 
-- conceptual patterns
-- copied-and-adapted small generic utilities only when their license permits and ownership is clear
-- JSON vocabulary that is deliberately standardized
+- generic architectural patterns
+- protocol vocabulary deliberately standardized
+- small copied/adapted generic utilities when licensing/ownership permits
+- release signing/build patterns
 - Host contracts
+- evidence/UX lessons
 
-Preferred cross-Add-on composition:
+Preferred composition:
 
 ```text
-ControlDeck Workflow
-  -> MediaForge image/video generation
-  -> Host asset/grant
-  -> SonicForge audio generation
-  -> project export
+ControlDeck Workflow / Agent
+ -> MediaForge visual asset
+ -> Host asset/grant/project context
+ -> SonicForge dialogue/SFX/BGM
+ -> scoped project outputs
 ```
 
-or through agent tools.
+No private shared-directory shortcut.
 
-Do not create a private MediaForge-to-SonicForge filesystem shortcut.
+## 12. Release-signature Host compatibility rule
 
-## 10. Host-change rule
+MediaForge has already moved its release process to an Ed25519 publisher-signed canonical manifest. The ControlDeck `main` inspected on 2026-08-25 still showed the older SHA-pin verifier path.
 
-A ControlDeck change is permitted only when all are true:
+SonicForge therefore targets the **generic signature-aware feature provider** and treats old-Host support as a compatibility gate.
 
-1. the requirement cannot be satisfied safely within the existing Add-on contract;
-2. the feature is generic for future Add-ons, not named SonicForge/MediaForge;
-3. the host contract, threat model and backward compatibility are documented first;
-4. the ControlDeck change is a separate PR;
-5. SonicForge remains compatible with the old host where practical by degrading capability.
+If Host work is required:
 
-### Example: true zero-touch bootstrap
+- separate ControlDeck PR;
+- generic publisher-key/signature verification;
+- retain capability allowlist, downgrade protection, bounded downloads, safe extraction, package identity, smoke/health and rollback;
+- no `if feature_id == "sonic-forge"` verifier logic;
+- do not fall back to requiring a permanent ControlDeck source change for every SonicForge release.
 
-Current Add-on v2 intentionally does not execute arbitrary Add-on-supplied shell commands. If the product later requires "install an entirely absent external service from one Host button", design a generic, signed/approved managed-service package mechanism in ControlDeck. Do **not** add `command: ./sf.sh` to the Add-on manifest and execute it from the Host.
+## 13. Host-change rule
 
-The initial SonicForge implementation instead assumes the lightweight service has been registered/started via the generic Apps/service layer; all heavy Python/model environments are then installed from the SonicForge UI button.
+Any ControlDeck change requires all of:
 
-## 11. Contract compatibility policy
+1. cannot be solved safely within the current generic contract;
+2. useful for future Add-ons, not SonicForge-only;
+3. documented threat model/version/backward compatibility;
+4. separate ControlDeck PR;
+5. SonicForge records unavailable/degraded compatibility until Host support exists rather than bypassing the boundary.
 
-- reject unsupported Add-on major versions
-- rely on current Host schema rather than stale copied examples
-- additive public schema evolution within v1
-- keep unknown model/engine details behind capability metadata
-- never couple clients to internal worker process names
-- contract test against ControlDeck fake-add-on/reference behavior where applicable
+## 14. Contract compatibility policy
+
+- reject unsupported Add-on major versions;
+- validate against current Host source/schema, not copied stale examples;
+- public SonicForge v1 evolution is additive by default;
+- keep engine/model-native details behind capability/Expert extensions;
+- never couple clients to worker process names/paths;
+- signature validation and runtime capability authorization remain separate;
+- contract-test Add-on manifest/runtime APIs against current ControlDeck reference/fake Add-on;
+- test bilingual labels under both Host locales;
+- test optional missing packs do not incorrectly degrade core service health.

@@ -17,6 +17,7 @@ from .live_api import _pcm_file_to_wav
 from .live_host_session import LiveHostSession
 from .live_workers import LiveWorkerPool
 from .pipeline_schema import AudioFormat
+from .spool import AdaptiveSpoolFile, AudioSpoolManager
 from .workers import WorkerError
 
 MAX_CONTROL_BYTES = 64 * 1024
@@ -95,11 +96,17 @@ async def _host_identity(base, websocket: WebSocket) -> HostIdentity | None:
 
 def create_meeting_router(base) -> APIRouter:
     router = APIRouter(prefix="/addon/v1/meetings", tags=["meetings"])
+    spool_manager = AudioSpoolManager(base.settings)
 
     @router.get("")
     async def list_meetings():
         with base.session_factory() as db:
-            rows = db.query(MeetingSession).order_by(MeetingSession.created_at.desc()).limit(100).all()
+            rows = (
+                db.query(MeetingSession)
+                .order_by(MeetingSession.created_at.desc())
+                .limit(100)
+                .all()
+            )
             return {"meetings": [_meeting_dict(row) for row in rows]}
 
     @router.get("/{meeting_id}")
@@ -122,7 +129,9 @@ def create_meeting_router(base) -> APIRouter:
                     continue
                 start = item.start_ms / 1000
                 end = item.end_ms / 1000
-                lines.append(f"[{start:0.1f}-{end:0.1f}] {item.source_text.strip()}")
+                lines.append(
+                    f"[{start:0.1f}-{end:0.1f}] {item.source_text.strip()}"
+                )
                 if item.translated_text:
                     lines.append(f"  -> {item.translated_text.strip()}")
             return "\n".join(lines) + ("\n" if lines else "")
@@ -141,8 +150,7 @@ def create_meeting_router(base) -> APIRouter:
         queue: asyncio.Queue[tuple[int, Path, int, int] | None] = asyncio.Queue()
         send_lock = asyncio.Lock()
         meeting_id: str | None = None
-        current_path: Path | None = None
-        current_stream = None
+        current_spool: AdaptiveSpoolFile | None = None
         failed = False
 
         async def send_json(value: dict) -> None:
@@ -175,6 +183,7 @@ def create_meeting_router(base) -> APIRouter:
                     profile={
                         "chunk_seconds": config.chunk_seconds,
                         "audio": config.audio.model_dump(mode="json"),
+                        "spool_policy": "ram-first-disk-fallback",
                     },
                 )
                 db.add(row)
@@ -220,7 +229,10 @@ def create_meeting_router(base) -> APIRouter:
                 value = result.get("content")
                 if not isinstance(value, str) or not value.strip():
                     return None, {"state": "empty"}
-                return value.strip(), {"state": "succeeded", "provider": "control-deck-ai"}
+                return value.strip(), {
+                    "state": "succeeded",
+                    "provider": "control-deck-ai",
+                }
 
             async def process_chunks() -> None:
                 assert worker_pool is not None
@@ -231,6 +243,10 @@ def create_meeting_router(base) -> APIRouter:
                         return
                     sequence, raw_path, start_ms, end_ms = item
                     wav_path = raw_path.with_suffix(".wav")
+                    work_dir = spool_manager.work_dir(
+                        "meeting-work",
+                        f"{meeting_id.replace(':', '_')}-segment-{sequence:06d}",
+                    )
                     try:
                         _pcm_file_to_wav(raw_path, wav_path, config.audio)
                         request = {
@@ -238,8 +254,16 @@ def create_meeting_router(base) -> APIRouter:
                             "profile": "meeting",
                             "quality": "balanced",
                             "content_language": config.source_language,
-                            "output": {"format": "json", "sample_rate": None, "channels": None},
-                            "routing": {"engine": None, "model": None, "device": None},
+                            "output": {
+                                "format": "json",
+                                "sample_rate": None,
+                                "channels": None,
+                            },
+                            "routing": {
+                                "engine": None,
+                                "model": None,
+                                "device": None,
+                            },
                             "seed": None,
                             "project_output_grant": None,
                             "input": {"_internal_staged_input": str(wav_path)},
@@ -258,17 +282,15 @@ def create_meeting_router(base) -> APIRouter:
 
                         result = await worker_pool.execute(
                             request,
-                            base.settings.data_dir
-                            / "tmp"
-                            / "meeting-work"
-                            / meeting_id.replace(":", "_")
-                            / f"segment-{sequence:06d}",
+                            work_dir,
                             progress,
                         )
                         source_text = result.payload.get("text")
                         if not isinstance(source_text, str):
                             raise WorkerError("meeting ASR returned no text")
-                        translated_text, translation_meta = await translate_text(source_text)
+                        translated_text, translation_meta = await translate_text(
+                            source_text
+                        )
                         with base.session_factory() as db:
                             db.add(
                                 MeetingSegment(
@@ -284,7 +306,8 @@ def create_meeting_router(base) -> APIRouter:
                                     asr_metadata={
                                         "engine_id": result.engine_id,
                                         "model_id": result.model_id,
-                                        "segments": result.payload.get("segments") or [],
+                                        "segments": result.payload.get("segments")
+                                        or [],
                                     },
                                     translation_metadata=translation_meta,
                                 )
@@ -319,21 +342,28 @@ def create_meeting_router(base) -> APIRouter:
                                 )
                             )
                             db.commit()
-                        await send_json(
-                            {
-                                "type": "meeting.segment.error",
-                                "meeting_id": meeting_id,
-                                "sequence": sequence,
-                                "message": str(exc)[:500],
-                            }
-                        )
+                        try:
+                            await send_json(
+                                {
+                                    "type": "meeting.segment.error",
+                                    "meeting_id": meeting_id,
+                                    "sequence": sequence,
+                                    "message": str(exc)[:500],
+                                }
+                            )
+                        except RuntimeError:
+                            pass
                     finally:
                         raw_path.unlink(missing_ok=True)
                         wav_path.unlink(missing_ok=True)
+                        import shutil
+
+                        shutil.rmtree(work_dir, ignore_errors=True)
                         queue.task_done()
 
             processor = asyncio.create_task(
-                process_chunks(), name=f"sonicforge-meeting-processor-{meeting_id}"
+                process_chunks(),
+                name=f"sonicforge-meeting-processor-{meeting_id}",
             )
             await send_json(
                 {
@@ -343,6 +373,10 @@ def create_meeting_router(base) -> APIRouter:
                     "chunk_seconds": config.chunk_seconds,
                     "audio": config.audio.model_dump(mode="json"),
                     "duration_limit_seconds": None,
+                    "spool": {
+                        "policy": "ram-first-disk-fallback",
+                        "ram_available": spool_manager.ram_available,
+                    },
                 }
             )
 
@@ -353,45 +387,46 @@ def create_meeting_router(base) -> APIRouter:
             bytes_per_second = config.audio.rate * config.audio.channels * 2
             chunk_target = bytes_per_second * config.chunk_seconds
 
-            def open_chunk() -> tuple[Path, object]:
-                path = (
-                    base.settings.data_dir
-                    / "tmp"
-                    / "meeting-input"
-                    / meeting_id.replace(":", "_")
-                    / f"segment-{sequence:06d}.pcm"
-                )
-                path.parent.mkdir(parents=True, exist_ok=True)
-                return path, path.open("wb")
+            def open_chunk() -> AdaptiveSpoolFile:
+                return spool_manager.open("meeting-input", suffix=".pcm")
 
-            current_path, current_stream = open_chunk()
+            current_spool = open_chunk()
 
-            async def flush_chunk() -> None:
-                nonlocal sequence, current_path, current_stream, chunk_bytes
-                if current_stream is None or current_path is None or chunk_bytes <= 0:
+            async def flush_chunk(*, notify: bool = True) -> None:
+                nonlocal sequence, current_spool, chunk_bytes
+                if current_spool is None or chunk_bytes <= 0:
                     return
-                current_stream.close()
+                path = current_spool.finalize()
                 start_bytes = total_bytes - chunk_bytes
                 start_ms = start_bytes * 1000 // bytes_per_second
                 end_ms = total_bytes * 1000 // bytes_per_second
-                await queue.put((sequence, current_path, start_ms, end_ms))
-                await send_json(
-                    {
-                        "type": "meeting.segment.queued",
-                        "meeting_id": meeting_id,
-                        "sequence": sequence,
-                        "start_ms": start_ms,
-                        "end_ms": end_ms,
-                        "backlog": queue.qsize(),
-                    }
-                )
+                await queue.put((sequence, path, start_ms, end_ms))
+                if notify:
+                    await send_json(
+                        {
+                            "type": "meeting.segment.queued",
+                            "meeting_id": meeting_id,
+                            "sequence": sequence,
+                            "start_ms": start_ms,
+                            "end_ms": end_ms,
+                            "backlog": queue.qsize(),
+                            "memory_backed": path.is_relative_to(
+                                spool_manager.memory_root
+                            )
+                            if spool_manager.memory_root is not None
+                            else False,
+                        }
+                    )
                 sequence += 1
                 chunk_bytes = 0
-                current_path, current_stream = open_chunk()
+                current_spool = open_chunk()
 
+            disconnected = False
             while True:
                 message = await websocket.receive()
                 if message.get("type") == "websocket.disconnect":
+                    disconnected = True
+                    await flush_chunk(notify=False)
                     break
                 if message.get("text") is not None:
                     text = message["text"]
@@ -405,13 +440,17 @@ def create_meeting_router(base) -> APIRouter:
                     if kind == "stop":
                         await flush_chunk()
                         break
-                    raise EdgeProtocolError(f"unsupported meeting control message: {kind}")
+                    raise EdgeProtocolError(
+                        f"unsupported meeting control message: {kind}"
+                    )
                 binary = message.get("bytes")
                 if binary is None:
                     continue
                 frame = AudioFrame.decode(binary)
                 if frame.stream != STREAM_MIC:
-                    raise EdgeProtocolError("meeting client may only send microphone frames")
+                    raise EdgeProtocolError(
+                        "meeting client may only send microphone frames"
+                    )
                 observation = tracker.observe(frame)
                 if observation.duplicate_or_old:
                     continue
@@ -426,18 +465,19 @@ def create_meeting_router(base) -> APIRouter:
                     )
                 if len(frame.payload) % 2:
                     raise EdgeProtocolError("PCM payload must be 16-bit aligned")
-                assert current_stream is not None
-                current_stream.write(frame.payload)
+                assert current_spool is not None
+                current_spool.write(frame.payload)
                 total_bytes += len(frame.payload)
                 chunk_bytes += len(frame.payload)
                 if chunk_bytes >= chunk_target:
                     await flush_chunk()
 
-            if current_stream is not None:
-                current_stream.close()
-                current_stream = None
-            if current_path is not None and chunk_bytes <= 0:
-                current_path.unlink(missing_ok=True)
+            if current_spool is not None:
+                if chunk_bytes <= 0:
+                    current_spool.cleanup()
+                else:
+                    await flush_chunk(notify=not disconnected)
+                current_spool = None
             with base.session_factory() as db:
                 row = db.get(MeetingSession, meeting_id)
                 if row is not None:
@@ -455,18 +495,26 @@ def create_meeting_router(base) -> APIRouter:
                 if current is not None:
                     with base.session_factory() as db:
                         row = db.get(MeetingSession, meeting_id)
-                        transcript = "\n".join(
-                            segment.source_text
-                            for segment in row.segments
-                            if segment.state == "final" and segment.source_text
-                        ) if row is not None else ""
-                    # Hierarchical bounded summarization keeps multi-hour meetings
-                    # from becoming one giant LLM request.
-                    pieces = [transcript[i : i + 8000] for i in range(0, len(transcript), 8000)] or [""]
+                        transcript = (
+                            "\n".join(
+                                segment.source_text
+                                for segment in row.segments
+                                if segment.state == "final" and segment.source_text
+                            )
+                            if row is not None
+                            else ""
+                        )
+                    pieces = [
+                        transcript[i : i + 8000]
+                        for i in range(0, len(transcript), 8000)
+                    ] or [""]
                     partials = []
                     for piece in pieces:
                         if not piece.strip():
                             continue
+                        current = await host_session.identity()
+                        if current is None:
+                            break
                         result = await base.host_client.ai_complete(
                             current,
                             [
@@ -484,40 +532,43 @@ def create_meeting_router(base) -> APIRouter:
                             partials.append(result["content"])
                     combined = "\n\n".join(partials)
                     if combined:
-                        final = await base.host_client.ai_complete(
-                            current,
-                            [
-                                {
-                                    "role": "system",
-                                    "content": "Create final meeting minutes from the partial summaries. Return concise Markdown with Summary, Decisions, Action Items, Open Questions.",
-                                },
-                                {"role": "user", "content": combined[:24000]},
-                            ],
-                            temperature=0.1,
-                            max_tokens=1600,
-                            timeout_seconds=180,
-                        )
-                        if isinstance(final.get("content"), str):
-                            summary = {
-                                "state": "succeeded",
-                                "markdown": final["content"].strip(),
-                                "provider": "control-deck-ai",
-                            }
+                        current = await host_session.identity()
+                        if current is not None:
+                            final = await base.host_client.ai_complete(
+                                current,
+                                [
+                                    {
+                                        "role": "system",
+                                        "content": "Create final meeting minutes from the partial summaries. Return concise Markdown with Summary, Decisions, Action Items, Open Questions.",
+                                    },
+                                    {"role": "user", "content": combined[:24000]},
+                                ],
+                                temperature=0.1,
+                                max_tokens=1600,
+                                timeout_seconds=180,
+                            )
+                            if isinstance(final.get("content"), str):
+                                summary = {
+                                    "state": "succeeded",
+                                    "markdown": final["content"].strip(),
+                                    "provider": "control-deck-ai",
+                                }
 
             with base.session_factory() as db:
                 row = db.get(MeetingSession, meeting_id)
                 if row is not None:
-                    row.state = "completed"
+                    row.state = "completed" if not disconnected else "interrupted"
                     row.ended_at = utcnow()
                     row.summary = summary
                     db.commit()
-            await send_json(
-                {
-                    "type": "meeting.complete",
-                    "meeting_id": meeting_id,
-                    "summary": summary,
-                }
-            )
+            if not disconnected:
+                await send_json(
+                    {
+                        "type": "meeting.complete",
+                        "meeting_id": meeting_id,
+                        "summary": summary,
+                    }
+                )
         except WebSocketDisconnect:
             failed = False
         except Exception as exc:
@@ -540,10 +591,8 @@ def create_meeting_router(base) -> APIRouter:
             except RuntimeError:
                 pass
         finally:
-            if current_stream is not None:
-                current_stream.close()
-            if current_path is not None:
-                current_path.unlink(missing_ok=True)
+            if current_spool is not None:
+                current_spool.cleanup()
             if processor is not None:
                 processor.cancel()
                 await asyncio.gather(processor, return_exceptions=True)

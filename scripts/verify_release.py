@@ -11,7 +11,10 @@ from pathlib import Path
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from scripts.sign_release import ARTIFACT_RE, canonical_bytes
+try:
+    from scripts.sign_release import ARTIFACT_RE, canonical_bytes
+except ModuleNotFoundError:
+    from sign_release import ARTIFACT_RE, canonical_bytes
 
 EXPECTED_KEYS = {
     "schema_version",

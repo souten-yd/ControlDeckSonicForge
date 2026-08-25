@@ -211,7 +211,7 @@ async def list_assets(limit: int = 100):
     with session_factory() as session: return {"assets": [_asset_dict(row) for row in session.query(Asset).order_by(Asset.created_at.desc()).limit(limit).all()]}
 
 
-@app.get("/addon/v1/assets/{asset_id:path}")
+@app.get("/addon/v1/assets/{asset_id}")
 async def get_asset(asset_id: str):
     with session_factory() as session:
         row = session.get(Asset, asset_id)
@@ -221,7 +221,7 @@ async def get_asset(asset_id: str):
         return value
 
 
-@app.get("/addon/v1/assets/{asset_id:path}/content")
+@app.get("/addon/v1/assets/{asset_id}/content")
 async def asset_content(asset_id: str):
     with session_factory() as session:
         row = session.get(Asset, asset_id)

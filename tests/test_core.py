@@ -31,6 +31,10 @@ def test_fake_generation_persists_asset(env):
             time.sleep(.03)
         assert j['state']=='succeeded',j
         assets=c.get('/addon/v1/assets').json()['assets']; assert assets and assets[0]['duration_ms']>0
+        asset_id=assets[0]['id'].replace(':','%3A')
+        assert c.get('/addon/v1/assets/'+asset_id).status_code==200
+        content=c.get('/addon/v1/assets/'+asset_id+'/content')
+        assert content.status_code==200 and content.headers['content-type']=='audio/wav'
 
 def test_pipeline_routes_precede_spa_mount(env):
     m=load_app()

@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-25
 
-This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, M5 hardware, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
+This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
 
 ## 1. Executive status
 
@@ -13,14 +13,14 @@ The planned v1 implementation is now **feature-complete at the code/contract lev
 - JP/EN localization batch render + partial retry;
 - OpenCode/Agent typed pipelines with selectable start/end stages;
 - local trusted-network unauthenticated ASR/TTS/SFX/Music;
-- low-latency PTT voice chat with persistent ASR/TTS, ControlDeck streaming LLM and progressive TTS chunks;
+- low-latency PTT voice chat with persistent ASR/TTS, ControlDeck streaming LLM, progressive TTS chunks and overlapped ordered audio delivery;
 - simultaneous translation preset;
 - continuous meeting/minutes capture with incremental durable transcript, optional translation and hierarchical summary;
 - RAM-first temporary audio spooling with automatic disk fallback;
 - game/web/mobile/M5 audio export profiles;
 - deterministic `audio.process` pipeline stage;
 - ZIP `package` pipeline delivery;
-- M5 `sonic-edge/1` CoreS3 PlatformIO reference firmware;
+- published M5/edge API contract (`sonic-edge/1`, trusted-LAN live WebSocket and optional ControlDeck Device Relay); device firmware remains outside this repository;
 - generic ControlDeck AI/media gateway, device relay, AI residency and rolling long-job credentials on separate ControlDeck PRs/branch;
 - Ed25519 signed release tooling and generic Host verifier path.
 
@@ -54,16 +54,16 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Persistent ASR/TTS | IMPLEMENTED, REAL MODEL NOT TESTED | process-local model cache; same process reused across live turns when capacity allows |
 | ASR/TTS crash cleanup | IMPLEMENTED | Linux persistent workers set parent-death SIGTERM; Broker lease renew stops on process death |
 | Warm LLM+ASR+TTS coexistence | IMPLEMENTED POLICY, TARGET VRAM NOT TESTED | shared-safe live leases; if peer residency prevents admission, peer worker is explicitly evicted and current stage retried rather than self-deadlocking/OOMing |
-| Progressive LLM -> TTS | IMPLEMENTED | Host token stream -> punctuation/length/time clause chunker -> TTS chunks -> WebSocket audio |
+| Progressive LLM -> TTS | IMPLEMENTED, OVERLAP TEST ADDED NOT RUN | SSE tokens -> clause chunker -> bounded TTS queue -> bounded ordered audio-delivery queue; chunk N+1 synthesis overlaps chunk N delivery |
 | Simultaneous translation | IMPLEMENTED PRESET, REAL E2E NOT TESTED | ASR -> streaming Host translation -> target TTS; source/target language selectable |
 | Meeting / minutes | IMPLEMENTED, FAKE TEST ADDED NOT RUN | unlimited session duration; bounded processing chunks; incremental SQLite transcript; optional translation + hierarchical summary |
 | Meeting disconnect durability | IMPLEMENTED | queued chunks continue processing; finalized segments remain durable even after transport loss |
 | RAM-first audio spool | IMPLEMENTED, TESTS ADDED NOT RUN | `/dev/shm`/runtime tmpfs preferred; soft threshold/free-RAM reserve triggers transparent disk spill; no artificial recording-duration cap |
-| M5 binary protocol | IMPLEMENTED | `sonic-edge/1`, sequence/sample clock, bounded frame size |
-| M5 CoreS3 firmware | IMPLEMENTED BASELINE, NOT COMPILED/NOT HARDWARE TESTED | PlatformIO, M5Unified, direct LAN + optional ControlDeck relay, PTT, PCM uplink/downlink, NVS rolling device token |
+| M5/edge binary protocol | IMPLEMENTED | `sonic-edge/1`, sequence/sample clock, bounded frame size and capability negotiation |
+| Existing M5/edge client server API | IMPLEMENTED CONTRACT, REAL CLIENT E2E NOT TESTED | direct trusted-LAN live WS for basic media; optional ControlDeck relay for Host LLM paths; firmware/client code is intentionally outside this repository |
 | ControlDeck paired Device Relay | IMPLEMENTED ON #240, E2E NOT TESTED | one-time code; device-scoped token; 30-day rolling reconnect credential; upstream receives Host-minted service identity, never device token |
-| Wake/VAD | PLANNED ENHANCEMENT | not required for v1 PTT acceptance; add after real CoreS3 capture measurements |
-| Full-duplex/AEC/barge-in | PLANNED ENHANCEMENT | intentionally not a v1 promotion blocker |
+| Wake/VAD | CLIENT/OPTIONAL ENHANCEMENT | not required for SonicForge v1 acceptance unless it changes the server contract |
+| Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
 | Release signing | IMPLEMENTED + EARLIER FOCUSED TESTED | Ed25519 canonical manifest; earlier signing focused suite: 4 passed |
 | ControlDeck signed Release Bundle verifier | IMPLEMENTED ON DRAFT PR #239, NOT HOST E2E TESTED | production publisher public key still an operator input |
 | Current branch-wide lightweight tests | NOT RUN | intentionally deferred until the implementation milestone is complete |
@@ -84,8 +84,9 @@ turn
   -> ASR
   -> ControlDeck LLM SSE tokens
   -> stable clause chunker
-  -> TTS chunk 0 -> immediate WebSocket playback
-  -> TTS chunk 1/2/... while prior audio is being consumed
+  -> bounded text queue
+  -> TTS chunk 0 -> ordered audio-delivery queue -> immediate WebSocket playback
+  -> TTS chunk 1/2/... generated while prior audio is being delivered
   -> next turn reuses warm workers/models
 
 session end
@@ -93,6 +94,8 @@ session end
   -> leases release
   -> LLM hold release
 ```
+
+The client-facing streaming sender is intentionally single-owner: JSON chunk events and binary audio frames are serialized by the ordered delivery stage even while LLM intake and TTS synthesis run concurrently.
 
 If the selected GPU cannot safely hold ASR + TTS + LLM together, Broker accounting remains authoritative. SonicForge may explicitly evict one live worker and continue; it must not silently overcommit VRAM.
 
@@ -164,31 +167,31 @@ continuous PCM
 
 `chunk_seconds` (default 20, configurable 5-60) is processing granularity only, not a meeting duration limit. A failed ASR chunk is recorded as failed and does not erase earlier segments.
 
-## 7. M5 paths
+## 7. M5 / edge client paths
+
+SonicForge publishes the server contract only. Existing device firmware/client code is external to this repository and is not a build/merge gate here.
 
 ### Direct local
 
 ```text
-CoreS3 -> ws://SonicForge:9140/addon/v1/live/ws
+existing edge client -> ws://SonicForge:9140/addon/v1/live/ws
 ```
 
-Default `trusted-network` permits local/private/Tailscale peers without user-facing auth. `m5-dictation` works here.
+Default `trusted-network` permits local/private/Tailscale peers without user-facing auth for basic ASR/TTS/PTT flows.
 
-### ControlDeck voice agent
+### Optional ControlDeck voice agent / translation
 
 ```text
-CoreS3
+existing edge client
  -> ControlDeck paired Device Relay
  -> Host mints service identity upstream
  -> SonicForge ASR
  -> ControlDeck LLM
  -> SonicForge TTS
- -> CoreS3
+ -> edge client
 ```
 
-M5 never receives an Add-on service token or browser cookie. Firmware stores only the device-scoped rolling credential.
-
-Reference firmware is under `firmware/m5-sonic-edge/`.
+The device never receives an Add-on service token or browser cookie. It may keep only the device-scoped rolling credential required by the optional Host relay path.
 
 ## 8. Validation evidence actually executed
 
@@ -210,6 +213,7 @@ Current new tests cover contracts for:
 - persistent worker process reuse/cleanup;
 - PTT/live pipeline foundation;
 - low-latency text chunking;
+- overlapped TTS generation vs ordered audio delivery;
 - Host job credential refresh, AI residency rolling credential and SSE stream parsing;
 - meeting transcript durability;
 - deterministic audio processing/package helpers;
@@ -224,11 +228,11 @@ The implementation must not be merged merely because the code is feature-complet
 Run `SF受入確認` on the target local machine and prove at least:
 
 1. current full lightweight/static SonicForge + affected ControlDeck suites;
-2. M5 PlatformIO firmware compilation;
-3. real Japanese/English/mixed ASR;
-4. real Qwen TTS including repeated warm turns;
-5. voice-chat latency: end-of-speech -> ASR -> first LLM token -> first speakable chunk -> first audio;
-6. turn 2+ has no avoidable ASR/TTS/LLM cold reload;
+2. real Japanese/English/mixed ASR;
+3. real Qwen TTS including repeated warm turns;
+4. voice-chat latency: end-of-speech -> ASR -> first LLM token -> first speakable chunk -> first audio;
+5. turn 2+ has no avoidable ASR/TTS/LLM cold reload;
+6. chunk N+1 TTS generation overlaps chunk N audio delivery without client frame-order corruption;
 7. simultaneous JA<->EN translation text + speech;
 8. long meeting capture, incremental transcript, reconnect/interruption behavior and optional summary;
 9. >10-minute CPU-only hosted work survives credential rotation;
@@ -237,7 +241,7 @@ Run `SF受入確認` on the target local machine and prove at least:
 12. ACE-Step AMD/ROCm music generation;
 13. real ffmpeg export/audio.process and ZIP package;
 14. OpenCode `sonic.generate` / `sonic.pipeline` end to end;
-15. real CoreS3 PTT direct dictation and paired relay voice-agent;
+15. existing edge/M5 client direct live API and, if used, paired relay voice-agent path;
 16. signed Release Bundle fresh install/update/failure rollback with real public key setup.
 
 After all mandatory local gates pass, run the **single batched milestone CI**, inspect exact PR heads, then use `SF受入マージ`. Merge generic ControlDeck dependencies before SonicForge and run a short post-merge smoke test.

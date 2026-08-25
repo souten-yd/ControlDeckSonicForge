@@ -7,6 +7,7 @@ from .delivery_api import create_delivery_router
 from .device_api import create_device_router
 from .job_extensions import install_job_extensions
 from .live_api import create_live_router
+from .local_api import create_local_router
 from .pipeline_api import create_pipeline_router
 
 
@@ -35,6 +36,7 @@ def _install_extension_routers() -> None:
     app.include_router(create_delivery_router(base))
     app.include_router(create_device_router(base))
     app.include_router(create_live_router(base))
+    app.include_router(create_local_router(base))
     _move_frontend_last()
     app.state.sonicforge_extension_routers_installed = True
 

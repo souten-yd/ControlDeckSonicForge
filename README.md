@@ -14,8 +14,10 @@ It is deliberately isolated from ControlDeck core and from MediaForge runtime en
 - typed media pipelines such as ASR -> ControlDeck LLM -> TTS with selectable start/end stages
 - OpenCode/agent-driven BGM, SFX, voice and pipeline generation through ControlDeck Agent MCP
 - PC/mobile/game delivery profiles for durable assets, project export and live audio sessions
+- M5/ESP32 edge-agent voice chat with thin-device audio/UI responsibilities
 - durable jobs, cancellation, reconnect/resume, progress and provenance
 - ControlDeck Add-on Platform v2 / AI Resource Broker integration
+- shared ControlDeck Generic AI/Media Gateway control plane aligned with MediaForge
 - **Easy / Customize / Expert** progressive settings instead of exposing model knobs by default
 - one-click **Speech Essentials** provisioning, with Game Audio and Music as optional one-click packs
 - publisher-signed ControlDeck release bundles using the MediaForge Ed25519 manifest pattern
@@ -24,7 +26,7 @@ It is deliberately isolated from ControlDeck core and from MediaForge runtime en
 
 - importing SonicForge Python/JavaScript into ControlDeck
 - sharing a Python virtual environment with ControlDeck or MediaForge
-- turning ControlDeck's LLM gateway into an audio protocol gateway
+- moving SonicForge audio/model semantics into ControlDeck's generic control plane
 - hard-coding model names into public high-level APIs
 - unrestricted filesystem access
 - making every engine-native parameter part of the stable public contract
@@ -33,6 +35,7 @@ It is deliberately isolated from ControlDeck core and from MediaForge runtime en
 - hiding an unavailable Add-on instead of explaining its state
 - creating a parallel SonicForge MCP server when ControlDeck already exposes Add-on agent tools to OpenCode
 - holding one GPU lease across heterogeneous ASR -> LLM -> TTS pipelines
+- giving M5 devices ControlDeck browser cookies/Add-on service tokens or directly exposing the loopback SonicForge origin to the LAN
 
 ## Documentation map
 
@@ -55,9 +58,11 @@ Read in this order:
 15. [Bilingual UX and critical design review](docs/14-bilingual-ux-and-critical-review.md)
 16. [Music and SFX researched implementation plan](docs/15-music-and-sfx-generation-plan.md)
 17. [Typed media pipeline, agent and delivery architecture](docs/16-pipeline-agent-and-delivery-architecture.md)
-18. [Implementation status / evidence ledger](docs/implementation-status.md)
-19. [Draft Add-on manifest](docs/contracts/addon.example.json)
-20. [Draft capability document](docs/contracts/capabilities.example.json)
+18. [M5 edge agent and voice-chat architecture](docs/17-m5-edge-agent-and-voice-chat.md)
+19. [ControlDeck Generic AI/Media Gateway integration](docs/18-controldeck-generic-ai-media-gateway.md)
+20. [Implementation status / evidence ledger](docs/implementation-status.md)
+21. [Draft Add-on manifest](docs/contracts/addon.example.json)
+22. [Draft capability document](docs/contracts/capabilities.example.json)
 
 `AGENTS.md` is normative for developers and coding agents.
 
@@ -71,6 +76,7 @@ SonicForge must track the actual ControlDeck contract rather than copying stale 
 - `souten-yd/ControlDeck/backend/app/features/release_bundle.py`
 - `souten-yd/ControlDeck/backend/app/addons/agent_mcp.py`
 - `souten-yd/ControlDeck/backend/app/addon_runtime/ai.py`
+- `souten-yd/ControlDeck/backend/app/addon_runtime/gateway.py` once the generic gateway branch is merged
 - `souten-yd/ControlDeck/tools/fake-addon/`
 - `souten-yd/ControlDeckMediaForge/docs/controldeck-integration-plan.md`
 - `souten-yd/ControlDeckMediaForge/AGENTS.md`
@@ -94,7 +100,9 @@ When these disagree with this repository, stop implementation, identify which co
 - release authorization uses a trusted publisher Ed25519 key; artifact SHA-256 is bound inside the signed manifest
 - Game Audio baseline: Stable Audio 3 Small-SFX on CPU, pending target validation
 - Music baseline: ACE-Step 1.5 on an accelerator with Stable Audio 3 Small-Music planned as CPU fallback, pending target validation
-- v1 live audio transport: WebSocket through the existing Host proxy; WebRTC remains an optional later generic design
+- v1 browser live audio transport: WebSocket through the existing Host proxy
+- M5 production access targets a future generic paired ControlDeck Device Session relay rather than direct loopback/LAN exposure
+- WebRTC remains an optional later generic transport for measured full-duplex needs
 
 ## UX baseline
 
@@ -110,6 +118,6 @@ Studio contains Speech / Transcribe / SFX / Music / Localization task tabs, whil
 
 ## Implementation direction
 
-The implementation branch contains the lightweight core, durable jobs/assets/setup, Host runtime integration, initial speech/audio/music workers, Localization rendering, embedded UI and signed release tooling. The normative implementation order remains in [the roadmap](docs/09-roadmap.md); Music/Game Audio model selection and promotion details are in [the researched Music/SFX plan](docs/15-music-and-sfx-generation-plan.md), while composed agent/live workflows and delivery profiles are defined in [the Typed Media Pipeline design](docs/16-pipeline-agent-and-delivery-architecture.md).
+The implementation branch contains the lightweight core, durable jobs/assets/setup, Host runtime integration, initial speech/audio/music workers, Localization rendering, embedded UI, signed release tooling, typed pipeline schema/framing and a durable pipeline runner. The normative implementation order remains in [the roadmap](docs/09-roadmap.md); Music/Game Audio model selection and promotion details are in [the researched Music/SFX plan](docs/15-music-and-sfx-generation-plan.md), composed agent/live workflows and delivery profiles are defined in [the Typed Media Pipeline design](docs/16-pipeline-agent-and-delivery-architecture.md), M5 is defined in [the edge-agent design](docs/17-m5-edge-agent-and-voice-chat.md), and the MediaForge-aligned common Host boundary is defined in [the Gateway integration design](docs/18-controldeck-generic-ai-media-gateway.md).
 
 Heavy-model code existing in the tree does **not** mean target hardware has passed. Actual evidence is tracked in [docs/implementation-status.md](docs/implementation-status.md).

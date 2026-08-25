@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
@@ -15,7 +16,7 @@ from .host.residency import (
 from .jobs import HostedExecution, JobManager
 from .persistent_workers import PersistentSpeechWorkers
 from .pipeline_schema import PipelineStage
-from .workers import WorkerError
+from .workers import ProgressCallback, WorkerError, WorkerResult
 
 
 @dataclass
@@ -159,6 +160,41 @@ class LiveSessionResources:
         )
         return device_id if isinstance(device_id, str) else None
 
+    async def execute_asr(
+        self,
+        request: dict,
+        work_dir: Path,
+        progress: ProgressCallback,
+    ) -> WorkerResult:
+        if self.workers is None or not self.has_asr:
+            raise WorkerError("live ASR worker is not available")
+        return await self.workers.asr.execute(request, work_dir, progress)
+
+    async def execute_tts(
+        self,
+        request: dict,
+        work_dir: Path,
+        progress: ProgressCallback,
+    ) -> WorkerResult:
+        if self.workers is None or not self.has_tts:
+            raise WorkerError("live TTS worker is not available")
+        request = self.jobs._resolve_voice(request)
+        return await self.workers.tts.execute(request, work_dir, progress)
+
+    def worker_stats(self) -> dict[str, dict[str, int]]:
+        if self.workers is None:
+            return {}
+        return {
+            "asr": {
+                "process_starts": self.workers.asr.start_count,
+                "requests": self.workers.asr.request_count,
+            },
+            "tts": {
+                "process_starts": self.workers.tts.start_count,
+                "requests": self.workers.tts.request_count,
+            },
+        }
+
     async def _adopt_hold_credential(self, hold: AiResidencyHold) -> None:
         if self.identity is None:
             return
@@ -170,7 +206,6 @@ class LiveSessionResources:
         if refreshed is self.identity:
             return
         self.identity = refreshed
-        # Keep all long-lived lease renewers on the newest service credential too.
         for lease in self.leases:
             lease.execution.identity = refreshed
 

@@ -1,13 +1,13 @@
-# M5 Edge Agent and Voice Chat Architecture
+# M5 / Edge Agent and Voice Chat Server Contract
 
-Status: Normative v1 architecture + implemented baseline  
+Status: Normative v1 server/API architecture  
 Date: 2026-08-25
 
-## 1. Role
+## 1. Scope
 
-M5Stack-class devices are thin audio/UI clients for the same SonicForge live runtime used by PC/mobile clients.
+M5Stack-class devices, mobile clients and PC clients are thin audio/UI clients for the same SonicForge live runtime.
 
-They do not host Qwen/Whisper/ACE-Step/Stable Audio models.
+**Device firmware/client implementation is outside this repository.** SonicForge owns only the published HTTP/WebSocket/media contract and server-side behavior.
 
 Primary presets:
 
@@ -44,7 +44,7 @@ Use direct mode for:
 ### Optional ControlDeck Device Relay
 
 ```text
-M5
+edge client
  -> ControlDeck Device Relay
  -> Host-minted SonicForge service identity
  -> SonicForge
@@ -56,33 +56,13 @@ Use relay mode when the pipeline needs:
 - Host Job/resource policy associated with a user;
 - future project/file-grant operations.
 
-M5 never receives a browser cookie or Add-on service token. It receives only a device-scoped relay credential.
+The edge client never receives a browser cookie or Add-on service token. It receives only a relay-scoped device credential.
 
-Pairing is infrequent: one-time 8-character code, then a 30-day device credential rotated on every successful reconnect. Direct SonicForge speech remains usable without pairing.
+Device Relay credentials follow the normal ControlDeck Add-on maximum credential lifetime: **8 hours**, with a same-scope replacement issued on successful reconnect. There is no special 30-day device-token exception. Basic direct SonicForge speech remains usable without pairing.
 
-## 3. CoreS3 baseline
+## 3. Audio wire baseline
 
-Reference firmware:
-
-```text
-firmware/m5-sonic-edge/
-```
-
-Target:
-
-```text
-PlatformIO board: m5stack-cores3
-ESP32-S3
-M5Unified
-arduinoWebSockets
-ArduinoJson
-```
-
-CoreS3 is used half-duplex in v1. M5Unified's own microphone example switches microphone and speaker rather than operating them simultaneously, so the reference firmware follows the same conservative pattern.
-
-## 4. Audio wire baseline
-
-Uplink:
+Uplink baseline:
 
 ```text
 PCM signed 16-bit little-endian
@@ -104,9 +84,9 @@ mono
 
 The negotiated server value is authoritative.
 
-Opus remains an optional future transport. Raw PCM is preferred first because it exposes microphone timing/dropout problems clearly and ordinary LAN bandwidth is sufficient.
+Opus remains an optional transport. Raw PCM is preferred first because it exposes microphone timing/dropout problems clearly and ordinary LAN bandwidth is sufficient.
 
-## 5. `sonic-edge/1` binary frame
+## 4. `sonic-edge/1` binary frame
 
 Network-order framing:
 
@@ -126,18 +106,18 @@ Server/client track sequence gaps and duplicate/old frames. Payload size is boun
 
 Control messages use JSON text WebSocket frames.
 
-## 6. Live session handshake
+## 5. Live session handshake
 
 The client sends one `hello` containing the normal `LiveSessionCreate` contract plus an optional device descriptor.
 
-Current device descriptor shape:
+Example descriptor:
 
 ```json
 {
   "protocol": "sonic-edge/1",
   "device_class": "m5",
-  "model": "core-s3",
-  "firmware": "0.1.0",
+  "model": "existing-client",
+  "firmware": "external",
   "audio": {
     "input": [
       {"codec":"pcm_s16le","rate":16000,"channels":1,"frame_ms":20}
@@ -156,7 +136,7 @@ Current device descriptor shape:
 
 Unsupported capabilities are disabled instead of guessed.
 
-## 7. PTT v1
+## 6. PTT v1
 
 State sequence:
 
@@ -177,7 +157,7 @@ There is no arbitrary 60-second default cap. `max_utterance_seconds` is optional
 
 Audio capture uses the common RAM-first spool on the server. Large/backlogged input spills to disk automatically rather than turning the RAM threshold into a duration limit.
 
-## 8. Low-latency voice response
+## 7. Low-latency voice response
 
 Voice-agent path:
 
@@ -186,16 +166,18 @@ ASR persistent worker
  -> final transcript
  -> ControlDeck SSE LLM tokens
  -> stable clause chunker
- -> TTS persistent worker
+ -> bounded text queue
+ -> persistent TTS
+ -> bounded ordered audio-delivery queue
  -> first completed audio chunk immediately sent
- -> further chunks generated progressively
+ -> further chunks synthesized while prior audio is delivered
 ```
 
 Chunk boundaries use punctuation, length and elapsed-time fallback. The system does not wait for the complete LLM response before starting TTS when streaming mode is available.
 
 ASR/TTS workers remain warm inside the live session when capacity permits. ControlDeck LLM uses a renewable residency hold. If the GPU cannot hold all residents safely, Resource Broker accounting remains authoritative and SonicForge explicitly evicts/reloads a peer worker rather than OOMing or self-deadlocking.
 
-## 9. Session / credential lifetime
+## 8. Session / credential lifetime
 
 ControlDeck service credentials are short-lived internally but automatically refreshed while an active Host Job/lease/residency heartbeat proves continued execution. Ten minutes is not a voice-session limit.
 
@@ -210,7 +192,9 @@ If SonicForge dies, heartbeat stops and the hold expires.
 
 Persistent ASR/TTS workers set Linux parent-death handling. Broker lease renew stops if the parent dies, allowing Host lease expiry to reclaim the reservation.
 
-## 10. Meeting and dictation
+The optional Device Relay credential is separate from service-token refresh and uses the normal ControlDeck Add-on maximum TTL (8 hours). Reconnect may rotate it; no long-lived device-token exception is required.
+
+## 9. Meeting and dictation
 
 Long meetings are not implemented as one giant PTT buffer.
 
@@ -228,7 +212,7 @@ continuous PCM
 
 If the WebSocket disconnects, already queued chunks continue processing; finalized segments remain durable. Reconnect/resume UX may be improved later without changing the storage model.
 
-## 11. Simultaneous translation
+## 10. Simultaneous translation
 
 Current standard path:
 
@@ -242,49 +226,38 @@ speech
 
 This keeps terminology/system prompts and meeting storage consistent with the general ControlDeck router. Dedicated speech-to-speech engines can later implement the same typed stage contract if target-hardware benchmarks justify them.
 
-## 12. Wake / VAD / AEC roadmap
+## 11. Client-side optional enhancements
 
-### v1 — implemented baseline
+Wake/VAD/AEC implementation is owned by the external device/client unless a server contract extension becomes necessary.
 
-- PTT;
-- half-duplex;
-- raw PCM;
-- persistent server workers;
-- streaming LLM/TTS response;
-- reconnect.
+Server roadmap items that may matter later:
 
-### v1.x — after CoreS3 measurement
+- automatic end-of-speech semantics;
+- full-duplex session state;
+- barge-in/cancellation semantics;
+- optional compressed transport negotiation.
 
-- device VAD;
-- WakeNet;
-- automatic end-of-speech;
-- configurable noise suppression.
+These are not v1 merge blockers for the current PTT/live API.
 
-### v2 — only after acoustic validation
+## 12. Acceptance
 
-- AEC;
-- full duplex;
-- barge-in;
-- playback cancellation/resume semantics.
+`SF受入確認` validates the **published server contract against the user's existing client**, not a SonicForge-maintained firmware build.
 
-These enhancements must not destabilize the PTT baseline.
+Measure/verify:
 
-## 13. Acceptance
-
-`SF受入確認` must measure rather than assume:
-
-- real CoreS3 effective mic sample rate;
-- sequence gaps/drop rate;
-- direct trusted-LAN dictation;
-- paired relay voice agent;
+- `sonic-edge/1` hello/capability negotiation;
+- effective input/output sample-rate negotiation;
+- sequence gaps/drop behavior;
+- direct trusted-LAN dictation/PTT;
+- optional paired relay voice-agent path if used;
 - end-of-speech -> ASR final;
 - ASR final -> first LLM token;
 - first speakable clause -> first TTS audio;
-- end-of-speech -> first audible speaker output;
+- end-of-speech -> first audible output;
 - second/subsequent turn reload behavior;
-- Wi-Fi reconnect;
+- network/client reconnect;
 - SonicForge/ControlDeck restart;
 - SIGKILL cleanup of worker/lease/LLM hold;
-- speaker underrun/noise.
+- ordered progressive audio without underrun/frame-order corruption.
 
-Compilation or simulator-only behavior is not sufficient for production M5 acceptance.
+No PlatformIO/firmware compilation step is part of SonicForge acceptance.

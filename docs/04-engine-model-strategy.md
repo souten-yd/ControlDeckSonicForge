@@ -5,193 +5,235 @@ Date: 2026-08-25
 
 ## 1. Principle
 
-Engines are replaceable adapters. Public APIs use capabilities. This document defines **initial evaluation/adoption order**, not permanent engine coupling.
+Engines are replaceable adapters. Public APIs use capabilities and languages. This document defines **evaluation/adoption order**, not permanent engine coupling.
 
-Every engine must pass:
+Japanese and English are first-class product languages, but they do not have to use the same ASR engine. Routing should choose the best verified language/task route rather than force architectural symmetry.
+
+Every promoted engine must pass:
 
 - license/terms review
 - supported platform/runtime review
+- clean setup install
 - actual target-hardware smoke test
-- latency/quality/memory measurement
+- language-specific quality measurement
+- latency/RAM/VRAM measurement
 - cancellation/recovery test
-- output validation
+- output validation/provenance
 - adapter contract test
 
 ## 2. Classification correction
 
 **GPT-SoVITS and Style-Bert-VITS2 are TTS/voice synthesis systems, not ASR systems.**
 
-They belong in the TTS worker family. SonicForge ASR uses dedicated speech-recognition engines.
+They belong in TTS/voice worker packs. ASR uses dedicated recognition adapters.
 
 ## 3. TTS strategy
 
-### 3.1 Qwen3-TTS — recommended general default
+### 3.1 Qwen3-TTS — general bilingual first candidate
 
 Upstream: https://github.com/QwenLM/Qwen3-TTS
 
+The current official Qwen3-TTS family explicitly advertises both **Japanese and English** among ten supported major languages, 0.6B/1.7B models, streaming, CustomVoice, VoiceDesign and rapid voice cloning.
+
 Why evaluate first:
 
-- current open Qwen TTS family released in 2026
-- explicit Japanese support
+- Japanese + English first-class engine support
 - 0.6B and 1.7B families
-- voice cloning through Base models
+- Base voice-clone variants
 - CustomVoice and VoiceDesign variants
-- natural-language style/control features
-- streaming-oriented capabilities
-- aligns with the TTS functionality previously used in the ControlDeck lineage
+- natural-language voice/style control
+- streaming-oriented architecture
+- useful fit for both ordinary TTS and Localization Studio
 
-Initial SonicForge routing intent:
+Initial routing intent, subject to real measurement:
 
 ```text
-fast       -> 0.6B family where quality is acceptable
-balanced   -> engine/profile benchmark decides
-quality    -> 1.7B family
-clone      -> Base family
-voice-design -> VoiceDesign family where installed
+fast          -> smaller measured route
+balanced      -> best measured quality/latency route for language/profile
+quality       -> higher-quality measured route
+clone         -> Base/reference-capable route
+voice-design  -> VoiceDesign route when installed
 ```
 
-Do not expose those mappings as immutable API behavior.
+Do not expose these mappings as immutable API behavior.
 
-Japanese-specific acceptance tests:
+### 3.2 Qwen bilingual acceptance
 
-- kana/kanji mixed text
-- numerals, units, English acronyms in Japanese sentences
-- punctuation and pauses
-- long sentences
-- names/proper nouns via pronunciation override
-- emotional dialogue
-- reference-voice similarity
-- repeated generation stability
+Japanese fixtures:
 
-### 3.2 Style-Bert-VITS2 — Japanese character/style specialist
+- kana/kanji
+- numerals/units/dates
+- English acronyms/product names inside Japanese
+- punctuation/pauses
+- proper nouns via dictionary
+- emotional character dialogue
+- long-form stability
 
-Upstream: https://github.com/litagin02/Style-Bert-VITS2
+English fixtures:
+
+- conversational English
+- game/UI short lines
+- numbers/dates/abbreviations
+- Japanese names/terms inside English
+- emotional/style instructions
+- long-form narration
+
+Mixed fixtures:
+
+- code-switching sentences
+- product/character names shared across languages
+- same character profile rendered in JP and EN
+
+Measure voice consistency separately from simple intelligibility.
+
+### 3.3 Style-Bert-VITS2 — Japanese character/style specialist
+
+Upstream: https://github.com/litagin02/Style-Bert-VITS2  
 User reference: https://github.com/souten-yd/StyleBertVITS2WithFileManager
 
-Strengths for SonicForge:
+Role:
 
-- Japanese-oriented ecosystem / JP-Extra lineage
-- controllable speaking styles
-- suitable for character voices and game dialogue
-- CPU inference is possible for some synthesis use cases
-- API/server patterns already exist
-- existing user reference repository demonstrates model-file management and `/voice` integration
+- Japanese character voices
+- style-controlled dialogue
+- imported/custom Japanese voice assets
+- potential CPU-capable fallback for some scenarios
 
-Important integration rule:
+Do not force it to become the English default merely because it is installed. English should route to a verified English-capable adapter.
 
-The referenced custom repository's historical container/file-manager setup includes broad filesystem/root assumptions. **Do not copy that security model into SonicForge.** SonicForge provides its own scoped model library and runs workers non-root by default.
+Security rule: do not copy the reference repository's broad root/workspace file-manager assumptions. SonicForge uses scoped model libraries and non-root workers by default.
 
 Licensing:
 
-- upstream package metadata is AGPL-3.0
-- individual voice models have their own terms/licenses
-- model terms must be stored per voice/model record and surfaced before export/use when required
+- upstream package/code licensing and individual voice/model terms are tracked separately
+- every imported voice model carries its own license/rights state
 
-### 3.3 GPT-SoVITS — reference/few-shot voice workflow
+### 3.4 GPT-SoVITS — reference/few-shot/custom voice route
 
-Upstream: https://github.com/RVC-Boss/GPT-SoVITS
+Upstream: https://github.com/RVC-Boss/GPT-SoVITS  
 User reference: https://github.com/souten-yd/GPTSoVITS
 
 Use cases:
 
-- few-shot / reference-audio voice generation
-- multilingual/reference workflows including Japanese
-- trained/custom voice model assets
+- reference/few-shot voice generation
+- multilingual/custom voice workflows when locally verified
+- trained model assets
 
-Repository code is MIT upstream, but model/data/voice rights are independent and must be tracked.
+Model/data/voice rights are separate from repository code licensing.
 
-The user's reference repository contains useful audio tooling/deployment material, but SonicForge should integrate through a worker adapter rather than embedding its existing UI/container as the product surface.
+Integrate as a worker adapter; do not embed the historical deployment UI as SonicForge's product architecture.
 
-### 3.4 TTS routing policy
+### 3.5 TTS routing examples
 
-Default routing is not "one best model". It is task based:
-
-| Task | Preferred evaluation order |
+| Task | Evaluation direction |
 |---|---|
-| general Japanese narration | Qwen3-TTS -> Style-Bert-VITS2 fallback/profile |
-| low-latency preview | benchmarked small Qwen/SBV2 path |
-| expressive character dialogue | Style-Bert-VITS2 / Qwen style-capable variant |
-| authorized quick voice clone | Qwen3-TTS Base / GPT-SoVITS |
-| custom trained character model | Style-Bert-VITS2 / GPT-SoVITS based on asset type |
-| voice-from-description | Qwen3-TTS VoiceDesign |
-
-Actual order is chosen from measured quality/latency on supported hardware.
+| general Japanese narration | Qwen3-TTS -> measured Japanese specialist fallback/profile |
+| general English narration | Qwen3-TTS bilingual route -> measured English-capable alternative if better |
+| bilingual same-character dialogue | Qwen voice/profile consistency first; specialist per-language routing only when consistency remains acceptable |
+| low-latency preview | smallest measured acceptable route |
+| expressive Japanese character dialogue | Style-Bert-VITS2 / Qwen style route |
+| authorized quick voice clone | Qwen Base / GPT-SoVITS after comparison |
+| custom trained character voice | adapter matching imported asset type |
+| voice from description | Qwen VoiceDesign candidate |
 
 ## 4. ASR strategy
 
-### 4.1 Kotoba-Whisper v2.0 — preferred first quality/speed evaluation
+### 4.1 Do not require one model for both languages
+
+Japanese-specialized ASR can outperform/operate more efficiently for Japanese, while a multilingual route may be better for English and mixed speech.
+
+Speech Essentials may therefore install:
+
+```text
+Japanese-specialist ASR
++ multilingual/English-capable ASR
+```
+
+only when the disk/runtime cost is justified. If one verified multilingual route is good enough for both languages on the target hardware, the planner may choose it instead.
+
+### 4.2 Kotoba-Whisper v2.0 — Japanese quality/speed candidate
 
 Model: https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0
 
-Reasons:
+Why evaluate:
 
-- distilled specifically for Japanese ASR
-- teacher lineage Whisper large-v3
-- model card reports significant speedup while retaining low error rate
-- Transformers integration
-- published faster-whisper / whisper.cpp related weights or ecosystem compatibility is useful for alternative runtimes
-- Apache-2.0 model card license
+- Japanese-distilled Whisper large-v3 lineage
+- strong Japanese-specific deployment motivation
+- Transformers ecosystem
+- alternative Whisper-compatible runtimes may be possible
 
-Evaluate:
+Evaluate real target behavior rather than copying upstream speed/accuracy claims.
 
-- PyTorch/Transformers worker
-- optional faster-whisper runtime if it materially improves target hardware support
-- optional whisper.cpp-compatible runtime as a CPU/Vulkan path when quality parity is acceptable
+### 4.3 ReazonSpeech K2/current suitable successor — Japanese CPU/efficient candidate
 
-### 4.2 ReazonSpeech K2 — preferred CPU/efficient alternative evaluation
-
-Upstream: https://github.com/reazon-research/ReazonSpeech
+Upstream: https://github.com/reazon-research/ReazonSpeech  
 Models: https://huggingface.co/reazon-research
 
-Reasons:
+Why evaluate:
 
 - Japanese-focused project
-- K2 ASR is described upstream as fast/accurate
-- roughly 159M parameter K2 family in upstream documentation
-- sherpa-onnx-based deployment path
-- Japanese and Japanese-English variants exist
-- promising for a smaller always-available CPU ASR pack
+- efficient deployment direction
+- potential small always-available CPU route
+- useful comparison against Kotoba for streaming/startup/resource use
 
-SonicForge should benchmark it against Kotoba-Whisper for:
+Benchmark:
 
-- CER on representative Japanese speech
+- Japanese CER
 - real-time factor
-- CPU RAM
-- startup time
-- streaming friendliness
-- timestamps/segmentation quality
+- RAM
+- startup
+- timestamps/segmentation
+- noisy/casual speech
+- streaming suitability
 
-### 4.3 ASR fallback philosophy
+### 4.4 English/multilingual ASR candidate
 
-The recommended installation should attempt to leave at least one Japanese transcription path usable without monopolizing GPU resources.
+Evaluate a current **Whisper large-v3-turbo / faster-whisper / whisper.cpp compatible multilingual route or measured successor** for:
 
-Potential routing:
+- English transcription
+- Japanese/English mixed speech
+- segment timestamps
+- GPU and CPU/Vulkan/other practical backends
+- long-form stability
+
+This remains a candidate family until the exact runtime/model revision is pinned and benchmarked.
+
+Do not use Kotoba merely for English because it shares a Whisper lineage; route by measured language quality.
+
+### 4.5 ASR routing policy
+
+Conceptual:
 
 ```text
-fast/cpu       -> ReazonSpeech K2 if benchmark validates quality
-balanced       -> Kotoba-Whisper v2.0
-quality        -> Kotoba-Whisper or future measured successor
-stream         -> engine with proven low-latency streaming adapter
+Japanese fast/cpu      -> measured Reazon/efficient route if quality passes
+Japanese recommended   -> measured Kotoba/current Japanese route
+English recommended    -> measured multilingual English-capable route
+Mixed ja/en            -> multilingual route unless segmented language routing proves better
+Streaming              -> route with proven low-latency session behavior
 ```
 
-Never select by marketing description alone; store benchmark evidence.
+Never select from marketing claims alone.
 
-## 5. Music strategy
+## 5. Localization engine considerations
 
-### 5.1 ACE-Step 1.5 — first music engine candidate
+Localization Studio values **cross-language voice consistency**, not only independent best-in-language scores.
+
+Benchmark a bilingual voice/profile on:
+
+- character identity similarity JP vs EN
+- speaking-rate consistency
+- emotional style consistency
+- pronunciation of shared names
+- batch stability
+
+A slightly lower single-language quality score may be preferable when it gives materially better cross-language character consistency. Record that tradeoff in project/voice profile routing evidence.
+
+## 6. Music strategy
+
+### 6.1 ACE-Step 1.5 — first music candidate
 
 Upstream: https://github.com/ace-step/ACE-Step-1.5
 
-Reasons as of 2026-08-25:
-
-- active 2026-generation project
-- local music generation focus
-- repository advertises AMD/Intel/Mac/CUDA support
-- generation, remix/repaint/edit, reference and track-oriented capabilities
-- relatively low-VRAM options are part of the project direction
-- project repository license is MIT
-
-Initial SonicForge capability mapping:
+Initial capability evaluation:
 
 ```text
 music.generate
@@ -202,69 +244,61 @@ music.loop
 music.stems / accompaniment when verified
 ```
 
-Do not expose ACE-specific LM/DiT internals through the stable API.
+Acceptance focus:
 
-Acceptance focus for game BGM:
-
-- instrumental prompt adherence
-- exact/near duration behavior
+- instrumental game-BGM usefulness
+- prompt adherence in Japanese and English prompts where applicable
+- duration behavior
 - loop usability
 - BPM control
-- long-term coherence
-- generation latency
-- peak VRAM on target AMD GPU
-- failure recovery after model load/unload
+- coherence
+- latency
+- peak VRAM on target hardware
+- recovery after load/unload
 
-## 6. SFX/audio generation strategy
+Do not leak engine-native LM/DiT concepts into the stable API.
 
-### 6.1 Stable Audio 3 Small-SFX — first SFX candidate
+## 7. SFX/audio generation strategy
+
+### 7.1 Stable Audio 3 Small-SFX — first candidate
 
 Upstream: https://github.com/Stability-AI/stable-audio-3
 
-As of 2026, upstream exposes a `small-sfx` family intended for lightweight SFX generation, with CPU-oriented support documented by the project. This is attractive for keeping SFX available without evicting a large GPU model.
+Evaluate:
 
-Use cases to evaluate:
-
-- UI clicks/confirm/error packs
+- UI confirm/cancel/error packs
 - impacts
 - ambience
-- short mechanical sounds
-- magic/fantasy cues
+- mechanical sounds
+- magic/fantasy/sci-fi cues
 - loopable beds
-- batch variations
+- variation consistency
+- Japanese and English prompt usability
 
-License caution:
+Repository code license and distributed model license/terms remain distinct records.
 
-- repository code is MIT
-- model weights are governed by Stability AI model/community terms rather than automatically inheriting the code license
-- SonicForge must store and display the actual model-license identifier/source
-
-### 6.2 TangoFlux — alternate text-to-audio evaluator
+### 7.2 TangoFlux — alternative evaluator
 
 Upstream: https://github.com/declare-lab/TangoFlux
 
-Useful as a benchmark/alternative for text-to-audio prompt fidelity and speed. Do not adopt by default until platform, license and target-hardware behavior are measured.
+Adopt only if it measurably improves prompt fidelity, speed, hardware compatibility or a missing capability. Engine count itself is not a goal.
 
-## 7. Audio processing engines
+## 8. Deterministic audio processing
 
-Deterministic processing should prefer stable conventional tools/libraries over generative models:
+Prefer conventional tooling for:
 
 - decoding/encoding
 - resampling
 - trim/silence detection
 - fade
-- normalization/loudness measurement
+- loudness/normalization
 - channel conversion
-- loop point handling
-- waveform/spectrogram preview generation
+- loop point/seam analysis
+- waveform/spectrogram previews
 
-A practical implementation may use ffmpeg/ffprobe through validated argv subprocesses plus Python audio libraries, but exact dependencies are implementation decisions.
+A practical implementation may use ffmpeg/ffprobe via validated argv plus Python libraries. `doctor` detects required binaries; no arbitrary shell strings.
 
-System binaries must be detected by `doctor`; do not invoke arbitrary shell strings.
-
-## 8. Optional later engine classes
-
-Potential future adapters:
+## 9. Optional later adapters
 
 - source separation/stems
 - speech enhancement/noise reduction
@@ -274,11 +308,11 @@ Potential future adapters:
 - audio inpainting
 - music personalization/LoRA
 
-Add only after the stable capability namespace can represent the task without leaking engine internals.
+Only add when the task fits the stable capability architecture and has real use/evidence.
 
-## 9. Engine descriptor
+## 10. Engine descriptor
 
-Each engine adapter exposes metadata like:
+Example:
 
 ```json
 {
@@ -287,77 +321,83 @@ Each engine adapter exposes metadata like:
   "state": "available",
   "capabilities": ["speech.tts.synthesize", "speech.tts.voice_clone"],
   "languages": ["ja", "en"],
+  "mixed_language": true,
   "runtime_id": "...",
   "installed_models": [],
   "hardware": ["gpu"],
   "license": {
-    "code": "Apache-2.0",
+    "code": "...",
     "models": []
   }
 }
 ```
 
-Engine descriptors are diagnostic/advanced surfaces. General callers consume capability descriptors instead.
+Engine descriptors are Expert/diagnostic data. Ordinary callers consume capability descriptors.
 
-## 10. Model catalog requirements
+## 11. Model catalog requirements
 
 Every model record includes:
 
-- stable internal model id
+- internal model id
 - engine id
-- source repository/model URI
-- immutable revision when possible
-- local artifact location (internal only)
-- hashes where practical
-- size
-- supported capabilities/languages
+- immutable source revision where possible
+- local artifact location internally only
+- digests/size
+- capabilities
+- tested/supported languages
 - hardware/dtype requirements
-- license id and source
-- gated/terms-accepted state
-- install status
-- smoke-test status
-- benchmark summary
+- license/source/terms
+- gated acceptance state
+- install state
+- smoke-test state
+- local benchmark summary
+- promotion state: experimental/supported/recommended
 
-A bare `.pth`, `.ckpt` or `.safetensors` file with unknown origin/license should be importable only through an explicit "unverified custom model" flow and must remain visibly marked as such.
+Unknown imported model assets remain clearly `unverified` until source/license and adapter behavior are known.
 
-## 11. Japanese quality benchmark suite
+## 12. Bilingual benchmark suite
 
-Create a versioned local test corpus containing text/audio that is legally safe to redistribute or generated specifically for tests.
+Use legally redistributable or purpose-generated fixtures.
 
-TTS categories:
+### Japanese TTS/ASR
 
-- kana
-- kanji
-- mixed Latin/Japanese
-- numerals/dates/currency/units
-- punctuation/quotes
-- names
-- emotion/style
-- long text
-- short UI/character lines
+- kana/kanji
+- Latin words/acronyms
+- numbers/dates/units
+- proper names
+- casual/fast/noisy speech
+- character emotion
+- long text/audio
 
-ASR categories:
+### English TTS/ASR
 
-- clean speech
-- casual speech
-- fast speech
-- background noise
-- game/stream microphone-like input
-- English terms inside Japanese
-- long-form segments
+- conversational/narration
+- short game barks
+- abbreviations/numbers
+- Japanese names inside English
+- noisy/fast speech
+- long-form
 
-Track objective metrics when meaningful and retain human listening notes as evidence, not as automated truth.
+### Mixed
 
-## 12. Promotion policy
+- Japanese with English technical terms
+- English with Japanese names
+- rapid code switching
+- same localization line/character rendered in both languages
 
-An engine becomes `recommended` only after:
+Track CER/WER/RTF where applicable and human listening notes for TTS. Automated metrics are not a substitute for listening quality.
 
-1. clean install succeeds through SonicForge setup;
+## 13. Promotion policy
+
+An engine becomes `recommended` for a language/task only after:
+
+1. clean SonicForge setup succeeds;
 2. license state is understood;
 3. target hardware smoke test passes;
-4. representative task benchmark exists;
-5. cancellation and worker crash recovery are tested;
-6. outputs pass validation/provenance checks;
-7. UI can explain required inputs without exposing engine jargon by default.
+4. representative language/task benchmark exists;
+5. cancellation/crash recovery are tested;
+6. output validation/provenance pass;
+7. UI can use it through Easy/Customize without exposing engine jargon;
+8. resource estimates are measured rather than guessed when routing depends on them.
 
-Until then it is `experimental`.
+A model may be `recommended` for Japanese and only `experimental` for English, or vice versa. Promotion is capability/language-specific rather than one global badge.

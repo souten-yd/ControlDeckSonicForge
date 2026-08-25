@@ -125,7 +125,7 @@ async def lifespan(app: FastAPI):
     yield
     for task in list(setup_tasks.values()): task.cancel()
     if setup_tasks: await asyncio.gather(*setup_tasks.values(), return_exceptions=True)
-    for job_id in list(jobs.tasks): await jobs.cancel(job_id)
+    await jobs.shutdown()
     await host_client.close()
 
 

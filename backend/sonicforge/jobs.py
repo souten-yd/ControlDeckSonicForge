@@ -101,6 +101,16 @@ class JobManager:
             task.cancel()
         return True
 
+    async def shutdown(self) -> None:
+        tasks = list(self.tasks.values())
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self.tasks.clear()
+        self.hosted.clear()
+
     async def _set(self, job_id: str, **values) -> None:
         with self.session_factory() as session:
             job = session.get(Job, job_id)

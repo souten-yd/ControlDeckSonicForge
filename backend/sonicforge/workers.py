@@ -136,6 +136,12 @@ async def _terminate(proc: asyncio.subprocess.Process) -> None:
         await proc.wait()
 
 
+def _close_process_transport(proc: asyncio.subprocess.Process) -> None:
+    transport = getattr(proc, "_transport", None)
+    if transport is not None:
+        transport.close()
+
+
 async def _stderr_tail(stream: asyncio.StreamReader | None) -> bytes:
     if stream is None:
         return b""
@@ -215,6 +221,7 @@ async def execute(
                 raise WorkerError(str(event.get("message", "worker failed"))[:1000])
         code = await proc.wait()
         stderr = await stderr_task
+        _close_process_transport(proc)
         if code != 0 or final is None:
             raise WorkerError(
                 stderr.decode(errors="replace")[-1000:] or f"worker exited {code}"
@@ -223,11 +230,13 @@ async def execute(
         await _terminate(proc)
         stderr_task.cancel()
         await asyncio.gather(stderr_task, return_exceptions=True)
+        _close_process_transport(proc)
         raise
     except BaseException:
         await _terminate(proc)
         stderr_task.cancel()
         await asyncio.gather(stderr_task, return_exceptions=True)
+        _close_process_transport(proc)
         raise
 
     output = Path(final["output_path"]).resolve() if final.get("output_path") else None

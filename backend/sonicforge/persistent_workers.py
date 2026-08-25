@@ -12,6 +12,7 @@ from .workers import (
     MAX_WORKER_OUTPUT_BYTES,
     WorkerError,
     WorkerResult,
+    _close_process_transport,
     _terminate,
     route,
 )
@@ -200,15 +201,17 @@ class PersistentWorker:
                 proc.stdin.write(b'{"type":"shutdown"}\n')
                 await proc.stdin.drain()
                 proc.stdin.close()
+                await proc.stdin.wait_closed()
                 await asyncio.wait_for(proc.wait(), timeout=3)
             except (BrokenPipeError, ConnectionResetError, TimeoutError):
                 await _terminate(proc)
         elif proc.returncode is None:
             await _terminate(proc)
+        if proc.stdout is not None:
+            await proc.stdout.read()
         if stderr_task is not None:
-            if not stderr_task.done():
-                stderr_task.cancel()
             await asyncio.gather(stderr_task, return_exceptions=True)
+        _close_process_transport(proc)
 
 
 class PersistentSpeechWorkers:

@@ -16,6 +16,7 @@ from .workers import (
     MAX_WORKER_OUTPUT_BYTES,
     WorkerError,
     WorkerResult,
+    _close_process_transport,
     route,
 )
 
@@ -106,9 +107,17 @@ class LiveWorkerPool:
     async def _evict(self, key: str) -> None:
         worker = self._workers.pop(key, None)
         if worker is not None:
-            await _terminate(worker.proc)
-            worker.stderr_task.cancel()
+            try:
+                if worker.proc.stdin is not None:
+                    worker.proc.stdin.close()
+                    await worker.proc.stdin.wait_closed()
+                await asyncio.wait_for(worker.proc.wait(), timeout=3)
+            except (BrokenPipeError, ConnectionResetError, TimeoutError):
+                await _terminate(worker.proc)
+            if worker.proc.stdout is not None:
+                await worker.proc.stdout.read()
             await asyncio.gather(worker.stderr_task, return_exceptions=True)
+            _close_process_transport(worker.proc)
         await self.host_session.release_worker_lease(key)
 
     async def _admit(self, key: str, request: dict) -> None:

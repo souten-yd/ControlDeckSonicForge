@@ -1,6 +1,6 @@
 # SonicForge Implementation Status
 
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
 
@@ -24,7 +24,7 @@ The planned v1 implementation is now **feature-complete at the code/contract lev
 - generic ControlDeck AI/media gateway, device relay, AI residency and rolling long-job credentials on separate ControlDeck PRs/branch;
 - Ed25519 signed release tooling and generic Host verifier path.
 
-Setup now prepares the heavyweight assets exposed by the selected pack instead of marking a component available while leaving an avoidable first-use model download. Speech Essentials includes the Qwen CustomVoice/Clone/VoiceDesign and ASR model snapshots, Game Audio includes Small-SFX after terms acceptance, and Music invokes the pinned ACE-Step upstream downloader for its selected DiT/LM checkpoints. Speech Essentials has now been executed successfully on the target R9700 after fixing the missing ROCm torchaudio pin. Game Audio and Music remain **NOT TESTED** on the target machine.
+Setup now prepares the heavyweight assets exposed by the selected pack instead of marking a component available while leaving an avoidable first-use model download. Speech Essentials includes the Qwen CustomVoice/Clone/VoiceDesign and ASR model snapshots, Game Audio includes Small-SFX after terms acceptance, and Music invokes the pinned ACE-Step upstream downloader for its selected DiT/LM checkpoints. Speech Essentials and Music have now been executed successfully on the target R9700. Game Audio remains **NOT TESTED** because its Stability license terms have not been accepted; SonicForge does not accept those terms implicitly.
 
 The remaining promotion work is primarily **local execution/benchmarking and merge validation**, not missing architecture.
 
@@ -36,7 +36,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | FastAPI core / health / setup | IMPLEMENTED | durable SQLite state, setup profiles, isolated runtimes, staged atomic activation and model-prefetch metadata |
 | Durable Jobs / cancel / restart handling | IMPLEMENTED | local + Host Job projection |
 | Host Job credential lifetime | IMPLEMENTED ON SONICFORGE + CONTROLDECK #240 | short-lived bearer remains internal safety TTL; active Job/lease/AI residency renews credentials so 10 minutes is not a processing limit |
-| Resource Broker | IMPLEMENTED, HOSTED SPEECH E2E PASS | real ControlDeck Host Jobs and Broker leases completed Japanese Qwen TTS and Kotoba-Whisper ASR on the R9700; live session lease retention remains NOT TESTED |
+| Resource Broker | REAL HOSTED + LIVE + CRASH PASS | hosted and live speech acquired/renewed/released leases; SIGKILL stopped renewal, killed the persistent ASR child and the orphaned lease expired through Host TTL reaping |
 | LLM residency hold | IMPLEMENTED ON CONTROLDECK #240 | 120 s TTL + 30 s heartbeat; dead SonicForge stops heartbeat and hold expires |
 | Host AI streaming | IMPLEMENTED ON CONTROLDECK #240 | provider-neutral SSE `text.generate`; reasoning/private chunks suppressed |
 | Local unauthenticated media API | IMPLEMENTED, REAL JA TTS PASS | trusted-local work remains independent of Host-owned Jobs/Broker credentials; real Japanese Qwen TTS passed without user-facing authentication, while Host-managed executions still acquire Broker leases before GPU work |
@@ -49,27 +49,27 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Music/BGM | CLEAN ROCM SETUP + REAL GENERATION PASS | ACE-Step 1.5 pinned source and prepared `acestep-v15-turbo` + `acestep-5Hz-lm-0.6B`; real target generation produced a 10.000 s, 48 kHz stereo WAV without model-cache growth |
 | Localization Studio | IMPLEMENTED | JP/EN lines, durable render, `pending/failed/changed/all` retry modes |
 | Typed Pipeline | IMPLEMENTED | type checking, `start_at`, `stop_after`, durable execution |
-| OpenCode / Agent `sonic.pipeline` | IMPLEMENTED CONTRACT, MCP E2E NOT TESTED | same ControlDeck Agent MCP, no second SonicForge MCP; six frozen initial Agent Tools |
-| `audio.process` | IMPLEMENTED, TEST ADDED NOT RUN | fixed-argv ffmpeg trim/duration/gain/loudnorm/resample/channels; no arbitrary args/shell |
-| `package` delivery | IMPLEMENTED, TEST ADDED NOT RUN | canonical audio asset + ZIP containing audio and deterministic manifest |
-| Audio delivery profiles | IMPLEMENTED, REAL FFMPEG NOT TESTED | master/voice/Unity/Unreal/Godot/web-mobile/M5 profiles |
-| Low-latency PTT WebSocket | IMPLEMENTED, FAKE TESTS ADDED NOT RUN | no arbitrary 60 s default; optional explicit `max_utterance_seconds` only |
-| Persistent ASR/TTS | IMPLEMENTED, REAL MODEL NOT TESTED | process-local model cache; same process reused across live turns when capacity allows |
-| ASR/TTS crash cleanup | IMPLEMENTED | Linux persistent workers set parent-death SIGTERM; Broker lease renew stops on process death |
-| Warm LLM+ASR+TTS coexistence | IMPLEMENTED POLICY, TARGET VRAM NOT TESTED | shared-safe live leases; if peer residency prevents admission, peer worker is explicitly evicted and current stage retried rather than self-deadlocking/OOMing |
-| Progressive LLM -> TTS | IMPLEMENTED, OVERLAP TEST ADDED NOT RUN | SSE tokens -> clause chunker -> bounded TTS queue -> bounded ordered audio-delivery queue; chunk N+1 synthesis overlaps chunk N delivery |
-| Simultaneous translation | IMPLEMENTED PRESET, REAL E2E NOT TESTED | ASR -> streaming Host translation -> target TTS; source/target language selectable |
-| Meeting / minutes | IMPLEMENTED, FAKE TEST ADDED NOT RUN | unlimited session duration; bounded processing chunks; incremental SQLite transcript; optional translation + hierarchical summary |
-| Meeting disconnect durability | IMPLEMENTED | queued chunks continue processing; finalized segments remain durable even after transport loss |
-| RAM-first audio spool | IMPLEMENTED, TESTS ADDED NOT RUN | `/dev/shm`/runtime tmpfs preferred for live/meeting/local-ASR; soft threshold/free-RAM reserve triggers transparent disk spill; no artificial recording-duration cap |
+| OpenCode / Agent tools | REAL MCP E2E PASS | `sonic.generate`, detached `sonic.pipeline` and opaque-grant `sonic.pack` completed through the existing ControlDeck Agent MCP; six frozen initial Agent Tools |
+| `audio.process` | REAL FFMPEG PIPELINE PASS | fixed-argv ffmpeg trim/duration/gain/loudnorm/resample/channels; real 10 s ACE-Step asset was trimmed to 3.5 s, normalized, converted to 24 kHz mono and persisted with performed-check metadata |
+| `package` delivery | REAL PIPELINE + HTTP PASS | canonical audio Asset plus separate ZIP Asset containing `audio/*` and canonical `manifest.json`; provenance, SHA-256 and content route verified |
+| Audio delivery profiles | REAL FFMPEG SUBSET PASS | web-mobile MP3, Unity OGG and M5 16 kHz mono WAV were rendered and probed; remaining named profiles retain unit coverage |
+| Low-latency PTT WebSocket | REAL TWO-TURN PASS | no arbitrary 60 s default; optional explicit `max_utterance_seconds` only; real direct-local turns completed with ordered audio |
+| Persistent ASR/TTS | REAL TWO-TURN REUSE PASS | same session reused real workers; turn 2 completed materially faster without a second avoidable cold load |
+| ASR/TTS crash cleanup | REAL SIGKILL PASS | killing only SonicForge terminated the persistent Whisper child immediately, stopped Broker renewal, expired the lease and auto-restarted a healthy service |
+| Warm LLM+ASR+TTS coexistence | TARGET CAPACITY MEASURED, SEQUENTIAL FALLBACK PASS | current 27B llama plus speech workers do not fit the 32 GiB target together; simultaneous translation explicitly evicts/releases the prior stage and passed without deadlock/OOM |
+| Progressive LLM -> TTS | IMPLEMENTED, UNIT OVERLAP PASS | SSE tokens -> clause chunker -> bounded TTS queue -> bounded ordered audio-delivery queue; overlap/order/backpressure tests pass, while a separate real frame-level timing capture remains NOT TESTED |
+| Simultaneous translation | REAL JA->EN + EN->JA PASS | hosted ASR -> ControlDeck llama -> target TTS passed both directions; current target uses explicit sequential residency release because full overlap exceeds VRAM |
+| Meeting / minutes | REAL ASR/TRANSLATION/SUMMARY PASS | real English segments persisted with Japanese translation; final summary contained Summary / Decisions / Action Items / Open Questions |
+| Meeting disconnect durability | REAL DISCONNECT + RESTART PASS | three queued Whisper segments finalized after transport loss and remained available from the transcript endpoint after restart |
+| RAM-first audio spool | REAL AUTO/SPILL/DISK PASS | 384,000-byte auto spool used `/dev/shm`; a 5 MiB stream crossed the 4 MiB soft limit and migrated intact to disk; explicit disk mode also passed |
 | M5/edge binary protocol | IMPLEMENTED | `sonic-edge/1`, sequence/sample clock, bounded frame size and capability negotiation |
 | Existing M5/edge client server API | IMPLEMENTED CONTRACT, REAL CLIENT E2E NOT TESTED | direct trusted-LAN live WS for basic media; optional ControlDeck relay for Host LLM paths; firmware/client code is intentionally outside this repository |
 | ControlDeck paired Device Relay | IMPLEMENTED ON #240, E2E NOT TESTED | one-time code; device-scoped token uses the normal ControlDeck maximum 8-hour TTL and rotates on reconnect; upstream receives Host-minted service identity, never device token |
 | Wake/VAD | CLIENT/OPTIONAL ENHANCEMENT | not required for SonicForge v1 acceptance unless it changes the server contract |
 | Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
-| Release signing | IMPLEMENTED + EARLIER FOCUSED TESTED | Ed25519 canonical manifest; earlier signing focused suite: 4 passed |
-| ControlDeck signed Release Bundle verifier | IMPLEMENTED ON DRAFT PR #239, NOT HOST E2E TESTED | production publisher public key still an operator input |
-| Current branch-wide lightweight tests | PASS WITH WARNINGS | current head: 71 passed; Starlette TestClient deprecation plus two delayed asyncio subprocess transport warnings remain to resolve |
+| Release signing | REAL BUILD/VERIFY/TAMPER PASS | disposable Ed25519 key, canonical byte-exact manifest, onefile `doctor`/service startup and artifact tamper rejection passed |
+| ControlDeck signed Release Bundle verifier | REAL HOST INSTALL/UPDATE/ROLLBACK PASS ON #239 | disposable trusted key: fresh 0.1.0, side-by-side 0.1.1 and post-switch unhealthy 0.1.2 rollback to healthy 0.1.1 passed; production publisher key remains an operator input |
+| Current branch-wide lightweight tests | PASS WITH WARNING | current worktree: 87 passed; only the known Starlette TestClient deprecation warning remains |
 | Batched GitHub CI | NOT RUN | by explicit project policy, run once only after local acceptance is green |
 
 ## 3. Voice-chat execution model
@@ -200,17 +200,17 @@ The device never receives an Add-on service token or browser cookie. It may keep
 
 Only evidence actually run remains credited.
 
-Current target-machine evidence on 2026-08-25:
+Current target-machine evidence on 2026-08-26:
 
 ```text
 SonicForge:
   python -m compileall -q backend worker_packs tests
   pytest -q
-  71 passed; 1 warning (TestClient deprecation only)
+  87 passed; 1 warning (TestClient deprecation only)
 
 ControlDeck combined local Host (#239 + #240):
   ./deck.sh test
-  813 passed, 1 skipped, 1 warning
+  815 passed, 1 skipped, 1 warning
 
 ControlDeck affected integration set:
   111 passed
@@ -228,9 +228,18 @@ Real setup/runtime evidence:
 - the first concatenated Japanese/English `auto` run returned only English because one Whisper language decision covered the full clip; long-silence segmentation now re-runs detection per region, and the same fixture returned both JA and EN segments at 0.72–4.28 s and 4.32–16.72 s;
 - real Qwen Base voice clone completed from a rights-confirmed scoped `grant:` reference as `asset:f5e6a7f3-f943-4359-a41c-6d16c7139d66`, and real VoiceDesign completed from a textual instruction as `asset:c4f59fbc-4a4f-4654-9b96-478404152d4b`;
 - a direct trusted-local two-turn PTT session kept the real ASR/TTS worker processes scoped to one WebSocket: turn 1 completed in 52.266 s and turn 2 in 25.581 s with ordered audio delivery, demonstrating reuse without an avoidable second cold load;
+- hosted simultaneous translation passed Japanese to English in 103.238 s (`job:d1c2d282-...`) and English to Japanese in 56.980 s (`job:6e49826c-...`), with accurate transcripts, translated text and target-language audio; the target cannot hold the current approximately 30.2 GiB llama allocation beside the speech workers, so SonicForge now releases each prior residency before the next GPU stage;
+- a 660-second hosted Meeting kept the same logical scope while refreshing its short-lived Host credential; the Host Job remained active and completed without operator action;
+- real Meeting disconnect testing queued three 5-second Whisper chunks, closed the WebSocket immediately, finalized all three segments, and retained them through service restart; a hosted retry persisted Japanese translation and generated all four required summary sections;
+- after a forced parent SIGKILL, Whisper worker PID `1704830` disappeared immediately, service restart counter advanced, health recovered, lease `5a4b3646-cb99-47f4-a7b9-6f686615fd56` stopped renewing and reached `expired`; a crashed LLM residency hold also stopped heartbeat and allowed explicit release after TTL;
+- graceful shutdown with an open Meeting WebSocket and resident Whisper worker completed in 164 ms and removed the child; queued/waiting and running cancellation requests both converged to durable `canceled` terminal state;
+- RAM spool measurements wrote 384,000 bytes to `/dev/shm` in approximately 0.10 ms, transparently spilled 5 MiB to managed disk in approximately 3.16 ms, and wrote an explicit 384,000-byte disk spool in approximately 0.04 ms with no leftover acceptance files;
 - clean `music-rocm` provisioning downloaded the pinned ACE-Step runtime/checkpoints into SonicForge-owned paths and activated fingerprint `09bba6cf5968a62ea1f7f449d93475a6df08563e44d05e2cf31a926495ceb525`;
 - the first ACE-Step execution exposed third-party stdout pollution of the worker JSON protocol; redirecting upstream stdout to stderr fixed the boundary, and the retry produced `asset:f3fb4585-0c4c-44ff-974f-99be2bc51192` as a 10.000 s, 48 kHz stereo PCM WAV with unchanged model-cache byte size;
-- release bundle build produced a 24,288,632-byte linux-x86_64 artifact; disposable Ed25519 signing/CLI verification passed and appended-byte tampering was rejected;
+- after routing ACE-Step's writable project cache under SonicForge storage, a second real 10 s generation produced `asset:49ccfbc0-5c65-492c-9688-00dd8015a80e` and did not recreate a source-tree `.cache` directory;
+- the real ACE-Step asset then passed the typed `audio.process` stage with trim, gain, loudness normalization, resampling and mono conversion as `asset:8112b814-0cd3-4c2c-894a-d09ef2a371e0`; package delivery produced `asset:a055cbc7-8d13-4e13-a36e-550a1c769c99`, a 155,959-byte ZIP whose SHA-256, provenance, manifest and HTTP content route were verified;
+- release acceptance first exposed and fixed two real packaging defects: building with a foreign PyInstaller venv omitted runtime dependencies, and Uvicorn's string import omitted `sonicforge.bootstrap`; the corrected 29,987,441-byte onefile bundle passed `doctor`, served `setup_required`, verified against a disposable Ed25519 publisher key, rejected byte tampering, installed fresh as 0.1.0, updated side-by-side to 0.1.1 and rolled an unhealthy 0.1.2 switch back to healthy 0.1.1 through the generic ControlDeck #239 path;
+- real Agent MCP execution completed `sonic.generate` (`job:81c713b8-...`, detached Host Job `f70bd8fa303f`), `sonic.pipeline` (`job:dcabcfa5-...`, detached Host Job `dda2a0410a71`) and `sonic.pack` through opaque `grant:0bc68e65-...`; direct profile exports produced valid web-mobile MP3, Unity OGG and M5 WAV assets;
 - real execution exposed and fixed Qwen third-party stdout pollution of the JSON worker protocol and the greedy asset-content route shadowing bug.
 
 Release signing tests now pass as a five-test focused suite, including direct CLI invocation.

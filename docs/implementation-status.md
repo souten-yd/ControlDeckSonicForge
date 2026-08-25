@@ -24,7 +24,7 @@ The planned v1 implementation is now **feature-complete at the code/contract lev
 - generic ControlDeck AI/media gateway, device relay, AI residency and rolling long-job credentials on separate ControlDeck PRs/branch;
 - Ed25519 signed release tooling and generic Host verifier path.
 
-Setup now prepares the heavyweight assets exposed by the selected pack instead of marking a component available while leaving an avoidable first-use model download. Speech Essentials includes the Qwen CustomVoice/Clone/VoiceDesign and ASR model snapshots, Game Audio includes Small-SFX after terms acceptance, and Music invokes the pinned ACE-Step upstream downloader for its selected DiT/LM checkpoints. These setup paths are **IMPLEMENTED BUT NOT YET EXECUTED on the target machine**.
+Setup now prepares the heavyweight assets exposed by the selected pack instead of marking a component available while leaving an avoidable first-use model download. Speech Essentials includes the Qwen CustomVoice/Clone/VoiceDesign and ASR model snapshots, Game Audio includes Small-SFX after terms acceptance, and Music invokes the pinned ACE-Step upstream downloader for its selected DiT/LM checkpoints. Speech Essentials has now been executed successfully on the target R9700 after fixing the missing ROCm torchaudio pin. Game Audio and Music remain **NOT TESTED** on the target machine.
 
 The remaining promotion work is primarily **local execution/benchmarking and merge validation**, not missing architecture.
 
@@ -36,14 +36,14 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | FastAPI core / health / setup | IMPLEMENTED | durable SQLite state, setup profiles, isolated runtimes, staged atomic activation and model-prefetch metadata |
 | Durable Jobs / cancel / restart handling | IMPLEMENTED | local + Host Job projection |
 | Host Job credential lifetime | IMPLEMENTED ON SONICFORGE + CONTROLDECK #240 | short-lived bearer remains internal safety TTL; active Job/lease/AI residency renews credentials so 10 minutes is not a processing limit |
-| Resource Broker | IMPLEMENTED, HOST E2E NOT TESTED | acquire/queue/activate/renew/release; live ASR/TTS may hold session-scoped leases |
+| Resource Broker | IMPLEMENTED, HOSTED SPEECH E2E PASS | real ControlDeck Host Jobs and Broker leases completed Japanese Qwen TTS and Kotoba-Whisper ASR on the R9700; live session lease retention remains NOT TESTED |
 | LLM residency hold | IMPLEMENTED ON CONTROLDECK #240 | 120 s TTL + 30 s heartbeat; dead SonicForge stops heartbeat and hold expires |
 | Host AI streaming | IMPLEMENTED ON CONTROLDECK #240 | provider-neutral SSE `text.generate`; reasoning/private chunks suppressed |
-| Local unauthenticated media API | IMPLEMENTED | `/local/v1/asr`, `/tts`, `/sfx`, `/music`; default `trusted-network`, optional `strict`/`open`; local ASR upload uses Adaptive RAM-first spool |
-| TTS | IMPLEMENTED, REAL MODEL NOT TESTED | Qwen3-TTS CustomVoice 0.6B / Clone Base 0.6B / official VoiceDesign 1.7B + logical voice routing; Japanese built-in default uses `Ono_Anna` |
-| ASR Japanese | IMPLEMENTED, REAL MODEL NOT TESTED | Kotoba-Whisper v2 path |
+| Local unauthenticated media API | IMPLEMENTED, ROCM DIRECT PATH FAIL | HTTP access policy works, but direct unauthenticated TTS/ASR on an installed ROCm runtime currently lacks a Host identity for the mandatory Broker lease and fails closed; contract correction remains required |
+| TTS | CUSTOMVOICE JA PASS, CLONE/DESIGN NOT TESTED | real Qwen3-TTS CustomVoice 0.6B generated a 24 kHz mono Japanese WAV with `Ono_Anna` on R9700 through Host Job/Broker; Clone Base and VoiceDesign remain NOT TESTED |
+| ASR Japanese | REAL MODEL PASS | Kotoba-Whisper v2 transcribed the generated Japanese fixture through scoped `grant:` + Host Job/Broker in 10.057 s; recognition was usable but rendered “SonicForge” imperfectly |
 | ASR multilingual/English | IMPLEMENTED, REAL MODEL NOT TESTED | Whisper large-v3-turbo path |
-| Speech Essentials provisioning | IMPLEMENTED, CLEAN INSTALL NOT TESTED | setup prefetches CustomVoice, Clone Base, VoiceDesign, Kotoba-Whisper and Whisper Turbo before component becomes available |
+| Speech Essentials provisioning | CLEAN ROCM INSTALL PASS | isolated `speech-rocm` runtime activated only after all five model snapshots completed; exact revisions recorded in runtime metadata |
 | SFX | IMPLEMENTED, REAL MODEL NOT TESTED | Stable Audio 3 Small-SFX CPU-first; fixed upstream API inspected; model snapshot prefetched only after Stability terms acceptance |
 | Japanese SFX conditioning | IMPLEMENTED | ControlDeck LLM may normalize JP intent to English acoustic prompt; both prompts kept in provenance |
 | Music/BGM | IMPLEMENTED ADAPTER, REAL MODEL NOT TESTED | ACE-Step 1.5 pinned source; setup uses upstream downloader for `acestep-v15-turbo` + `acestep-5Hz-lm-0.6B`; initialization success tuple is checked; upstream AMD/ROCm support does not count as SonicForge target validation |
@@ -69,7 +69,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
 | Release signing | IMPLEMENTED + EARLIER FOCUSED TESTED | Ed25519 canonical manifest; earlier signing focused suite: 4 passed |
 | ControlDeck signed Release Bundle verifier | IMPLEMENTED ON DRAFT PR #239, NOT HOST E2E TESTED | production publisher public key still an operator input |
-| Current branch-wide lightweight tests | NOT RUN | `pytest-asyncio` is now an explicit test dependency; current-head batch intentionally deferred until local acceptance |
+| Current branch-wide lightweight tests | PASS WITH WARNINGS | current head: 71 passed; Starlette TestClient deprecation plus two delayed asyncio subprocess transport warnings remain to resolve |
 | Batched GitHub CI | NOT RUN | by explicit project policy, run once only after local acceptance is green |
 
 ## 3. Voice-chat execution model
@@ -200,14 +200,34 @@ The device never receives an Add-on service token or browser cookie. It may keep
 
 Only evidence actually run remains credited.
 
-Previously executed focused signing suite:
+Current target-machine evidence on 2026-08-25:
 
 ```text
-pytest -q tests/test_release_signing.py tests/test_release_signing_negative.py
-4 passed
+SonicForge:
+  python -m compileall -q backend worker_packs tests
+  pytest -q
+  71 passed; 3 warnings (1 TestClient deprecation, 2 delayed subprocess transport warnings)
+
+ControlDeck combined local Host (#239 + #240):
+  ./deck.sh test
+  813 passed, 1 skipped, 1 warning
+
+ControlDeck affected integration set:
+  111 passed
 ```
 
-Older lightweight results predate substantial live/gateway/model-setup changes and **do not** prove the current head is green.
+Real setup/runtime evidence:
+
+- clean `speech-rocm` provisioning completed with Qwen CustomVoice, Clone Base, VoiceDesign, Kotoba-Whisper and Whisper Turbo snapshots and recorded their exact revisions;
+- first provisioning attempt failed correctly in staging because unpinned PyPI torchaudio was ABI-incompatible with ROCm torch; `torchaudio==2.10.0` now resolves to the ROCm 7.2.1 wheel and the second clean activation passed;
+- ControlDeck restarted on the combined Host changes, reported `/api/v1/health` healthy, accepted the SonicForge v2 manifest, enabled all requested capabilities and projected `sonic-forge` into the effective registry;
+- real Japanese CustomVoice TTS completed through a ControlDeck Host Job and Resource Broker lease and produced a 4.320 s, 24 kHz, mono PCM WAV;
+- real Kotoba-Whisper Japanese ASR consumed that WAV through a scoped `grant:` and completed through a Host Job/Broker lease in 10.057 s;
+- direct trusted-network TTS without Host identity failed closed with `GPU work requires a ControlDeck-managed Host Job and Resource Broker lease`; the advertised unauthenticated ROCm behavior is therefore not yet accepted;
+- release bundle build produced a 24,288,632-byte linux-x86_64 artifact; disposable Ed25519 signing/CLI verification passed and appended-byte tampering was rejected;
+- real execution exposed and fixed Qwen third-party stdout pollution of the JSON worker protocol and the greedy asset-content route shadowing bug.
+
+Release signing tests now pass as a five-test focused suite, including direct CLI invocation.
 
 Static upstream/API inspection completed during implementation includes:
 
@@ -232,7 +252,7 @@ Current new tests cover contracts for:
 - deterministic audio processing/package helpers;
 - ControlDeck Gateway/device/session behavior.
 
-They are **ADDED, NOT YET RUN AS A CURRENT BRANCH BATCH**.
+They have been run as the current branch batch described above. Test coverage does not replace the remaining real acceptance items below.
 
 ## 9. Promotion / merge gates
 

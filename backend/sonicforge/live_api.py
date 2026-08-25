@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import struct
-import uuid
 import wave
 from array import array
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -24,6 +22,7 @@ from .live_host_session import LiveHostSession
 from .live_runtime import LiveTurnRunner
 from .live_workers import LiveWorkerPool
 from .pipeline_schema import AudioFormat, LiveSessionCreate, compile_pipeline
+from .spool import AdaptiveSpoolFile, AudioSpoolManager
 
 MAX_HELLO_BYTES = 64 * 1024
 MIN_PTT_MS = 100
@@ -166,6 +165,7 @@ async def _send_audio(
 
 def create_live_router(base) -> APIRouter:
     router = APIRouter(prefix="/addon/v1/live", tags=["live"])
+    spool_manager = AudioSpoolManager(base.settings)
 
     async def authenticate(websocket: WebSocket) -> HostIdentity | None:
         has_host = bool(
@@ -187,7 +187,7 @@ def create_live_router(base) -> APIRouter:
         host_session: LiveHostSession | None = None
         worker_pool: LiveWorkerPool | None = None
         session_failed = False
-        raw_stream: BinaryIO | None = None
+        raw_spool: AdaptiveSpoolFile | None = None
         raw_path: Path | None = None
         try:
             identity = await authenticate(websocket)
@@ -267,6 +267,10 @@ def create_live_router(base) -> APIRouter:
                     "max_utterance_seconds": session.max_utterance_seconds,
                     "streaming_response": session.streaming_response,
                     "keep_warm": session.keep_warm,
+                    "spool": {
+                        "policy": "ram-first-disk-fallback",
+                        "ram_available": spool_manager.ram_available,
+                    },
                 }
             )
 
@@ -317,28 +321,28 @@ def create_live_router(base) -> APIRouter:
                     if kind == "ptt.start":
                         if recording:
                             raise EdgeProtocolError("PTT is already recording")
+                        if raw_spool is not None:
+                            raw_spool.cleanup()
                         tracker = SequenceTracker()
                         recording = True
                         recorded_bytes = 0
                         turn_number += 1
-                        raw_path = (
-                            base.settings.data_dir
-                            / "tmp"
-                            / "live-input"
-                            / f"{uuid.uuid4().hex}.pcm"
-                        )
-                        raw_path.parent.mkdir(parents=True, exist_ok=True)
-                        raw_stream = raw_path.open("wb")
+                        raw_spool = spool_manager.open("live-input", suffix=".pcm")
+                        raw_path = None
                         await websocket.send_json(
-                            {"type": "ptt.started", "turn": turn_number}
+                            {
+                                "type": "ptt.started",
+                                "turn": turn_number,
+                                "memory_backed": raw_spool.memory_backed,
+                            }
                         )
                         continue
                     if kind == "ptt.stop":
-                        if not recording or raw_stream is None or raw_path is None:
+                        if not recording or raw_spool is None:
                             raise EdgeProtocolError("PTT is not recording")
                         recording = False
-                        raw_stream.close()
-                        raw_stream = None
+                        raw_path = raw_spool.finalize()
+                        raw_spool = None
                         duration_ms = (
                             recorded_bytes
                             * 1000
@@ -436,7 +440,7 @@ def create_live_router(base) -> APIRouter:
                     )
 
                 if binary is not None:
-                    if not recording or raw_stream is None:
+                    if not recording or raw_spool is None:
                         raise EdgeProtocolError(
                             "audio frame received outside PTT recording"
                         )
@@ -473,11 +477,9 @@ def create_live_router(base) -> APIRouter:
                         and recorded_bytes + len(frame.payload) > max_input_bytes
                     ):
                         recording = False
-                        raw_stream.close()
-                        raw_stream = None
-                        if raw_path is not None:
-                            raw_path.unlink(missing_ok=True)
-                            raw_path = None
+                        raw_spool.cleanup()
+                        raw_spool = None
+                        raw_path = None
                         await websocket.send_json(
                             {
                                 "type": "turn.error",
@@ -486,7 +488,7 @@ def create_live_router(base) -> APIRouter:
                             }
                         )
                         continue
-                    raw_stream.write(frame.payload)
+                    raw_spool.write(frame.payload)
                     recorded_bytes += len(frame.payload)
         except WebSocketDisconnect:
             return
@@ -504,8 +506,8 @@ def create_live_router(base) -> APIRouter:
             except RuntimeError:
                 pass
         finally:
-            if raw_stream is not None:
-                raw_stream.close()
+            if raw_spool is not None:
+                raw_spool.cleanup()
             if raw_path is not None:
                 raw_path.unlink(missing_ok=True)
             if worker_pool is not None:

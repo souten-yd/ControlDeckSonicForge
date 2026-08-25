@@ -10,7 +10,7 @@ from typing import Any
 
 from .audio import inspect_wav
 from .config import Settings
-from .db import Asset, Job, Provenance
+from .db import Asset, Job, Provenance, Voice
 from .events import EventBus
 from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
 from .host.files import commit_file
@@ -130,7 +130,9 @@ class JobManager:
         assert self.host_client is not None
         while execution.lease_id:
             await asyncio.sleep(10)
-            try: await self.host_client.lease_action(execution.identity,execution.lease_id,"renew")
+            try:
+                if execution.identity.expires_at-int(time.time())<120: execution.identity=await self.host_client.refresh_lease_identity(execution.identity,execution.lease_id)
+                await self.host_client.lease_action(execution.identity,execution.lease_id,"renew")
             except HostApiError: return
 
     async def _release_resource(self,execution:HostedExecution)->None:
@@ -145,7 +147,17 @@ class JobManager:
 
     async def _run(self,job_id:str)->None:
         await self._set(job_id,state="running",progress=0.01)
-        with self.session_factory() as session: job=session.get(Job,job_id); request=dict(job.request)
+        with self.session_factory() as session:
+            job=session.get(Job,job_id); request=dict(job.request); inp=dict(request.get("input") or {}); voice_id=inp.get("voice_id")
+            if isinstance(voice_id,str) and voice_id.startswith("voice:"):
+                voice=session.get(Voice,voice_id)
+                if voice is None: raise WorkerError("Selected logical voice does not exist")
+                recipe=dict(voice.recipe or {}); reference=recipe.get("reference_audio")
+                if isinstance(reference,str):
+                    candidate=(self.settings.data_dir/reference).resolve(); voices_root=(self.settings.data_dir/"voices").resolve()
+                    if not candidate.is_relative_to(voices_root) or not candidate.is_file(): raise WorkerError("Voice reference audio is missing or outside SonicForge storage")
+                    recipe["reference_audio"]=str(candidate)
+                inp["_internal_voice"]={"id":voice.id,"name":voice.name,"source_type":voice.source_type,"languages":voice.languages or [],"engine_id":voice.engine_id,"recipe":recipe,"rights_confirmed":bool(voice.rights_confirmed)}; request["input"]=inp
         work_dir=self.settings.data_dir/"tmp"/job_id.replace(":","_"); execution=self.hosted.get(job_id); lease_renew:asyncio.Task|None=None
         async def progress(value:float,message:str): await self._set(job_id,progress=max(0.0,min(0.98,value)),result={"message":message})
         try:

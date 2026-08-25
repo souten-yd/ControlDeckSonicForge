@@ -20,6 +20,7 @@ test = [
   "cryptography>=43,<47",
   "jsonschema>=4.23,<5",
   "pytest>=8,<10",
+  "pytest-asyncio>=0.23,<2",
 ]
 release = [
   "cryptography>=43,<47",

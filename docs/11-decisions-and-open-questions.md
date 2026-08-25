@@ -5,303 +5,241 @@ Last updated: 2026-08-25
 
 ## 1. Purpose
 
-This document separates **decisions already fixed** from **questions that still require measurement or a generic Host decision**.
+This document separates fixed architectural/product decisions from questions that still require measurement or a generic Host implementation.
 
-Do not reopen fixed decisions casually during implementation. If new evidence requires a change, record the reason, impact and migration plan here before changing normative contracts.
+Do not reopen fixed decisions casually. If evidence requires a change, record reason, impact and migration before changing normative contracts.
 
 ## 2. Fixed decisions
 
 ### D-001 — SonicForge is an out-of-process ControlDeck Add-on
 
-Decision:
-
 - Add-on Contract v2 external service
 - no SonicForge Python/JavaScript imported into ControlDeck
 
-Reason:
-
-- dependency isolation
-- crash isolation
-- independent releases
-- security/audit boundary
-- same architectural pattern as MediaForge
+Reasons: dependency/crash isolation, independent releases, security/audit boundary and reusable Add-on architecture.
 
 ### D-002 — SonicForge and MediaForge are siblings
 
-Decision:
-
 - no parent/child runtime relationship
-- no shared internal modules, database or venv
-- cross-media composition goes through ControlDeck workflow/agent/grant contracts
+- no shared internal modules/database/venv
+- composition through ControlDeck workflow/agent/grant contracts
 
 ### D-003 — SonicForge owns its environment
 
-Decision:
-
-- separate core `.venv`
+- separate core environment
 - separate heavy runtime packs
-- separate model/data/state paths
+- separate model/data/state
 - separate default cache
-- explicit user-defined external model libraries remain possible
+- user-configured external model libraries may be supported explicitly
 
-Reason:
-
-The user requires SonicForge to remain independently installable/repairable and not contaminate the ControlDeck/MediaForge dependency graph.
-
-### D-004 — One-click heavy setup is mandatory
-
-Decision:
-
-After the lightweight SonicForge service is available, first-use setup is driven by a button and a durable setup job.
+### D-004 — One-click capability setup is mandatory
 
 The normal user does not manually create venvs or run pip commands.
 
-### D-005 — Add-on manifest does not execute arbitrary shell
+Default first setup is **Speech Essentials**, while Game Audio and Music are optional one-click packs. Full Studio is explicit rather than the default.
 
-Decision:
+### D-005 — Product installation uses the generic trusted Release Bundle Feature direction
 
-Do not add a Sonic-specific shell command field to the ControlDeck Add-on contract.
+Do not add an arbitrary shell command to the Add-on manifest.
 
-The existing generic Apps/external-service layer is used for lightweight service lifecycle. A future truly zero-service bootstrap requires a generic reviewed Host mechanism.
+The target flow is:
+
+```text
+ControlDeck generic trusted feature installer
+ -> signed lightweight SonicForge release bundle
+ -> SonicForge service healthy/setup_required
+ -> SonicForge one-click ML capability provisioning
+```
 
 ### D-006 — Capability-first public API
 
-Decision:
+Stable callers use task/capability IDs. Engine/model IDs are optional Expert routing hints.
 
-Stable callers use task/capability IDs. Engine/model IDs are optional advanced routing hints.
+### D-007 — Japanese and English are first-class speech languages
 
-Reason:
+Japanese remains a priority quality benchmark, but English is not a secondary afterthought.
 
-- engines will change faster than user workflows
-- workflows/agents should survive model replacement
-- UI can hide unavailable engine-specific controls
+Initial requirements:
 
-### D-007 — Japanese-first speech
+- Japanese TTS/ASR
+- English TTS/ASR
+- representative mixed Japanese/English content
+- Japanese/English UI localization
 
-Decision:
-
-Japanese synthesis/recognition quality is the first speech optimization target.
-
-Initial TTS roles:
-
-- Qwen3-TTS: general/clone/design candidate
-- Style-Bert-VITS2: Japanese character/style candidate
-- GPT-SoVITS: reference/few-shot/custom voice candidate
-
-Initial ASR candidates:
-
-- Kotoba-Whisper v2.0
-- ReazonSpeech K2/current suitable successor
-
-Final defaults require local benchmark evidence.
+Final default engines are chosen by language/task evidence, not architectural symmetry.
 
 ### D-008 — GPT-SoVITS / Style-Bert-VITS2 are not ASR
 
-Decision:
-
-They are integrated under TTS/voice worker packs. ASR uses dedicated recognition adapters.
+They are TTS/voice worker families. ASR uses dedicated recognition adapters.
 
 ### D-009 — ControlDeck owns cross-application GPU arbitration
 
-Decision:
-
-SonicForge requests Host Resource Broker leases for GPU work and does not build a competing global GPU scheduler.
-
-SonicForge may still manage its own worker/model residency inside an active/authorized resource policy.
+SonicForge requests Resource Broker leases and does not create a competing global GPU scheduler.
 
 ### D-010 — Raw Host paths are forbidden
-
-Decision:
 
 Host inputs/outputs use `asset:` / `grant:` identifiers and Runtime APIs.
 
 ### D-011 — Provenance and rights metadata are first-class
 
-Decision:
-
-Every generated asset records engine/model/license/provenance. Reusable clone/reference voices record an explicit user rights/permission confirmation event.
+Every generated asset records engine/model/license/provenance. Reusable clone/reference voices record explicit rights/permission confirmation events.
 
 ### D-012 — ControlDeck TTS ownership migrates to SonicForge
 
-Decision:
+Do not keep a second permanent ControlDeck TTS ML implementation after cutover. Locate the exact historical source before migration.
 
-Do not maintain a second permanent TTS implementation inside ControlDeck after migration.
+### D-013 — UX uses three-level progressive disclosure
 
-The exact historical source must be identified before code migration.
+```text
+Easy       small task-level form
+Customize  normalized outcome controls
+Expert     model/runtime/native details
+```
 
-### D-013 — Simple UX uses progressive disclosure
-
-Decision:
-
-Default screens expose tasks/presets and recommended settings. Engine/model/runtime internals are Advanced/Diagnostics concepts.
+A normal task must be possible without Expert mode.
 
 ### D-014 — Contract freeze at SF1
 
-Decision:
+Freeze the stable Add-on contribution IDs, four workflow executors, initial agent tools, public schemas, language contract, asset/provenance fields and setup state/profile contract before heavy engine expansion.
 
-Freeze contribution IDs, capability namespace, public schemas, tool/executor IDs, asset/provenance required fields and setup state model before heavy engine expansion.
+### D-015 — Release authorization uses Ed25519 publisher signing
 
-After freeze, additions are preferred over breaking changes.
+Adopt the current MediaForge direction.
+
+ControlDeck trusts the SonicForge publisher public key once. Every release publishes a canonical manifest signed by the corresponding private key.
+
+The signed manifest binds:
+
+```text
+feature_id
+version
+platform
+architecture
+artifact_name
+sha256
+size_bytes
+```
+
+SHA-256 remains artifact integrity data **inside the signed manifest**, not a per-release catalog trust pin.
+
+### D-016 — No SonicForge-specific signature verifier
+
+If ControlDeck requires changes to consume signed SonicForge releases, those changes must implement a generic publisher-signature Release Bundle Feature contract reusable by MediaForge/future Add-ons.
+
+### D-017 — Small top-level product navigation
+
+Inside the Add-on use:
+
+```text
+Studio
+Voices
+Library
+Runtime
+```
+
+Studio owns Speech/Transcribe/SFX/Music/Localization task tabs. Avoid duplicate navigation and quick-action routes that all land on the same editor.
+
+### D-018 — Localization Studio is in scope
+
+Bilingual game dialogue batches, voice consistency profiles, pronunciation dictionaries, JP/EN project naming/export profiles and partial retry are product features.
+
+Localization does not automatically create another frozen Host workflow executor.
+
+### D-019 — Automatic QA reports only checks actually performed
+
+Deterministic audio validation is mandatory. Optional TTS->ASR round-trip may flag text mismatches, but cannot claim naturalness/emotion correctness. Unverified requirements use `not_checked`.
+
+### D-020 — Expensive preparation belongs to durable jobs
+
+Do not spend significant LLM/VLM/analysis/generation work only in browser state before creating durable server ownership. Navigation/backgrounding must not discard progress.
 
 ## 3. Open questions requiring measurement
 
-### OQ-001 — Which TTS engine is the default `balanced` Japanese route?
+### OQ-001 — Which TTS route is `Recommended` for Japanese?
 
-Candidates:
+Compare Qwen3-TTS and suitable Japanese specialist profiles on listening quality, latency, memory, long-form stability and style control.
 
-- Qwen3-TTS family
-- Style-Bert-VITS2 for some character profiles
+### OQ-002 — Which TTS route is `Recommended` for English and bilingual character consistency?
 
-Required evidence:
+Qwen3-TTS is the first strong candidate because upstream explicitly supports both languages, but local evidence must measure:
 
-- Japanese listening suite
-- cold/warm latency
-- VRAM/RAM
-- long-form stability
-- style control usefulness
-- target hardware reliability
+- English naturalness
+- Japanese/English same-character consistency
+- mixed language behavior
+- preview/final latency
 
-Until measured: no permanent default model mapping in public contract.
+### OQ-003 — Which ASR routes are default by language/hardware?
 
-### OQ-002 — Which ASR engine is default on CPU versus GPU?
-
-Candidates:
+Japanese candidates:
 
 - Kotoba-Whisper v2.0
-- ReazonSpeech K2/current suitable model
+- ReazonSpeech K2/current suitable successor
 
-Measure:
+English/mixed candidate family:
 
-- CER
-- real-time factor
-- startup latency
-- RAM/VRAM
-- timestamps
-- noise/casual Japanese
-- streaming suitability
+- current multilingual Whisper-family/faster-whisper/whisper.cpp route or measured successor
 
-### OQ-003 — Exact AMD/ROCm support matrix
+Measure CER/WER, real-time factor, startup, RAM/VRAM, timestamps, noisy/casual audio and streaming.
 
-Upstream projects may claim AMD support, but SonicForge must record actual supported versions/devices after testing.
+### OQ-004 — Exact AMD/ROCm support matrix
 
-Need:
+Only real tested OS/kernel/ROCm/GPU/framework/engine combinations become supported.
 
-- OS/kernel
-- ROCm version
-- GPU architecture
-- torch/backend version
-- engine-specific failures/workarounds
+### OQ-005 — First recommended SFX engine
 
-### OQ-004 — First recommended SFX engine
+Primary candidate: Stable Audio 3 Small-SFX. Alternate only if measured benefit/gap.
 
-Primary candidate:
+### OQ-006 — First recommended music engine/profile
 
-- Stable Audio 3 Small-SFX
+Primary candidate: ACE-Step 1.5 family. Need real AMD behavior, latency/VRAM, BGM usefulness, duration/loop behavior and license verification.
 
-Alternative:
+### OQ-007 — Streaming speech protocol details
 
-- TangoFlux or a newer engine if it materially outperforms/fills gaps
+Need real prototypes before freezing frame codec/duration/backpressure/interim result/reconnect semantics.
 
-Need local prompt-adherence, latency, hardware and model-license evaluation.
+### OQ-008 — Worker IPC: loopback HTTP versus local socket
 
-### OQ-005 — First recommended music profile/model
+Internal decision; compare debug simplicity, streaming, cancellation, permissions and portability.
 
-Primary candidate:
+### OQ-009 — Exact deterministic audio-processing stack
 
-- ACE-Step 1.5 family
+Likely ffmpeg/ffprobe plus Python libraries, but packaging must not require unsafe root mutation.
 
-Need:
+### OQ-010 — Cache deduplication policy
 
-- AMD target test
-- generation latency/VRAM
-- duration fidelity
-- BGM usefulness
-- loop behavior
-- model/release license verification
+Default remains SonicForge-owned cache. Optional generic content-addressed sharing only if lifecycle/deletion/permissions remain independent.
 
-### OQ-006 — Streaming speech protocol details
+### OQ-011 — Retention/cleanup defaults
 
-Need to decide after first real engines:
+Measure previews, temp audio, rollback runtimes, model versions and logs before choosing defaults. Never silently delete user assets.
 
-- exact PCM/Opus formats
-- frame duration
-- backpressure window
-- interim ASR result semantics
-- TTS first-audio latency target
-- reconnect semantics
+### OQ-012 — Preview implementation per engine
 
-Do not freeze a streaming wire protocol before an engine prototype proves the requirements.
+`Preview` is a UX concept, not necessarily the same optimization for each model. Determine whether to use smaller model, shorter duration, fewer steps or another safe route without making preview misleading.
 
-### OQ-007 — Dedicated worker IPC: loopback HTTP versus local socket
+### OQ-013 — Localization round-trip QA threshold
 
-Both can preserve process isolation.
+Need bilingual fixtures to choose normalization/scoring thresholds that flag genuine omissions/repetitions without flooding users with false warnings.
 
-Evaluate:
+## 4. Current Host compatibility gate
 
-- simplicity/debuggability
-- streaming support
-- cancellation
-- security/permissions
-- Windows/Linux portability if Windows support becomes relevant
+### HOST-GATE-001 — Signature-aware Release Bundle verifier
 
-This is internal and need not affect public Add-on API.
+Observed during the 2026-08-25 review:
 
-### OQ-008 — Exact audio processing dependency stack
+- MediaForge `main` has moved release signing to Ed25519 publisher-signed canonical manifests;
+- MediaForge v0.6.7 is described as its first publisher-signature release;
+- the inspected ControlDeck `main` still exposes older per-artifact SHA-pin logic.
 
-Candidates include ffmpeg/ffprobe plus Python libraries.
+SonicForge therefore **targets the signature model and does not fall back architecturally to permanent per-release SHA pins**.
 
-Need to decide packaging/install strategy without introducing root/system mutations during ordinary SonicForge setup.
+Before SF1 claims trusted fresh-install/update E2E, verify/land the generic ControlDeck signature-aware verifier.
 
-### OQ-009 — Cache deduplication policy
-
-Current baseline: SonicForge owns its default cache to preserve independence.
-
-A future optional shared content-addressed cache may be considered only if:
-
-- lifecycle remains independent
-- deletion cannot corrupt another Add-on
-- ownership/permissions are clear
-- it is generic rather than a MediaForge shortcut
-
-### OQ-010 — Retention/cleanup defaults
-
-Need measured storage behavior before choosing defaults for:
-
-- generated previews
-- temp audio
-- old runtime rollback copies
-- model versions
-- job logs
-
-Never silently delete user assets.
-
-## 4. Open Host-level question
-
-### OQ-HOST-001 — Truly zero-touch installation of an absent SonicForge service
-
-Current safe baseline:
-
-1. generic ControlDeck Apps/service mechanism registers/starts lightweight SonicForge;
-2. SonicForge then owns one-click heavy environment/model provisioning.
-
-If the desired final product is "a fresh ControlDeck with no SonicForge files can install SonicForge from one Extensions button", the Host needs a generic package/bootstrap mechanism with properties such as:
-
-- explicit trusted source/package identity
-- version/signature/hash
-- fixed install scope
-- no arbitrary browser-supplied shell
-- progress/log/cancel
-- least privilege
-- rollback/uninstall semantics
-- reusable by any future Add-on
-
-This is a ControlDeck platform design item, not something SonicForge should bypass.
+This is a compatibility gate, not an open product-design question.
 
 ## 5. Open migration question
 
 ### OQ-MIG-001 — Exact historical ControlDeck TTS source
-
-Current ControlDeck `main` inspection does not show an obvious active TTS implementation.
 
 During SF2-0:
 
@@ -315,8 +253,6 @@ Do not implement a guessed compatibility layer beforehand.
 
 ## 6. Decision change template
 
-When changing a fixed decision, append a record:
-
 ```text
 ID:
 Date:
@@ -329,4 +265,4 @@ Migration required:
 ControlDeck/MediaForge impact:
 ```
 
-Never silently edit away the history of an important architectural decision.
+Do not silently erase important architectural decision history.

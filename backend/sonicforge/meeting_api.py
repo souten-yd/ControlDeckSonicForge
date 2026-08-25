@@ -213,6 +213,7 @@ def create_meeting_router(base) -> APIRouter:
             async def translate_text(text: str) -> tuple[str | None, dict]:
                 if not config.translate or not text.strip():
                     return None, {}
+                await host_session.ensure_llm_hold()
                 current = await host_session.identity()
                 if current is None:
                     return None, {"state": "unavailable"}
@@ -255,6 +256,8 @@ def create_meeting_router(base) -> APIRouter:
                         f"{meeting_id.replace(':', '_')}-segment-{sequence:06d}",
                     )
                     try:
+                        if config.translate:
+                            await host_session.release_llm_hold(stop_runtime=True)
                         _pcm_file_to_wav(raw_path, wav_path, config.audio)
                         request = {
                             "task": "speech.asr.transcribe",
@@ -291,6 +294,8 @@ def create_meeting_router(base) -> APIRouter:
                         source_text = result.payload.get("text")
                         if not isinstance(source_text, str):
                             raise WorkerError("meeting ASR returned no text")
+                        if config.translate:
+                            await worker_pool.evict("asr")
                         translated_text, translation_meta = await translate_text(source_text)
                         with base.session_factory() as db:
                             db.add(
@@ -481,6 +486,8 @@ def create_meeting_router(base) -> APIRouter:
 
             summary: dict = {}
             if config.summarize:
+                await worker_pool.evict("asr")
+                await host_session.ensure_llm_hold()
                 current = await host_session.identity()
                 if current is not None:
                     with base.session_factory() as db:
@@ -502,6 +509,7 @@ def create_meeting_router(base) -> APIRouter:
                     for piece in pieces:
                         if not piece.strip():
                             continue
+                        await host_session.ensure_llm_hold()
                         current = await host_session.identity()
                         if current is None:
                             break
@@ -522,6 +530,7 @@ def create_meeting_router(base) -> APIRouter:
                             partials.append(result["content"])
                     combined = "\n\n".join(partials)
                     if combined:
+                        await host_session.ensure_llm_hold()
                         current = await host_session.identity()
                         if current is not None:
                             final = await base.host_client.ai_complete(

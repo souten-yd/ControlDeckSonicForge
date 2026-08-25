@@ -61,7 +61,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | RAM-first audio spool | IMPLEMENTED, TESTS ADDED NOT RUN | `/dev/shm`/runtime tmpfs preferred; soft threshold/free-RAM reserve triggers transparent disk spill; no artificial recording-duration cap |
 | M5/edge binary protocol | IMPLEMENTED | `sonic-edge/1`, sequence/sample clock, bounded frame size and capability negotiation |
 | Existing M5/edge client server API | IMPLEMENTED CONTRACT, REAL CLIENT E2E NOT TESTED | direct trusted-LAN live WS for basic media; optional ControlDeck relay for Host LLM paths; firmware/client code is intentionally outside this repository |
-| ControlDeck paired Device Relay | IMPLEMENTED ON #240, E2E NOT TESTED | one-time code; device-scoped token; 30-day rolling reconnect credential; upstream receives Host-minted service identity, never device token |
+| ControlDeck paired Device Relay | IMPLEMENTED ON #240, E2E NOT TESTED | one-time code; device-scoped token uses the normal ControlDeck maximum 8-hour TTL and rotates on reconnect; upstream receives Host-minted service identity, never device token |
 | Wake/VAD | CLIENT/OPTIONAL ENHANCEMENT | not required for SonicForge v1 acceptance unless it changes the server contract |
 | Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
 | Release signing | IMPLEMENTED + EARLIER FOCUSED TESTED | Ed25519 canonical manifest; earlier signing focused suite: 4 passed |
@@ -125,7 +125,7 @@ Active work renews a same-scope credential through one of these liveness authori
 
 A CPU-only localization/setup/meeting job may therefore run beyond 10 minutes without extending the original bearer indefinitely. Refresh stops when the Job becomes terminal or the owning process dies.
 
-Device credentials are a separate local-device tradeoff: pairing is infrequent, the token is bound to one Add-on relay/device, is valid for 30 days, and is rotated on every successful reconnect. Basic direct trusted-LAN SonicForge speech does not require a device credential at all.
+Device Relay credentials do not use a special long-lived policy. They are scoped to one Add-on relay/device, follow the normal ControlDeck maximum 8-hour TTL, and may be rotated on successful reconnect. Basic direct trusted-LAN SonicForge speech does not require a device credential at all.
 
 ## 5. RAM / SSD policy
 
@@ -191,7 +191,7 @@ existing edge client
  -> edge client
 ```
 
-The device never receives an Add-on service token or browser cookie. It may keep only the device-scoped rolling credential required by the optional Host relay path.
+The device never receives an Add-on service token or browser cookie. It may keep only the device-scoped credential required by the optional Host relay path.
 
 ## 8. Validation evidence actually executed
 

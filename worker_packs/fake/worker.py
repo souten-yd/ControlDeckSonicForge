@@ -12,4 +12,7 @@ if request["task"] == "speech.asr.transcribe":
     print(json.dumps({"type":"result","engine_id":"fake","engine_version":"1","payload":{"text":"fake transcription","language":request.get("content_language","auto"),"segments":[]}}), flush=True)
 else:
     output=work/"output.wav"; write_tone_wav(output)
-    print(json.dumps({"type":"result","engine_id":"fake","engine_version":"1","model_id":"fake-tone","model_license_id":"test-only","output_path":str(output),"payload":{"preview":True}}), flush=True)
+    result_payload={"preview":True}
+    normalization=(request.get("input") or {}).get("_internal_prompt_normalization")
+    if isinstance(normalization,dict): result_payload["prompt_normalization"]=normalization
+    print(json.dumps({"type":"result","engine_id":"fake","engine_version":"1","model_id":"fake-tone","model_license_id":"test-only","output_path":str(output),"payload":result_payload}, ensure_ascii=False), flush=True)

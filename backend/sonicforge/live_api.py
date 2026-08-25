@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from .access import websocket_peer_is_trusted
 from .edge_protocol import (
     AudioFrame,
     EdgeProtocolError,
@@ -173,11 +174,13 @@ def create_live_router(base) -> APIRouter:
             or websocket.headers.get("x-control-deck-addon-id")
         )
         if not has_host:
-            if base.settings.host not in {"127.0.0.1", "localhost", "::1"}:
+            if not websocket_peer_is_trusted(
+                websocket, bind_host=base.settings.host
+            ):
                 raise HostApiError(
-                    "host_service_token_required",
-                    "Unauthenticated live sessions are allowed on loopback; LAN devices should use the ControlDeck device relay",
-                    status_code=401,
+                    "trusted_local_peer_required",
+                    "Unauthenticated live sessions are limited to trusted local-network peers",
+                    status_code=403,
                 )
             return None
         return await base.host_client.authenticate(websocket.headers)
@@ -191,8 +194,8 @@ def create_live_router(base) -> APIRouter:
         raw_path: Path | None = None
         try:
             identity = await authenticate(websocket)
-        except HostApiError:
-            await websocket.close(code=4401)
+        except HostApiError as exc:
+            await websocket.close(code=4403 if exc.status_code == 403 else 4401)
             return
         await websocket.accept()
         try:

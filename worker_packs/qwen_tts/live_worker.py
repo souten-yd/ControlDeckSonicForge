@@ -55,14 +55,19 @@ def model(model_id: str) -> Qwen3TTSModel:
     return value
 
 
+def default_speaker(content_language: str | None) -> str:
+    return "Ono_Anna" if content_language == "ja" else "Ryan"
+
+
 def run(request_id: str, request: dict, work_dir: Path) -> None:
     inp = request.get("input", {})
     text = str(inp.get("text") or "").strip()
     if not text:
         raise ValueError("TTS input.text is required")
     work_dir.mkdir(parents=True, exist_ok=True)
+    content_language = request.get("content_language")
     language = {"ja": "Japanese", "en": "English"}.get(
-        request.get("content_language"), "Auto"
+        content_language, "Auto"
     )
     voice = inp.get("_internal_voice") if isinstance(inp.get("_internal_voice"), dict) else None
     recipe = dict(voice.get("recipe") or {}) if voice else {}
@@ -112,7 +117,7 @@ def run(request_id: str, request: dict, work_dir: Path) -> None:
             or recipe.get("model_id")
             or os.environ.get(
                 "SONICFORGE_QWEN_TTS_DESIGN_MODEL",
-                "Qwen/Qwen3-TTS-12Hz-0.6B-VoiceDesign",
+                "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
             )
         )
         design_instruction = str(recipe.get("design_instruction") or instruct).strip()
@@ -145,7 +150,8 @@ def run(request_id: str, request: dict, work_dir: Path) -> None:
                 if not str(inp.get("voice_id") or "").startswith("voice:")
                 else None
             )
-            or os.environ.get("SONICFORGE_QWEN_TTS_SPEAKER", "Ryan")
+            or os.environ.get("SONICFORGE_QWEN_TTS_SPEAKER")
+            or default_speaker(content_language)
         )
         emit(request_id, {"type": "progress", "progress": 0.12, "message": "Loading voice model"})
         tts = model(str(model_id))
@@ -170,7 +176,7 @@ def run(request_id: str, request: dict, work_dir: Path) -> None:
             "model_license_id": "Apache-2.0",
             "output_path": str(output),
             "payload": {
-                "language": request.get("content_language"),
+                "language": content_language,
                 "voice_mode": mode,
                 "voice_id": voice.get("id") if voice else None,
                 "speaker": speaker,

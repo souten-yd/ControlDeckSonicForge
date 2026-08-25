@@ -1,25 +1,22 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import Any
 
 from .db import Asset, Job, Provenance
+from .host.client import HostApiError
 from .prompting import normalize_sfx_prompt
 
 
 def install_job_extensions(jobs) -> None:
-    """Install additive durable-job preprocessing without changing JobManager's public API.
-
-    The baseline JobManager is shared by speech/localization/audio/music. SFX
-    prompt normalization is a SonicForge orchestration concern that must happen
-    after the durable Job exists but before a worker/GPU lease is acquired.
-    Keeping it as an installed extension avoids moving model semantics into the
-    generic Host or duplicating the entire JobManager implementation.
-    """
+    """Install additive durable-job orchestration without changing public APIs."""
     if getattr(jobs, "_sonicforge_extensions_installed", False):
         return
 
     original_run = jobs._run
     original_persist = jobs._persist_audio_result
+    original_watch_host_cancel = jobs._watch_host_cancel
 
     async def run_with_preprocessing(job_id: str) -> None:
         with jobs.session_factory() as session:
@@ -48,6 +45,40 @@ def install_job_extensions(jobs) -> None:
                         row.request = normalized
                         session.commit()
         await original_run(job_id)
+
+    async def watch_host_with_credential_heartbeat(job_id: str, execution) -> None:
+        """Keep the 10-minute bearer TTL internal to the Host/Add-on boundary.
+
+        The active Host Job is the liveness anchor. While the durable execution
+        remains active, refresh shortly before expiry. If SonicForge dies, the
+        heartbeat dies too; no long-lived refresh credential exists. Older Hosts
+        that do not implement job-bound refresh simply keep the previous behavior.
+        """
+
+        async def heartbeat() -> None:
+            if jobs.host_client is None:
+                return
+            while True:
+                await asyncio.sleep(30)
+                if execution.identity.expires_at - int(time.time()) >= 120:
+                    continue
+                try:
+                    execution.identity = await jobs.host_client.refresh_job_identity(
+                        execution.identity, execution.host_job_id
+                    )
+                except HostApiError as exc:
+                    if exc.status_code in {404, 401, 403, 409}:
+                        return
+                    continue
+
+        task = asyncio.create_task(
+            heartbeat(), name=f"sonicforge-job-credential-{job_id}"
+        )
+        try:
+            await original_watch_host_cancel(job_id, execution)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     def persist_with_prompt_provenance(
         job_id: str,
@@ -79,5 +110,6 @@ def install_job_extensions(jobs) -> None:
         return asset_id, target, meta
 
     jobs._run = run_with_preprocessing
+    jobs._watch_host_cancel = watch_host_with_credential_heartbeat
     jobs._persist_audio_result = persist_with_prompt_provenance
     jobs._sonicforge_extensions_installed = True

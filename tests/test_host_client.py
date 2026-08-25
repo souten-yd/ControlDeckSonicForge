@@ -43,3 +43,45 @@ async def test_host_ai_complete_and_release():
     assert any(path.endswith('/ai/complete') for path in calls)
     assert any(path.endswith('/ai/release') for path in calls)
     await client.close()
+
+@pytest.mark.asyncio
+async def test_gateway_discovery_uses_versioned_host_document():
+    async def handler(req):
+        if req.url.path.endswith('/token/introspect'):
+            return httpx.Response(200,json={'active':True,'addon_id':'sonic-forge','subject':'user:test','expires_at':int(time.time())+300,'granted_capabilities':['jobs.write','resources.acquire','ai.inference']})
+        if req.url.path.endswith('/gateway/capabilities'):
+            return httpx.Response(200,json={
+                'protocol_version':'1.0','addon_id':'sonic-forge',
+                'control_plane':{'jobs':{'write':True},'resources':{'acquire':True},'files':{},'ai':{'inference':True,'capabilities':{'text.generate':True,'vision.analyze':False}}},
+                'transports':{'runtime_http':{'available':True},'embedded_websocket_proxy':{'available':True},'device_session':{'available':False}},
+            })
+        return httpx.Response(404,json={'detail':'missing'})
+    client=ControlDeckHostClient('http://127.0.0.1:8765',transport=httpx.MockTransport(handler))
+    ident=await client.authenticate({'Authorization':'Bearer abc','X-Control-Deck-Addon-ID':'sonic-forge'})
+    gateway=await client.gateway_capabilities(ident)
+    assert gateway['protocol_version']=='1.0'
+    assert gateway['control_plane']['resources']['acquire'] is True
+    assert gateway['control_plane']['ai']['capabilities']['text.generate'] is True
+    await client.close()
+
+@pytest.mark.asyncio
+async def test_gateway_discovery_projects_legacy_host_without_new_endpoint():
+    calls=[]
+    async def handler(req):
+        calls.append(req.url.path)
+        if req.url.path.endswith('/token/introspect'):
+            return httpx.Response(200,json={'active':True,'addon_id':'sonic-forge','subject':'user:test','expires_at':int(time.time())+300,'granted_capabilities':['files.export','ai.inference']})
+        if req.url.path.endswith('/gateway/capabilities'):
+            return httpx.Response(404,json={'detail':'missing'})
+        if req.url.path.endswith('/ai/capabilities'):
+            return httpx.Response(200,json={'text.generate':{'available':True},'vision.analyze':{'available':False}})
+        return httpx.Response(404,json={'detail':'missing'})
+    client=ControlDeckHostClient('http://127.0.0.1:8765',transport=httpx.MockTransport(handler))
+    ident=await client.authenticate({'Authorization':'Bearer abc','X-Control-Deck-Addon-ID':'sonic-forge'})
+    gateway=await client.gateway_capabilities(ident)
+    assert gateway['compatibility']['source']=='legacy_projection'
+    assert gateway['control_plane']['files']['export'] is True
+    assert gateway['control_plane']['ai']['capabilities']['text.generate'] is True
+    assert gateway['transports']['device_session']['available'] is False
+    assert any(path.endswith('/gateway/capabilities') for path in calls)
+    await client.close()

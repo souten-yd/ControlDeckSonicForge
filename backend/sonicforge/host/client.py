@@ -48,6 +48,85 @@ class ControlDeckHostClient:
             raise HostApiError("invalid_host_service_token", "ControlDeck service token is inactive", status_code=401)
         return HostIdentity(auth, addon, value["subject"], exp, frozenset(caps))
 
+    async def gateway_capabilities(self, identity: HostIdentity) -> dict:
+        """Discover the generic ControlDeck AI/media control plane.
+
+        New Hosts expose a versioned aggregate document. Older Hosts are kept
+        compatible by projecting the already-granted capability set and the
+        existing AI capability endpoint into the same shape. The fallback is
+        discovery-only; execution still uses the authoritative dedicated Host
+        endpoints.
+        """
+        try:
+            value = await self.request(identity, "GET", f"/{ADDON_ID}/gateway/capabilities")
+        except HostApiError as exc:
+            if exc.status_code != 404:
+                raise
+            value = await self._legacy_gateway_capabilities(identity)
+        if value.get("addon_id") != identity.addon_id:
+            raise HostApiError("invalid_host_response", "ControlDeck gateway changed the Add-on scope")
+        version = value.get("protocol_version")
+        if not isinstance(version, str) or not version.startswith("1."):
+            raise HostApiError("unsupported_host_gateway", "Unsupported ControlDeck gateway protocol")
+        if not isinstance(value.get("control_plane"), dict) or not isinstance(value.get("transports"), dict):
+            raise HostApiError("invalid_host_response", "ControlDeck gateway document is incomplete")
+        return value
+
+    async def _legacy_gateway_capabilities(self, identity: HostIdentity) -> dict:
+        caps = identity.granted_capabilities
+        ai_caps: dict = {}
+        if "ai.inference" in caps:
+            try:
+                ai_caps = await self.ai_capabilities(identity)
+            except HostApiError as exc:
+                if exc.status_code not in {404, 503}:
+                    raise
+        text = bool((ai_caps.get("text.generate") or {}).get("available"))
+        vision = bool((ai_caps.get("vision.analyze") or {}).get("available"))
+        return {
+            "protocol_version": "1.0",
+            "addon_id": identity.addon_id,
+            "control_plane": {
+                "jobs": {
+                    "read": "jobs.read" in caps,
+                    "write": "jobs.write" in caps,
+                    "durable": True,
+                    "cancel_control": "jobs.write" in caps,
+                },
+                "resources": {
+                    "acquire": "resources.acquire" in caps,
+                    "queue": "resources.acquire" in caps,
+                    "leases": "resources.acquire" in caps,
+                    "credential_refresh": "resources.acquire" in caps,
+                },
+                "files": {
+                    "pick": "files.pick" in caps,
+                    "export": "files.export" in caps,
+                    "scoped_grants": bool({"files.pick", "files.export"} & caps),
+                    "output_commit": "files.export" in caps,
+                },
+                "ai": {
+                    "inference": "ai.inference" in caps,
+                    "release": "ai.inference" in caps,
+                    "capabilities": {
+                        "text.generate": text,
+                        "vision.analyze": vision,
+                    },
+                },
+            },
+            "transports": {
+                "runtime_http": {"available": True, "version": "legacy"},
+                "embedded_http_proxy": {"available": True, "version": "legacy"},
+                "embedded_websocket_proxy": {"available": True, "version": "legacy"},
+                "device_session": {
+                    "available": False,
+                    "version": None,
+                    "reason": "generic_device_session_not_implemented",
+                },
+            },
+            "compatibility": {"source": "legacy_projection"},
+        }
+
     async def create_or_attach_job(self, identity: HostIdentity, title: str): return await self.request(identity, "POST", f"/{ADDON_ID}/jobs", json={"title": title})
     async def update_job(self, identity: HostIdentity, job_id: str, payload: dict): return await self.request(identity, "PATCH", f"/{ADDON_ID}/jobs/{job_id}", json=payload)
     async def job_control(self, identity: HostIdentity, job_id: str): return await self.request(identity, "GET", f"/{ADDON_ID}/jobs/{job_id}/control")

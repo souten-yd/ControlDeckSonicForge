@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import uuid
-from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -9,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .access import local_access_mode, require_trusted_request
 from .schemas import OutputSpec, Quality, RoutingSpec, TaskRequest
+from .spool import AudioSpoolManager
 
 
 class LocalTtsRequest(BaseModel):
@@ -51,30 +50,30 @@ def _suffix_for_content_type(content_type: str | None) -> str:
     }.get(value, ".bin")
 
 
-async def _stream_request_to_file(
-    request: Request, target: Path, *, max_bytes: int = 0
-) -> int:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    written = 0
+async def _stream_request_to_spool(
+    request: Request,
+    manager: AudioSpoolManager,
+    *,
+    suffix: str,
+    max_bytes: int = 0,
+):
+    spool = manager.open("local-upload", suffix=suffix)
     try:
-        with target.open("wb") as output:
-            async for chunk in request.stream():
-                if not chunk:
-                    continue
-                written += len(chunk)
-                if max_bytes > 0 and written > max_bytes:
-                    raise HTTPException(
-                        status_code=413,
-                        detail="local audio upload exceeds configured limit",
-                    )
-                output.write(chunk)
+        async for chunk in request.stream():
+            if not chunk:
+                continue
+            if max_bytes > 0 and spool.bytes_written + len(chunk) > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail="local audio upload exceeds configured limit",
+                )
+            spool.write(chunk)
+        if spool.bytes_written == 0:
+            raise HTTPException(status_code=400, detail="audio body is empty")
+        return spool.finalize()
     except Exception:
-        target.unlink(missing_ok=True)
+        spool.cleanup()
         raise
-    if written == 0:
-        target.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="audio body is empty")
-    return written
 
 
 def create_local_router(base) -> APIRouter:
@@ -87,6 +86,7 @@ def create_local_router(base) -> APIRouter:
     """
 
     router = APIRouter(prefix="/local/v1", tags=["local"])
+    spool_manager = AudioSpoolManager(base.settings)
 
     def trusted(request: Request) -> None:
         require_trusted_request(request, bind_host=base.settings.host)
@@ -118,16 +118,10 @@ def create_local_router(base) -> APIRouter:
         quality: Quality = "balanced",
     ):
         trusted(request)
-        suffix = _suffix_for_content_type(request.headers.get("content-type"))
-        target = (
-            base.settings.data_dir
-            / "tmp"
-            / "local-upload"
-            / f"{uuid.uuid4().hex}{suffix}"
-        )
-        await _stream_request_to_file(
+        target = await _stream_request_to_spool(
             request,
-            target,
+            spool_manager,
+            suffix=_suffix_for_content_type(request.headers.get("content-type")),
             max_bytes=getattr(base.settings, "local_max_upload_bytes", 0),
         )
         payload = TaskRequest(

@@ -48,9 +48,10 @@ Read in this order:
 13. [Architecture and lifecycle diagrams](docs/12-architecture-diagrams.md)
 14. [Release distribution and publisher signing](docs/13-release-distribution-and-signing.md)
 15. [Bilingual UX and critical design review](docs/14-bilingual-ux-and-critical-review.md)
-16. [Implementation status / evidence ledger](docs/implementation-status.md)
-17. [Draft Add-on manifest](docs/contracts/addon.example.json)
-18. [Draft capability document](docs/contracts/capabilities.example.json)
+16. [Music and SFX researched implementation plan](docs/15-music-and-sfx-generation-plan.md)
+17. [Implementation status / evidence ledger](docs/implementation-status.md)
+18. [Draft Add-on manifest](docs/contracts/addon.example.json)
+19. [Draft capability document](docs/contracts/capabilities.example.json)
 
 `AGENTS.md` is normative for developers and coding agents.
 
@@ -82,6 +83,8 @@ When these disagree with this repository, stop implementation, identify which co
 - local-first; remote providers are outside v1 scope
 - GPU jobs must obtain a ControlDeck Resource Broker lease when running as a ControlDeck Add-on
 - release authorization uses a trusted publisher Ed25519 key; artifact SHA-256 is bound inside the signed manifest
+- Game Audio baseline: Stable Audio 3 Small-SFX on CPU, pending target validation
+- Music baseline: ACE-Step 1.5 on an accelerator with Stable Audio 3 Small-Music planned as CPU fallback, pending target validation
 
 ## UX baseline
 
@@ -95,10 +98,8 @@ Expert     engine/model/seed/runtime and model-native details
 
 Studio contains Speech / Transcribe / SFX / Music / Localization task tabs, while top-level in-app navigation stays small: Studio / Voices / Library / Runtime.
 
-## First implementation slice
+## Implementation direction
 
-Start with `SF0-1 — Lightweight core` in [the roadmap](docs/09-roadmap.md): FastAPI/config/DB baseline, `/health`, capability discovery, `sf.sh`, clean core-environment bootstrap and read-only `doctor`. Do **not** add torch or production speech/music models in that first slice.
+The implementation branch contains the lightweight core, durable jobs/assets/setup, Host runtime integration, initial speech/audio/music workers, Localization rendering, embedded UI and signed release tooling. The normative implementation order remains in [the roadmap](docs/09-roadmap.md); Music/Game Audio model selection and promotion details are in [the researched Music/SFX plan](docs/15-music-and-sfx-generation-plan.md).
 
-## Status
-
-The architecture/specification baseline has been refined for bilingual operation, simpler progressive UX, staged capability installation and signed releases. Runtime/model behavior remains explicitly `NOT TESTED` until implementation and real target-hardware evidence are recorded in [docs/implementation-status.md](docs/implementation-status.md).
+Heavy-model code existing in the tree does **not** mean target hardware has passed. Actual evidence is tracked in [docs/implementation-status.md](docs/implementation-status.md).

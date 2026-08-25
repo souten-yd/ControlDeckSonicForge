@@ -4,7 +4,6 @@ import asyncio
 import json
 import os
 import signal
-import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,7 +67,12 @@ class _PersistentWorker:
 
 
 class LiveWorkerPool:
-    """Persistent ASR/TTS workers scoped to one live/meeting session."""
+    """Persistent ASR/TTS workers scoped to one live/meeting session.
+
+    When the Broker says ASR+TTS cannot coexist, the pool explicitly evicts the
+    other warm worker and retries. This preserves correctness on smaller VRAM
+    devices while keeping both resident on machines where they actually fit.
+    """
 
     def __init__(
         self,
@@ -99,6 +103,31 @@ class LiveWorkerPool:
             return self.settings.repo_root / "worker_packs/qwen_tts/live_worker.py"
         raise WorkerError(f"unsupported live worker key: {key}")
 
+    async def _evict(self, key: str) -> None:
+        worker = self._workers.pop(key, None)
+        if worker is not None:
+            await _terminate(worker.proc)
+            worker.stderr_task.cancel()
+            await asyncio.gather(worker.stderr_task, return_exceptions=True)
+        await self.host_session.release_worker_lease(key)
+
+    async def _admit(self, key: str, request: dict) -> None:
+        try:
+            await self.host_session.acquire_worker_lease(
+                key, request, fail_fast=bool(self._workers)
+            )
+            return
+        except WorkerError as exc:
+            if "admission ended: rejected" not in str(exc) or not self._workers:
+                raise
+        # The held peer is the likely blocker. Stop it before releasing its
+        # reservation, then retry normally. Never release a lease while its model
+        # process still owns VRAM.
+        for other_key in list(self._workers):
+            if other_key != key:
+                await self._evict(other_key)
+        await self.host_session.acquire_worker_lease(key, request, fail_fast=False)
+
     async def _start(self, key: str, request: dict) -> _PersistentWorker:
         if self._closed:
             raise WorkerError("live worker pool is closed")
@@ -106,7 +135,7 @@ class LiveWorkerPool:
         if existing is not None and existing.proc.returncode is None:
             return existing
 
-        await self.host_session.acquire_worker_lease(key, request)
+        await self._admit(key, request)
         engine_id, python, _script = route(
             self.settings,
             request["task"],
@@ -158,8 +187,7 @@ class LiveWorkerPool:
         worker = await self._start(key, request)
         async with worker.lock:
             if worker.proc.returncode is not None:
-                self._workers.pop(key, None)
-                await self.host_session.release_worker_lease(key)
+                await self._evict(key)
                 worker = await self._start(key, request)
             assert worker.proc.stdin is not None and worker.proc.stdout is not None
             work_dir.mkdir(parents=True, exist_ok=True)
@@ -205,7 +233,9 @@ class LiveWorkerPool:
                     final = event
                     break
                 elif kind == "error":
-                    raise WorkerError(str(event.get("message", "live worker failed"))[:1000])
+                    raise WorkerError(
+                        str(event.get("message", "live worker failed"))[:1000]
+                    )
 
             output = (
                 Path(final["output_path"]).resolve()
@@ -214,7 +244,9 @@ class LiveWorkerPool:
             )
             if output is not None:
                 if not output.is_relative_to(work_root) or not output.is_file():
-                    raise WorkerError("persistent live worker output escaped work directory")
+                    raise WorkerError(
+                        "persistent live worker output escaped work directory"
+                    )
                 if output.stat().st_size > MAX_WORKER_OUTPUT_BYTES:
                     raise WorkerError("persistent live worker output exceeds 1 GiB")
             payload = final.get("payload", {})
@@ -234,11 +266,5 @@ class LiveWorkerPool:
         if self._closed:
             return
         self._closed = True
-        for key, worker in list(self._workers.items()):
-            try:
-                await _terminate(worker.proc)
-            finally:
-                worker.stderr_task.cancel()
-                await asyncio.gather(worker.stderr_task, return_exceptions=True)
-                await self.host_session.release_worker_lease(key)
-        self._workers.clear()
+        for key in list(self._workers):
+            await self._evict(key)

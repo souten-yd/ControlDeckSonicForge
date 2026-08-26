@@ -15,8 +15,11 @@
 <div id="taskPanel"></div><div id="activeJob"></div></section>
 <section id="voices" class="view"><h2 data-i18n="voices">Voices</h2><div id="voiceList"></div></section>
 <section id="library" class="view"><h2 data-i18n="library">Library</h2><div id="assetList"></div></section>
+<section id="jobs" class="view mobile-only"><h2 data-i18n="jobs">Jobs</h2><div id="jobList"></div></section>
+<section id="more" class="view mobile-only"><h2 data-i18n="more">More</h2><div class="card mobile-menu"><button data-target-view="voices"><span data-i18n="voices">Voices</span><small data-i18n="manageVoices">Create and manage voice profiles</small></button><button data-target-view="runtime"><span data-i18n="runtime">Runtime</span><small data-i18n="manageRuntime">Setup runtimes and optional packs</small></button></div></section>
 <section id="runtime" class="view"><h2 data-i18n="runtime">Runtime</h2><div id="setupPanel"></div></section>
 </main>
+<nav id="mobileNav" class="mobile-only" aria-label="Primary"><button data-view="studio" class="active" data-i18n="studio">Studio</button><button data-view="library" data-i18n="library">Library</button><button data-view="jobs" data-i18n="jobs">Jobs</button><button data-view="more" data-i18n="more">More</button></nav>
 <script src="app.js"></script>
 <script src="localization.js"></script>
 </body></html>

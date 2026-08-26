@@ -263,6 +263,7 @@ runtimes/.staging/<runtime-id>-<operation-id>/
    -> install/prepare engine
    -> acquire/download model artifacts
    -> run import/hardware/real minimal smoke tests
+   -> relocate managed venv scripts to the final active path
    -> write manifest/fingerprint
    -> atomic rename/symlink activation
 ```
@@ -274,6 +275,8 @@ Interrupted staging is resumed only when reconciliation can prove it safe; other
 ## 9. Idempotency and reconciliation
 
 Repeated `setup/apply(speech-essentials)` converges rather than reinstalling.
+Idempotent apply also repairs managed console-script/activation paths left by an
+older staging-directory rename without changing packages or model snapshots.
 
 Record per component:
 

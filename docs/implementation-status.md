@@ -33,7 +33,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Area | State | Evidence / note |
 |---|---|---|
 | Specification / Add-on v2 boundary | COMPLETE | external-service; Host owns generic control plane, Add-on owns domain engines/assets |
-| FastAPI core / health / setup | IMPLEMENTED + CLI PARITY PASS | durable SQLite state, setup profiles, isolated runtimes, staged atomic activation and model-prefetch metadata; `setup plan/apply/repair` use the same orchestration and require explicit known `--accept-term` values |
+| FastAPI core / health / setup | IMPLEMENTED + CLI PARITY + VENV RELOCATION PASS | durable SQLite state, setup profiles, isolated runtimes, staged atomic activation and model-prefetch metadata; `setup plan/apply/repair` use the same orchestration and require explicit known `--accept-term` values; activated console scripts point at the final runtime path |
 | Durable Jobs / cancel / restart handling | IMPLEMENTED | local + Host Job projection |
 | Host Job credential lifetime | IMPLEMENTED ON SONICFORGE + CONTROLDECK #240 | short-lived bearer remains internal safety TTL; active Job/lease/AI residency renews credentials so 10 minutes is not a processing limit |
 | Resource Broker | REAL HOSTED + LIVE + CRASH PASS | hosted and live speech acquired/renewed/released leases; SIGKILL stopped renewal, killed the persistent ASR child and the orphaned lease expired through Host TTL reaping |
@@ -70,7 +70,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
 | Release signing | REAL BUILD/VERIFY/TAMPER PASS | disposable Ed25519 key, canonical byte-exact manifest, onefile `doctor`/service startup and artifact tamper rejection passed |
 | ControlDeck signed Release Bundle verifier | REAL HOST INSTALL/UPDATE/ROLLBACK PASS ON #239 | disposable trusted key: fresh 0.1.0, side-by-side 0.1.1 and post-switch unhealthy 0.1.2 rollback to healthy 0.1.1 passed; production publisher key remains an operator input |
-| Current branch-wide lightweight tests | PASS WITH WARNING | current branch: 94 passed; only the known Starlette TestClient deprecation warning remains |
+| Current branch-wide lightweight tests | PASS WITH WARNING | current branch: 95 passed; only the known Starlette TestClient deprecation warning remains |
 | Batched GitHub CI | NOT RUN | by explicit project policy, run once only after local acceptance is green |
 
 ## 3. Voice-chat execution model
@@ -221,6 +221,7 @@ Real setup/runtime evidence:
 
 - real `game-audio` setup with an empty acceptance list terminated as `failed` with `terms_required:stability-ai-community-license`; no pack activation or model download occurred and the component remained `missing`;
 - clean `speech-rocm` provisioning completed with Qwen CustomVoice, Clone Base, VoiceDesign, Kotoba-Whisper and Whisper Turbo snapshots and recorded their exact revisions;
+- idempotent Speech/Music setup repaired stale staging-path venv shebangs without reinstalling; active-path `hf --help` and `accelerate --help` both executed and no managed runtime console script retained a `.staging` shebang;
 - first provisioning attempt failed correctly in staging because unpinned PyPI torchaudio was ABI-incompatible with ROCm torch; `torchaudio==2.10.0` now resolves to the ROCm 7.2.1 wheel and the second clean activation passed;
 - ControlDeck restarted on the combined Host changes, reported `/api/v1/health` healthy, accepted the SonicForge v2 manifest, enabled all requested capabilities and projected `sonic-forge` into the effective registry;
 - real Japanese CustomVoice TTS completed through a ControlDeck Host Job and Resource Broker lease and produced a 4.320 s, 24 kHz, mono PCM WAV;

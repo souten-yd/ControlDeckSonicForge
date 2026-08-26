@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 from sonicforge import setup
 from sonicforge.config import ensure_directories, load_settings
@@ -56,3 +57,46 @@ def test_music_plan_prepares_upstream_ace_step_models(env, monkeypatch):
     assert component["models"] == [setup.ACESTEP_DIT, setup.ACESTEP_LM]
     assert setup.ACESTEP_DIT == "acestep-v15-turbo"
     assert setup.ACESTEP_LM == "acestep-5Hz-lm-0.6B"
+
+
+def test_atomic_runtime_activation_relocates_console_scripts(tmp_path):
+    staging = tmp_path / "runtime-state" / ".staging" / "speech-rocm-test"
+    active = tmp_path / "runtime-state" / "speech-rocm"
+    bin_dir = staging / "bin"
+    bin_dir.mkdir(parents=True)
+    console = bin_dir / "hf"
+    console.write_text(
+        f"#!{staging}/bin/python3.12\nprint('ok')\n",
+        encoding="utf-8",
+    )
+    console.chmod(0o755)
+    activate = bin_dir / "activate"
+    activate.write_text(f'VIRTUAL_ENV="{staging}"\n', encoding="utf-8")
+    external = bin_dir / "external"
+    external.write_text("#!/usr/bin/python3\nprint('ok')\n", encoding="utf-8")
+
+    changed = setup._relocate_virtualenv(staging, active)
+
+    assert changed == 2
+    assert console.read_text(encoding="utf-8").startswith(
+        f"#!{active}/bin/python3.12\n"
+    )
+    assert str(active) in activate.read_text(encoding="utf-8")
+    assert external.read_text(encoding="utf-8").startswith("#!/usr/bin/python3\n")
+    assert os.access(console, os.X_OK)
+
+    stale = tmp_path / "runtime-state" / ".staging" / "speech-rocm-old"
+    console.write_text(
+        f"#!{stale}/bin/python3.12\nprint('ok')\n",
+        encoding="utf-8",
+    )
+    activate.write_text(f'VIRTUAL_ENV="{stale}"\n', encoding="utf-8")
+    staging.rename(active)
+    console = active / "bin" / "hf"
+    activate = active / "bin" / "activate"
+
+    assert setup._relocate_virtualenv(active, active) == 2
+    assert console.read_text(encoding="utf-8").startswith(
+        f"#!{active}/bin/python3.12\n"
+    )
+    assert str(active) in activate.read_text(encoding="utf-8")

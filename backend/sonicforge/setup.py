@@ -7,6 +7,7 @@ import os
 import platform
 import shutil
 import signal
+import stat
 import sys
 import uuid
 from dataclasses import dataclass
@@ -52,6 +53,68 @@ class RuntimeSpec:
     prefetch_models: tuple[str, ...] = ()
     engine_models: tuple[str, ...] = ()
     required_terms: tuple[str, ...] = ()
+
+
+def _relocate_virtualenv(runtime: Path, target: Path) -> int:
+    bin_dir = runtime / "bin"
+    if not bin_dir.is_dir():
+        return 0
+    stale_roots: set[bytes] = set()
+    for path in bin_dir.iterdir():
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 1024 * 1024:
+            continue
+        with path.open("rb") as stream:
+            first_line = stream.readline(4096)
+        if not first_line.startswith(b"#!"):
+            continue
+        try:
+            interpreter = Path(first_line[2:].strip().decode("utf-8"))
+        except UnicodeDecodeError:
+            continue
+        root = interpreter.parent.parent
+        if root != target and root.parent.name == ".staging":
+            stale_roots.add(str(root).encode("utf-8"))
+    if runtime.parent.name == ".staging":
+        stale_roots.add(str(runtime).encode("utf-8"))
+    if not stale_roots:
+        return 0
+
+    replacement = str(target).encode("utf-8")
+    changed = 0
+    candidates = list(bin_dir.iterdir())
+    pyvenv = runtime / "pyvenv.cfg"
+    if pyvenv.exists():
+        candidates.append(pyvenv)
+    for path in candidates:
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 1024 * 1024:
+            continue
+        if path != pyvenv and not path.name.startswith("activate"):
+            with path.open("rb") as stream:
+                if stream.read(2) != b"#!":
+                    continue
+        original = path.read_bytes()
+        updated = original
+        for stale in stale_roots:
+            updated = updated.replace(stale, replacement)
+        if updated == original:
+            continue
+        temporary = path.with_name(f".{path.name}.relocate-{uuid.uuid4().hex[:8]}")
+        try:
+            temporary.write_bytes(updated)
+            temporary.chmod(stat.S_IMODE(info.st_mode))
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        changed += 1
+    return changed
 
 
 def detect_backend() -> str:
@@ -353,6 +416,7 @@ async def _build_runtime(settings: Settings, spec: RuntimeSpec) -> dict:
     if (active / "bin/python").exists() and metadata_file.exists():
         value = json.loads(metadata_file.read_text(encoding="utf-8"))
         if value.get("fingerprint") == fingerprint:
+            _relocate_virtualenv(active, active)
             return value
     if settings.setup_test_mode:
         active.mkdir(parents=True, exist_ok=True)
@@ -400,6 +464,7 @@ async def _build_runtime(settings: Settings, spec: RuntimeSpec) -> dict:
             "models": models,
             "installed": True,
         }
+        _relocate_virtualenv(staging, active)
         (staging / "sonicforge-runtime.json").write_text(
             json.dumps(meta, indent=2), encoding="utf-8"
         )

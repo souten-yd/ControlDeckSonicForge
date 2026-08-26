@@ -126,10 +126,12 @@ class LiveWorkerPool:
                 _close_process_transport(worker.proc)
             await self.host_session.release_worker_lease(key)
 
-    async def _admit(self, key: str, request: dict) -> None:
+    async def _admit(
+        self, key: str, request: dict, *, fail_fast: bool = False
+    ) -> None:
         try:
             await self.host_session.acquire_worker_lease(
-                key, request, fail_fast=bool(self._workers)
+                key, request, fail_fast=fail_fast or bool(self._workers)
             )
             return
         except WorkerError as exc:
@@ -143,14 +145,16 @@ class LiveWorkerPool:
                 await self._evict(other_key)
         await self.host_session.acquire_worker_lease(key, request, fail_fast=False)
 
-    async def _start(self, key: str, request: dict) -> _PersistentWorker:
+    async def _start(
+        self, key: str, request: dict, *, fail_fast: bool = False
+    ) -> _PersistentWorker:
         if self._closed:
             raise WorkerError("live worker pool is closed")
         existing = self._workers.get(key)
         if existing is not None and existing.proc.returncode is None:
             return existing
 
-        await self._admit(key, request)
+        await self._admit(key, request, fail_fast=fail_fast)
         engine_id, python, _script = route(
             self.settings,
             request["task"],
@@ -197,13 +201,15 @@ class LiveWorkerPool:
         request: dict,
         work_dir: Path,
         progress: ProgressCallback,
+        *,
+        fail_fast: bool = False,
     ) -> WorkerResult:
         key = self._key(request)
-        worker = await self._start(key, request)
+        worker = await self._start(key, request, fail_fast=fail_fast)
         async with worker.lock:
             if worker.proc.returncode is not None:
                 await self._evict(key)
-                worker = await self._start(key, request)
+                worker = await self._start(key, request, fail_fast=fail_fast)
             assert worker.proc.stdin is not None and worker.proc.stdout is not None
             work_dir.mkdir(parents=True, exist_ok=True)
             work_root = work_dir.resolve()

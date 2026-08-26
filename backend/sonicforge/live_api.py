@@ -79,7 +79,21 @@ def _legacy_m5_hello(value: dict[str, Any]) -> bool:
 def _legacy_m5_session(identity: HostIdentity | None) -> LiveSessionCreate:
     stages: list[dict[str, Any]] = [{"id": "asr", "kind": "speech.asr"}]
     if identity is not None:
-        stages.append({"id": "llm", "kind": "host.ai.text"})
+        stages.append(
+            {
+                "id": "llm",
+                "kind": "host.ai.text",
+                "parameters": {
+                    "system_prompt": (
+                        "Reply in the user's language with one concise spoken sentence "
+                        "under 80 characters. Use plain text only."
+                    ),
+                    "temperature": 0.2,
+                    "max_tokens": 96,
+                    "timeout_seconds": 120,
+                },
+            }
+        )
     stages.append({"id": "tts", "kind": "speech.tts"})
     return LiveSessionCreate.model_validate(
         {

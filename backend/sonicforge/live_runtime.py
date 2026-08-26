@@ -262,6 +262,7 @@ class LiveTurnRunner:
             hosted.identity = identity
         gateway = await self.host_client.gateway_capabilities(identity)
         ai = (gateway.get("control_plane") or {}).get("ai") or {}
+        await self.worker_pool.evict("asr")
         if ai.get("stream") is not True:
             text = await self._host_ai_complete(session, ai_stage, input_text, hosted)
             await emit(
@@ -551,6 +552,12 @@ class LiveTurnRunner:
                             "output": "audio",
                             "persistent_worker": True,
                             "streaming": True,
+                            "delivery_overlap": bool(
+                                final_worker.payload.get("delivery_overlap")
+                            ),
+                            "sequential_fallback": bool(
+                                final_worker.payload.get("sequential_fallback")
+                            ),
                         },
                     ]
                 )

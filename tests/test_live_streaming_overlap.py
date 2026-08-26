@@ -6,7 +6,7 @@ from pathlib import Path
 from sonicforge.live_runtime import LiveTurnRunner
 from sonicforge.live_streaming_extensions import install_live_streaming_extensions
 from sonicforge.pipeline_schema import LiveSessionCreate
-from sonicforge.workers import WorkerResult
+from sonicforge.workers import WorkerError, WorkerResult
 
 
 class FakeJobs:
@@ -43,6 +43,9 @@ class FakeHostSession:
 
 
 class FakeHostClient:
+    def __init__(self):
+        self.releases = 0
+
     async def gateway_capabilities(self, _identity):
         return {"control_plane": {"ai": {"stream": True}}}
 
@@ -52,15 +55,24 @@ class FakeHostClient:
         yield {"type": "content", "content": "これは二番目の十分に長い文です。"}
         yield {"type": "done"}
 
+    async def ai_release(self, _identity):
+        self.releases += 1
+
 
 class FakeWorkerPool:
     def __init__(self, tmp_path: Path):
         self.tmp_path = tmp_path
         self.calls = 0
+        self.evictions = []
+        self.fail_fast = []
         self.second_started = asyncio.Event()
 
-    async def execute(self, request, work_dir, progress):
+    async def evict(self, key):
+        self.evictions.append(key)
+
+    async def execute(self, request, work_dir, progress, *, fail_fast=False):
         self.calls += 1
+        self.fail_fast.append(fail_fast)
         index = self.calls - 1
         if index == 1:
             self.second_started.set()
@@ -141,13 +153,79 @@ def test_next_tts_chunk_starts_while_previous_audio_is_still_delivering(tmp_path
             2.0,
         )
         assert first_audio_entered.is_set()
+        assert runner.worker_pool.evictions == ["asr"]
         assert runner.worker_pool.second_started.is_set()
         assert runner.worker_pool.calls == 2
+        assert runner.worker_pool.fail_fast == [True, True]
         assert result[0].endswith("二番目の十分に長い文です。")
+        assert result[1].payload["delivery_overlap"] is True
+        assert result[1].payload["sequential_fallback"] is False
         deltas = [event["text"] for event in events if event["type"] == "turn.response_text.delta"]
         assert deltas == [
             "これは最初の十分に長い文です。",
             "これは二番目の十分に長い文です。",
         ]
+
+    asyncio.run(scenario())
+
+
+def test_rejected_overlap_drains_llm_then_runs_sequential_tts(tmp_path):
+    class RejectFirstWorkerPool(FakeWorkerPool):
+        async def execute(self, request, work_dir, progress, *, fail_fast=False):
+            if not self.calls:
+                self.calls += 1
+                self.fail_fast.append(fail_fast)
+                raise WorkerError("Live GPU admission ended: rejected")
+            return await super().execute(
+                request, work_dir, progress, fail_fast=fail_fast
+            )
+
+    class NoHoldHostSession(FakeHostSession):
+        hold_id = None
+
+    async def scenario():
+        install_live_streaming_extensions()
+        runner = object.__new__(LiveTurnRunner)
+        runner.jobs = FakeJobs()
+        runner.runtime = FakeRuntime()
+        runner.host_session = NoHoldHostSession()
+        runner.host_client = FakeHostClient()
+        runner.worker_pool = RejectFirstWorkerPool(tmp_path)
+        events = []
+        audio = []
+
+        async def emit(event):
+            events.append(event)
+
+        async def emit_audio(path, index):
+            audio.append((path, index))
+
+        session = session_contract()
+        result = await runner._stream_ai_to_tts(
+            "job:fallback",
+            session,
+            session.pipeline.stages[1],
+            session.pipeline.stages[2],
+            "hello",
+            None,
+            tmp_path / "fallback-work",
+            emit,
+            emit_audio,
+        )
+
+        assert runner.worker_pool.evictions == ["asr"]
+        assert runner.worker_pool.fail_fast == [True, False]
+        assert runner.host_client.releases == 1
+        assert runner.worker_pool.calls == 2
+        assert len(audio) == 1
+        assert result[0].endswith("二番目の十分に長い文です。")
+        assert result[1].payload["delivery_overlap"] is False
+        assert result[1].payload["sequential_fallback"] is True
+        deltas = [
+            event["text"]
+            for event in events
+            if event["type"] == "turn.response_text.delta"
+        ]
+        assert deltas == [result[0]]
 
     asyncio.run(scenario())

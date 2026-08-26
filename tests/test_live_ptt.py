@@ -5,6 +5,7 @@ import sys
 from fastapi.testclient import TestClient
 
 from sonicforge.edge_protocol import AudioFrame, STREAM_MIC
+from sonicforge.live_api import _legacy_m5_session
 
 
 def load_app():
@@ -206,3 +207,12 @@ def test_existing_m5companion_v2_raw_pcm_contract(env):
             assert jobs[0]["state"] == "succeeded"
             socket.send_json({"type": "close"})
             assert socket.receive()["type"] == "websocket.close"
+
+
+def test_existing_m5companion_host_voice_reply_is_bounded():
+    session = _legacy_m5_session(object())
+    llm = session.pipeline.stages[1]
+    assert llm.kind == "host.ai.text"
+    assert llm.parameters["max_tokens"] == 96
+    assert llm.parameters["timeout_seconds"] == 120
+    assert "under 80 characters" in llm.parameters["system_prompt"]

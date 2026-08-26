@@ -48,6 +48,7 @@ def install_live_streaming_extensions() -> None:
 
         gateway = await self.host_client.gateway_capabilities(identity)
         ai = (gateway.get("control_plane") or {}).get("ai") or {}
+        await self.worker_pool.evict("asr")
         if ai.get("stream") is not True:
             text = await self._host_ai_complete(session, ai_stage, input_text, hosted)
             await emit(
@@ -80,6 +81,7 @@ def install_live_streaming_extensions() -> None:
         audio_queue: asyncio.Queue[AudioQueueItem | None] = asyncio.Queue(maxsize=2)
         generated: list[tuple[str, WorkerResult, dict[str, Any]]] = []
         text_parts: list[str] = []
+        sequential_fallback = False
 
         async def produce_text() -> None:
             async for event in self.host_client.ai_stream(
@@ -108,12 +110,15 @@ def install_live_streaming_extensions() -> None:
             await text_queue.put(None)
 
         async def synthesize() -> None:
+            nonlocal sequential_fallback
             index = 0
             while True:
                 chunk = await text_queue.get()
                 if chunk is None:
                     await audio_queue.put(None)
                     return
+                if sequential_fallback:
+                    continue
                 request = self.runtime._worker_request(
                     tts_stage, PipelineValue(kind="text", text=chunk)
                 )
@@ -134,11 +139,18 @@ def install_live_streaming_extensions() -> None:
                         },
                     )
 
-                worker = await self.worker_pool.execute(
-                    request,
-                    work_dir / f"tts-chunk-{chunk_index:03d}",
-                    progress,
-                )
+                try:
+                    worker = await self.worker_pool.execute(
+                        request,
+                        work_dir / f"tts-chunk-{chunk_index:03d}",
+                        progress,
+                        fail_fast=True,
+                    )
+                except WorkerError as exc:
+                    if "admission ended: rejected" not in str(exc).lower():
+                        raise
+                    sequential_fallback = True
+                    continue
                 if worker.output_path is None:
                     raise WorkerError("streaming TTS worker returned no audio")
                 generated.append((chunk, worker, request))
@@ -196,10 +208,68 @@ def install_live_streaming_extensions() -> None:
                 deliver_audio(), name=f"sonicforge-stream-audio-{job_id}"
             )
 
-        if not generated:
+        response_text = "".join(text_parts).strip()
+        if not response_text:
+            raise WorkerError("streaming LLM produced no text")
+
+        if sequential_fallback:
+            if self.host_session.hold_id is not None:
+                await self.host_session.release_llm_hold(stop_runtime=True)
+            else:
+                current = await self.host_session.identity()
+                if current is not None:
+                    try:
+                        await self.host_client.ai_release(current)
+                    except HostApiError as exc:
+                        if exc.status_code not in {404, 409, 503}:
+                            raise
+            request = self.runtime._worker_request(
+                tts_stage, PipelineValue(kind="text", text=response_text)
+            )
+            request = self.jobs._resolve_voice(request)
+
+            async def fallback_progress(fraction: float, message: str) -> None:
+                await self.jobs._set(
+                    job_id,
+                    progress=min(0.94, 0.65 + 0.25 * max(0.0, min(1.0, fraction))),
+                    result={"message": f"Sequential TTS fallback: {message}"},
+                )
+
+            worker = await self.worker_pool.execute(
+                request,
+                work_dir / "tts-sequential-fallback",
+                fallback_progress,
+            )
+            if worker.output_path is None:
+                raise WorkerError("sequential TTS fallback returned no audio")
+            generated.append((response_text, worker, request))
+            await emit(
+                {
+                    "type": "turn.response_text.delta",
+                    "job_id": job_id,
+                    "text": response_text,
+                }
+            )
+            await emit(
+                {
+                    "type": "turn.speech.chunk.started",
+                    "job_id": job_id,
+                    "chunk": 0,
+                    "text": response_text,
+                }
+            )
+            await emit_audio(worker.output_path, 0)
+            await emit(
+                {
+                    "type": "turn.speech.chunk.completed",
+                    "job_id": job_id,
+                    "chunk": 0,
+                    "text": response_text,
+                }
+            )
+        elif not generated:
             raise WorkerError("streaming LLM produced no speakable TTS chunks")
 
-        response_text = "".join(text_parts).strip()
         await emit(
             {
                 "type": "turn.response_text",
@@ -208,7 +278,7 @@ def install_live_streaming_extensions() -> None:
             }
         )
 
-        if self.host_session.hold_id is None:
+        if not sequential_fallback and self.host_session.hold_id is None:
             current = await self.host_session.identity()
             if current is not None:
                 try:
@@ -228,21 +298,21 @@ def install_live_streaming_extensions() -> None:
             )
 
         last_chunk, last_worker, last_request = generated[-1]
-        if merged is not None:
-            last_worker = WorkerResult(
-                engine_id=last_worker.engine_id,
-                engine_version=last_worker.engine_version,
-                model_id=last_worker.model_id,
-                model_revision=last_worker.model_revision,
-                model_license_id=last_worker.model_license_id,
-                output_path=merged,
-                payload={
-                    **last_worker.payload,
-                    "streamed_chunks": len(generated),
-                    "last_chunk": last_chunk,
-                    "delivery_overlap": True,
-                },
-            )
+        last_worker = WorkerResult(
+            engine_id=last_worker.engine_id,
+            engine_version=last_worker.engine_version,
+            model_id=last_worker.model_id,
+            model_revision=last_worker.model_revision,
+            model_license_id=last_worker.model_license_id,
+            output_path=merged or last_worker.output_path,
+            payload={
+                **last_worker.payload,
+                "streamed_chunks": len(generated),
+                "last_chunk": last_chunk,
+                "delivery_overlap": not sequential_fallback,
+                "sequential_fallback": sequential_fallback,
+            },
+        )
         return response_text, last_worker, last_request, merged
 
     LiveTurnRunner._stream_ai_to_tts = stream_ai_to_tts

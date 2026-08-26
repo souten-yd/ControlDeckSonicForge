@@ -26,6 +26,8 @@ The planned v1 implementation is now **feature-complete at the code/contract lev
 
 Setup now prepares the heavyweight assets exposed by the selected pack instead of marking a component available while leaving an avoidable first-use model download. Speech Essentials includes the Qwen CustomVoice/Clone/VoiceDesign and ASR model snapshots, Game Audio includes Small-SFX after terms acceptance, and Music invokes the pinned ACE-Step upstream downloader for its selected DiT/LM checkpoints. Speech Essentials and Music have now been executed successfully on the target R9700. Game Audio remains **NOT TESTED** because its Stability license terms have not been accepted; SonicForge does not accept those terms implicitly.
 
+The ControlDeck embedded workspace blank-screen defect was reproduced in Chromium 151 as missing Host cookies from the opaque sandbox iframe. The generic Host frame-auth repair and SonicForge Bridge-aware API/reconnect repair now pass real embedded-browser validation; direct service behavior remains unchanged.
+
 The remaining promotion work is primarily **local execution/benchmarking and merge validation**, not missing architecture.
 
 ## 2. Current implementation matrix
@@ -65,7 +67,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | M5/edge binary protocol | MODERN + DEPLOYED COMPATIBILITY IMPLEMENTED | `sonic-edge/1` keeps sequence/sample-clock framing; deployed M5Companion protocol 2 maps `listen.*`, header-less raw PCM, `state` and `speech.*` without firmware changes |
 | Existing M5/edge client server API | REAL MODEL SIMULATED-CLIENT PASS, REAL DEVICE NOT CONNECTED | exact CoreS3 protocol-2 frames completed real Whisper-large-v3-turbo -> Qwen TTS turns with paced 16 kHz PCM; physical Wi-Fi/reconnect/playback remains NOT TESTED because the device is absent |
 | ControlDeck paired Device Relay | REAL PAIRING/ROTATION/REVOKE/MODEL E2E PASS | one-time code reuse returned 403; relay/device-scoped 8-hour token rotated on reconnect; removing the paired user's relay permission rejected reconnect with HTTP 403; protocol-2 CoreS3 frames completed Whisper -> Host llama -> Qwen TTS through #240 |
-| Bilingual/mobile browser UX | REAL CHROME PASS | direct service rendered the required JA and EN top-level/task labels at 320x720 with `scrollWidth == innerWidth` and authoritative service state `available` |
+| Bilingual/mobile browser UX | REAL DIRECT + EMBEDDED CHROME PASS | direct service rendered the required JA and EN top-level/task labels at 320x720 with `scrollWidth == innerWidth`; authenticated ControlDeck opaque-frame workspace rendered authoritative `available` state, completed temporary voice POST/DELETE cleanup, received the event WebSocket, and produced zero failed/CORS/console errors |
 | Wake/VAD | CLIENT/OPTIONAL ENHANCEMENT | not required for SonicForge v1 acceptance unless it changes the server contract |
 | Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
 | Release signing | REAL BUILD/VERIFY/TAMPER PASS | disposable Ed25519 key, canonical byte-exact manifest, onefile `doctor`/service startup and artifact tamper rejection passed |

@@ -4,6 +4,12 @@ Last updated: 2026-08-26
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
 
+## Embedded UI repair merge acceptance
+
+- Generic ControlDeck PR #242 merged as `864eeaef892c7ea21a1cf5121623feadc68a5a54`.
+- SonicForge PR #3 merged as `ded89ea84d4c866a3ba8fb6516e09239ca70af6c` after the dependency merge and a fresh 95-test SonicForge rerun.
+- The post-merge `origin/main` smoke `tests/test_core.py::test_embedded_frontend_routes` passed. The pre-merge exact-head real Chrome evidence remains the authenticated workspace/API/mutation/WebSocket run recorded below; no code changed between that accepted PR head and its merge commit.
+
 ## 1. Executive status
 
 The planned v1 implementation is now **feature-complete at the code/contract level** for the requested local-first scope:

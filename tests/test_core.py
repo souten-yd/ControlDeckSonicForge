@@ -19,6 +19,9 @@ def test_embedded_frontend_routes(env):
         root=c.get('/'); assert root.status_code==200 and 'localization.js' in root.text
         settings=c.get('/settings/'); assert settings.status_code==200 and '<base href="../">' in settings.text and 'data-view="runtime"' in settings.text
         localization=c.get('/localization.js'); assert localization.status_code==200 and 'renderLocalizationBatch' in localization.text
+        app_js=c.get('/app.js'); assert app_js.status_code==200
+        assert "X-Control-Deck-Bridge-Session" in app_js.text and "credentials='include'" in app_js.text
+        assert "control-deck-bridge.${state.nonce}" in app_js.text
 
 def test_fake_generation_persists_asset(env):
     m=load_app()

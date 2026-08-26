@@ -149,16 +149,16 @@ Validate the published server contracts against the existing client instead.
 ```text
 existing M5 client
  -> ws://<sonicforge-host>:9140/addon/v1/live/ws
- -> sonic-edge/1
+ -> deployed M5Companion protocol 2 compatibility or sonic-edge/1
 ```
 
 Verify:
 
 - trusted-LAN basic ASR/TTS/PTT path requires no user-facing authentication;
-- `hello` capability negotiation succeeds;
+- the deployed protocol-2 `hello` compatibility handshake or `sonic-edge/1` capability negotiation succeeds;
 - PCM input/output rate negotiation matches the existing client;
-- `ptt.start` / binary mic frames / `ptt.stop` produce expected transcript/audio events;
-- sequence gaps/duplicates are reported without corrupting later turns;
+- deployed `listen.begin` / raw binary PCM / `listen.end`, or modern `ptt.start` / framed PCM / `ptt.stop`, produces expected transcript/audio events;
+- sequence gaps/duplicates are reported for framed clients without corrupting later turns; header-less deployed clients retain their existing uplink/drop telemetry instead of receiving invented sequence evidence;
 - repeated turns keep warm models when resources allow;
 - SonicForge restart and Wi-Fi/client reconnect recover cleanly.
 

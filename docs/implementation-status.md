@@ -62,8 +62,8 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Meeting / minutes | REAL ASR/TRANSLATION/SUMMARY PASS | real English segments persisted with Japanese translation; final summary contained Summary / Decisions / Action Items / Open Questions |
 | Meeting disconnect durability | REAL DISCONNECT + RESTART PASS | three queued Whisper segments finalized after transport loss and remained available from the transcript endpoint after restart |
 | RAM-first audio spool | REAL AUTO/SPILL/DISK PASS | 384,000-byte auto spool used `/dev/shm`; a 5 MiB stream crossed the 4 MiB soft limit and migrated intact to disk; explicit disk mode also passed |
-| M5/edge binary protocol | IMPLEMENTED | `sonic-edge/1`, sequence/sample clock, bounded frame size and capability negotiation |
-| Existing M5/edge client server API | IMPLEMENTED CONTRACT, REAL CLIENT E2E NOT TESTED | direct trusted-LAN live WS for basic media; optional ControlDeck relay for Host LLM paths; firmware/client code is intentionally outside this repository |
+| M5/edge binary protocol | MODERN + DEPLOYED COMPATIBILITY IMPLEMENTED | `sonic-edge/1` keeps sequence/sample-clock framing; deployed M5Companion protocol 2 maps `listen.*`, header-less raw PCM, `state` and `speech.*` without firmware changes |
+| Existing M5/edge client server API | REAL MODEL SIMULATED-CLIENT PASS, REAL DEVICE NOT CONNECTED | exact CoreS3 protocol-2 frames completed real Whisper-large-v3-turbo -> Qwen TTS turns with paced 16 kHz PCM; physical Wi-Fi/reconnect/playback remains NOT TESTED because the device is absent |
 | ControlDeck paired Device Relay | IMPLEMENTED ON #240, E2E NOT TESTED | one-time code; device-scoped token uses the normal ControlDeck maximum 8-hour TTL and rotates on reconnect; upstream receives Host-minted service identity, never device token |
 | Bilingual/mobile browser UX | REAL CHROME PASS | direct service rendered the required JA and EN top-level/task labels at 320x720 with `scrollWidth == innerWidth` and authoritative service state `available` |
 | Wake/VAD | CLIENT/OPTIONAL ENHANCEMENT | not required for SonicForge v1 acceptance unless it changes the server contract |
@@ -246,6 +246,10 @@ Real setup/runtime evidence:
 - real execution exposed and fixed Qwen third-party stdout pollution of the JSON worker protocol and the greedy asset-content route shadowing bug.
 
 The existing M5 client remains **NOT TESTED** in this acceptance run: no `303a:1001` USB device, `/dev/ttyACM*` device or active TCP client connection was present. The independent `m5companion-bridge.service` was running, but that is not evidence of a connected physical client.
+
+Source inspection found that the deployed M5Companion 0.3.0 client uses protocol integer `2`, `listen.begin`/`listen.end` controls and header-less PCM rather than `sonic-edge/1`. SonicForge now negotiates that exact wire contract on `/addon/v1/live/ws`: a regression fixture passed the deployed CoreS3 hello and 16 kHz capture rate, accepted periodic `device.state`/`device.telemetry` messages and raw PCM, returned real-time-paced 16 kHz raw speaker bytes bracketed by `speech.begin`/`speech.end`, and persisted a successful durable live Job. The server also honors a different valid capture rate declared by another board.
+
+A real service-level simulated CoreS3 then sent the same 6.0 s Japanese utterance in paced 20 ms raw frames. The direct path completed Whisper-large-v3-turbo ASR and Qwen TTS, returned 6.56 s of non-silent 16 kHz PCM (`mean_volume=-22.4 dB`, `max_volume=-4.2 dB`), and persisted `job:027d0558-...` as succeeded. In a same-socket two-turn run, speech began at 57.01 s cold and 40.32 s on turn two; this proves reuse but is not yet acceptable conversational latency on the current sequential low-VRAM route. A separate local ASR-only run processed the 6.0 s file in 8.38 s and misrecognized some Japanese technical terms. Physical-device behavior remains uncredited until the board reconnects.
 
 Release signing tests now pass as a five-test focused suite, including direct CLI invocation.
 

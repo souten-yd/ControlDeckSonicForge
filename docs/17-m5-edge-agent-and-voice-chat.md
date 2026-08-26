@@ -86,7 +86,9 @@ The negotiated server value is authoritative.
 
 Opus remains an optional transport. Raw PCM is preferred first because it exposes microphone timing/dropout problems clearly and ordinary LAN bandwidth is sufficient.
 
-## 4. `sonic-edge/1` binary frame
+## 4. Supported wire contracts
+
+### Modern `sonic-edge/1`
 
 Network-order framing:
 
@@ -106,9 +108,39 @@ Server/client track sequence gaps and duplicate/old frames. Payload size is boun
 
 Control messages use JSON text WebSocket frames.
 
+### Existing M5Companion protocol 2
+
+The user's deployed M5Companion 0.3.0 firmware predates `sonic-edge/1`. SonicForge therefore accepts its existing handshake on the same endpoint without requiring a firmware fork:
+
+```json
+{
+  "type": "hello",
+  "protocol": 2,
+  "audio_format": "pcm_s16le",
+  "audio_rate": 16000,
+  "chunk_samples": 320
+}
+```
+
+Compatibility mapping:
+
+```text
+listen.begin        -> PTT start (the message's microphone rate is authoritative)
+raw binary PCM16    -> bounded/adaptive input spool
+listen.end          -> PTT commit
+state               <- idle/listening/thinking/speaking state
+speech.begin        <- playback starts
+raw binary PCM16    <- real-time-paced 16 kHz speaker audio
+speech.end          <- playback drains and ends
+```
+
+The current CoreS3 microphone declares 16 kHz. Other supported boards, including the M5GO path, may declare 12 kHz in `listen.begin` even though the speaker/hello rate is 16 kHz. SonicForge writes the input WAV at the declared capture rate and lets the selected ASR path perform the normal conversion. Downlink is resampled to the hello rate. The server also accepts the client's periodic `device.state` and `device.telemetry` reports without disrupting the live session.
+
+Legacy raw frames have no sequence or sample-clock header, so the server cannot invent per-frame gap evidence. For that client, use its existing uplink sent/failed counters and playback `dropped` telemetry. `sonic-edge/1` clients retain exact server-side sequence-gap/duplicate reporting.
+
 ## 5. Live session handshake
 
-The client sends one `hello` containing the normal `LiveSessionCreate` contract plus an optional device descriptor.
+Modern clients send one `hello` containing the normal `LiveSessionCreate` contract plus an optional device descriptor. Existing M5Companion protocol 2 uses the compatibility handshake above.
 
 Example descriptor:
 
@@ -134,7 +166,7 @@ Example descriptor:
 }
 ```
 
-Unsupported capabilities are disabled instead of guessed.
+Unsupported capabilities are disabled instead of guessed. An unauthenticated trusted-LAN legacy connection uses the local `m5-dictation` ASR-to-TTS confirmation path. The same legacy frames forwarded through the authenticated ControlDeck Device Relay select `m5-voice-agent` and may use Host AI.
 
 ## 6. PTT v1
 
@@ -245,9 +277,9 @@ These are not v1 merge blockers for the current PTT/live API.
 
 Measure/verify:
 
-- `sonic-edge/1` hello/capability negotiation;
+- `sonic-edge/1` hello/capability negotiation or the deployed M5Companion protocol 2 compatibility handshake;
 - effective input/output sample-rate negotiation;
-- sequence gaps/drop behavior;
+- sequence gaps/drop behavior where the client carries sequence metadata; otherwise existing M5 uplink/drop telemetry;
 - direct trusted-LAN dictation/PTT;
 - optional paired relay voice-agent path if used;
 - end-of-speech -> ASR final;

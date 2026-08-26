@@ -1,4 +1,5 @@
 import importlib
+import json
 import sys
 
 from fastapi.testclient import TestClient
@@ -92,7 +93,6 @@ def test_half_duplex_ptt_runs_as_durable_turn_and_streams_audio(env):
                     continue
                 text = message.get("text")
                 assert text is not None
-                import json
                 event = json.loads(text)
                 if event["type"] == "turn.transcript":
                     transcript = event["text"]
@@ -128,3 +128,81 @@ def test_live_v1_rejects_host_ai_without_control_deck_identity(env):
             assert error["type"] == "error"
             assert error["code"] == "protocol_error"
             assert "Host AI" in error["message"]
+
+
+def test_existing_m5companion_v2_raw_pcm_contract(env):
+    module = load_app()
+    with TestClient(module.app) as client:
+        with client.websocket_connect("/addon/v1/live/ws") as socket:
+            socket.send_json(
+                {
+                    "type": "hello",
+                    "device": "m5cores3",
+                    "name": "pytest-m5",
+                    "protocol": 2,
+                    "fw": "0.3.0",
+                    "audio_format": "pcm_s16le",
+                    "audio_rate": 16000,
+                    "chunk_samples": 320,
+                }
+            )
+            ready = socket.receive_json()
+            assert ready["protocol"] == "m5companion/2"
+            assert ready["output_format"]["rate"] == 16000
+            assert ready["sequence_tracking"] is False
+            assert socket.receive_json()["state"] == "idle"
+
+            socket.send_json(
+                {"type": "device.state", "state": "idle", "expression": "happy"}
+            )
+            socket.send_json(
+                {
+                    "type": "device.telemetry",
+                    "battery": 80,
+                    "charging": False,
+                    "heap": 100000,
+                    "fps": 30.0,
+                    "rssi": -50,
+                    "dropped": 0,
+                }
+            )
+
+            socket.send_json(
+                {"type": "listen.begin", "format": "pcm_s16le", "rate": 16000}
+            )
+            assert socket.receive_json()["state"] == "listening"
+            payload = b"\x00\x00" * 320
+            for _ in range(10):
+                socket.send_bytes(payload)
+            socket.send_json({"type": "listen.end"})
+
+            saw_thinking = False
+            saw_speech_begin = False
+            saw_speech_end = False
+            speaker_bytes = 0
+            idle = False
+            while not idle:
+                message = socket.receive()
+                if message.get("bytes") is not None:
+                    assert not message["bytes"].startswith(b"SFA1")
+                    speaker_bytes += len(message["bytes"])
+                    continue
+                event = json.loads(message["text"])
+                if event["type"] == "state" and event["state"] == "thinking":
+                    saw_thinking = True
+                elif event["type"] == "speech.begin":
+                    saw_speech_begin = True
+                elif event["type"] == "speech.end":
+                    saw_speech_end = True
+                elif event["type"] == "state" and event["state"] == "idle":
+                    idle = True
+
+            assert saw_thinking is True
+            assert saw_speech_begin is True
+            assert saw_speech_end is True
+            assert speaker_bytes > 0
+            jobs = client.get("/addon/v1/jobs").json()["jobs"]
+            assert jobs[0]["task"] == "live.turn"
+            assert jobs[0]["state"] == "succeeded"
+            socket.send_json({"type": "close"})
+            assert socket.receive()["type"] == "websocket.close"

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import struct
+import time
 import wave
 from array import array
 from pathlib import Path
@@ -13,6 +15,7 @@ from .access import websocket_peer_is_trusted
 from .edge_protocol import (
     AudioFrame,
     EdgeProtocolError,
+    MAX_AUDIO_PAYLOAD,
     SequenceTracker,
     STREAM_MIC,
     STREAM_SPEAKER,
@@ -60,6 +63,40 @@ def _formats(session: LiveSessionCreate) -> tuple[AudioFormat, AudioFormat]:
     return (
         _select_format(session.device.audio.input, output=False),
         _select_format(session.device.audio.output, output=True),
+    )
+
+
+def _legacy_m5_hello(value: dict[str, Any]) -> bool:
+    return (
+        "session" not in value
+        and value.get("protocol") == 2
+        and value.get("audio_format") == "pcm_s16le"
+        and isinstance(value.get("audio_rate"), int)
+        and 8000 <= value["audio_rate"] <= 48000
+    )
+
+
+def _legacy_m5_session(identity: HostIdentity | None) -> LiveSessionCreate:
+    stages: list[dict[str, Any]] = [{"id": "asr", "kind": "speech.asr"}]
+    if identity is not None:
+        stages.append({"id": "llm", "kind": "host.ai.text"})
+    stages.append({"id": "tts", "kind": "speech.tts"})
+    return LiveSessionCreate.model_validate(
+        {
+            "preset": "m5-voice-agent" if identity is not None else "m5-dictation",
+            "pipeline": {
+                "pipeline": "m5companion-v2-compatibility",
+                "input": {"kind": "audio_stream", "stream_id": "mic"},
+                "stages": stages,
+                "delivery": {"mode": "websocket", "profile": "m5-pcm"},
+            },
+            "transport": "websocket",
+            "save_transcript": False,
+            "save_input_audio": False,
+            "save_output_audio": False,
+            "keep_warm": True,
+            "streaming_response": identity is not None,
+        }
     )
 
 
@@ -164,6 +201,27 @@ async def _send_audio(
     )
 
 
+async def _send_legacy_m5_audio(
+    websocket: WebSocket,
+    path: Path,
+    fmt: AudioFormat,
+) -> None:
+    pcm = _wav_mono_pcm(path, fmt.rate)
+    samples_per_frame = max(1, round(fmt.rate * fmt.frame_ms / 1000))
+    bytes_per_frame = samples_per_frame * 2
+    started = time.monotonic()
+    sent_frames = 0
+    for offset in range(0, len(pcm), bytes_per_frame):
+        payload = pcm[offset : offset + bytes_per_frame]
+        if not payload:
+            continue
+        await websocket.send_bytes(payload)
+        sent_frames += 1
+        delay = started + sent_frames * fmt.frame_ms / 1000 - time.monotonic()
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+
 def create_live_router(base) -> APIRouter:
     router = APIRouter(prefix="/addon/v1/live", tags=["live"])
     spool_manager = AudioSpoolManager(base.settings)
@@ -205,13 +263,17 @@ def create_live_router(base) -> APIRouter:
             value = json.loads(first)
             if not isinstance(value, dict) or value.get("type") != "hello":
                 raise EdgeProtocolError("first live message must be hello")
-            session_raw = value.get("session")
-            if (
-                not isinstance(session_raw, dict)
-                or _json_bytes(session_raw) > MAX_HELLO_BYTES
-            ):
-                raise EdgeProtocolError("invalid live session contract")
-            session = LiveSessionCreate.model_validate(session_raw)
+            legacy_m5 = _legacy_m5_hello(value)
+            if legacy_m5:
+                session = _legacy_m5_session(identity)
+            else:
+                session_raw = value.get("session")
+                if (
+                    not isinstance(session_raw, dict)
+                    or _json_bytes(session_raw) > MAX_HELLO_BYTES
+                ):
+                    raise EdgeProtocolError("invalid live session contract")
+                session = LiveSessionCreate.model_validate(session_raw)
             compiled = compile_pipeline(session.pipeline)
             active = session.pipeline.stages[
                 compiled.start_index : compiled.stop_index + 1
@@ -252,7 +314,27 @@ def create_live_router(base) -> APIRouter:
                 host_session=host_session,
                 worker_pool=worker_pool,
             )
-            input_format, output_format = _formats(session)
+            if legacy_m5:
+                frame_ms = max(
+                    10,
+                    min(
+                        100,
+                        round(
+                            int(value.get("chunk_samples") or 320)
+                            * 1000
+                            / int(value["audio_rate"])
+                        ),
+                    ),
+                )
+                input_format = AudioFormat(
+                    codec="pcm_s16le",
+                    rate=int(value["audio_rate"]),
+                    channels=1,
+                    frame_ms=frame_ms,
+                )
+                output_format = input_format.model_copy()
+            else:
+                input_format, output_format = _formats(session)
             max_input_bytes = (
                 input_format.rate
                 * input_format.channels
@@ -264,7 +346,7 @@ def create_live_router(base) -> APIRouter:
             await websocket.send_json(
                 {
                     "type": "ready",
-                    "protocol": "sonic-live/1",
+                    "protocol": "m5companion/2" if legacy_m5 else "sonic-live/1",
                     "preset": session.preset,
                     "input_format": input_format.model_dump(mode="json"),
                     "output_format": output_format.model_dump(mode="json"),
@@ -276,8 +358,13 @@ def create_live_router(base) -> APIRouter:
                         "policy": "ram-first-disk-fallback",
                         "ram_available": spool_manager.ram_available,
                     },
+                    "sequence_tracking": not legacy_m5,
                 }
             )
+            if legacy_m5:
+                await websocket.send_json(
+                    {"type": "state", "state": "idle", "expression": "happy"}
+                )
 
             tracker = SequenceTracker()
             recording = False
@@ -323,6 +410,33 @@ def create_live_router(base) -> APIRouter:
                     if not isinstance(control, dict):
                         raise EdgeProtocolError("live control message must be an object")
                     kind = control.get("type")
+                    if legacy_m5 and kind in {"device.state", "device.telemetry"}:
+                        continue
+                    if legacy_m5 and kind == "listen.begin":
+                        if control.get("format", "pcm_s16le") != "pcm_s16le":
+                            raise EdgeProtocolError("M5 input must use pcm_s16le")
+                        capture_rate = control.get("rate", input_format.rate)
+                        if (
+                            not isinstance(capture_rate, int)
+                            or not 8000 <= capture_rate <= 48000
+                        ):
+                            raise EdgeProtocolError("M5 input rate is invalid")
+                        input_format = input_format.model_copy(
+                            update={"rate": capture_rate}
+                        )
+                        kind = "ptt.start"
+                    elif legacy_m5 and kind == "listen.end":
+                        if control.get("cancelled") is True:
+                            recording = False
+                            if raw_spool is not None:
+                                raw_spool.cleanup()
+                                raw_spool = None
+                            raw_path = None
+                            await websocket.send_json(
+                                {"type": "state", "state": "idle"}
+                            )
+                            continue
+                        kind = "ptt.stop"
                     if kind == "ping":
                         await websocket.send_json({"type": "pong"})
                         continue
@@ -337,13 +451,22 @@ def create_live_router(base) -> APIRouter:
                         turn_number += 1
                         raw_spool = spool_manager.open("live-input", suffix=".pcm")
                         raw_path = None
-                        await websocket.send_json(
-                            {
-                                "type": "ptt.started",
-                                "turn": turn_number,
-                                "memory_backed": raw_spool.memory_backed,
-                            }
-                        )
+                        if legacy_m5:
+                            await websocket.send_json(
+                                {
+                                    "type": "state",
+                                    "state": "listening",
+                                    "expression": "listening",
+                                }
+                            )
+                        else:
+                            await websocket.send_json(
+                                {
+                                    "type": "ptt.started",
+                                    "turn": turn_number,
+                                    "memory_backed": raw_spool.memory_backed,
+                                }
+                            )
                         continue
                     if kind == "ptt.stop":
                         if not recording or raw_spool is None:
@@ -359,13 +482,22 @@ def create_live_router(base) -> APIRouter:
                         if duration_ms < MIN_PTT_MS:
                             raw_path.unlink(missing_ok=True)
                             raw_path = None
-                            await websocket.send_json(
-                                {
-                                    "type": "turn.error",
-                                    "code": "input_too_short",
-                                    "message": "PTT audio is too short",
-                                }
-                            )
+                            if legacy_m5:
+                                await websocket.send_json(
+                                    {
+                                        "type": "state",
+                                        "state": "idle",
+                                        "expression": "confused",
+                                    }
+                                )
+                            else:
+                                await websocket.send_json(
+                                    {
+                                        "type": "turn.error",
+                                        "code": "input_too_short",
+                                        "message": "PTT audio is too short",
+                                    }
+                                )
                             continue
                         input_path = raw_path.with_suffix(".wav")
                         _pcm_file_to_wav(raw_path, input_path, input_format)
@@ -375,28 +507,59 @@ def create_live_router(base) -> APIRouter:
                             execution = await hosted_turn(
                                 f"SonicForge live turn {turn_number}: {session.preset}"
                             )
-                            await websocket.send_json(
-                                {
-                                    "type": "turn.started",
-                                    "turn": turn_number,
-                                    "host_job_id": execution.host_job_id
-                                    if execution
-                                    else None,
-                                }
-                            )
+                            if legacy_m5:
+                                await websocket.send_json(
+                                    {
+                                        "type": "state",
+                                        "state": "thinking",
+                                        "expression": "thinking",
+                                    }
+                                )
+                            else:
+                                await websocket.send_json(
+                                    {
+                                        "type": "turn.started",
+                                        "turn": turn_number,
+                                        "host_job_id": execution.host_job_id
+                                        if execution
+                                        else None,
+                                    }
+                                )
+
+                            legacy_speech_started = False
 
                             async def emit(event: dict[str, Any]) -> None:
+                                if legacy_m5:
+                                    return
                                 event = dict(event)
                                 event.setdefault("turn", turn_number)
                                 await websocket.send_json(event)
 
                             async def emit_audio(path: Path, chunk: int) -> None:
-                                await _send_audio(
-                                    websocket,
-                                    path,
-                                    output_format,
-                                    chunk_index=chunk,
-                                )
+                                nonlocal legacy_speech_started
+                                if legacy_m5:
+                                    if not legacy_speech_started:
+                                        await websocket.send_json(
+                                            {"type": "speech.begin"}
+                                        )
+                                        await websocket.send_json(
+                                            {
+                                                "type": "state",
+                                                "state": "speaking",
+                                                "expression": "speaking",
+                                            }
+                                        )
+                                        legacy_speech_started = True
+                                    await _send_legacy_m5_audio(
+                                        websocket, path, output_format
+                                    )
+                                else:
+                                    await _send_audio(
+                                        websocket,
+                                        path,
+                                        output_format,
+                                        chunk_index=chunk,
+                                    )
 
                             result = await runner.run(
                                 session,
@@ -410,33 +573,47 @@ def create_live_router(base) -> APIRouter:
                                     result.audio_path is not None
                                     and not result.streamed_audio
                                 ):
-                                    await _send_audio(
-                                        websocket,
-                                        result.audio_path,
-                                        output_format,
+                                    await emit_audio(result.audio_path, 0)
+                                if legacy_m5:
+                                    if legacy_speech_started:
+                                        await websocket.send_json(
+                                            {"type": "speech.end"}
+                                        )
+                                    await websocket.send_json(
+                                        {"type": "state", "state": "idle"}
                                     )
-                                await websocket.send_json(
-                                    {
-                                        "type": "turn.complete",
-                                        "turn": turn_number,
-                                        "job_id": result.job_id,
-                                        "asset_id": result.asset_id,
-                                        "transcript": result.transcript,
-                                        "response_text": result.response_text,
-                                        "streamed_audio": result.streamed_audio,
-                                    }
-                                )
+                                else:
+                                    await websocket.send_json(
+                                        {
+                                            "type": "turn.complete",
+                                            "turn": turn_number,
+                                            "job_id": result.job_id,
+                                            "asset_id": result.asset_id,
+                                            "transcript": result.transcript,
+                                            "response_text": result.response_text,
+                                            "streamed_audio": result.streamed_audio,
+                                        }
+                                    )
                             finally:
                                 result.cleanup()
                         except Exception as exc:
-                            await websocket.send_json(
-                                {
-                                    "type": "turn.error",
-                                    "turn": turn_number,
-                                    "code": "turn_failed",
-                                    "message": str(exc)[:500],
-                                }
-                            )
+                            if legacy_m5:
+                                await websocket.send_json(
+                                    {
+                                        "type": "state",
+                                        "state": "idle",
+                                        "expression": "error",
+                                    }
+                                )
+                            else:
+                                await websocket.send_json(
+                                    {
+                                        "type": "turn.error",
+                                        "turn": turn_number,
+                                        "code": "turn_failed",
+                                        "message": str(exc)[:500],
+                                    }
+                                )
                         finally:
                             input_path.unlink(missing_ok=True)
                         continue
@@ -458,37 +635,43 @@ def create_live_router(base) -> APIRouter:
                         raise EdgeProtocolError(
                             "audio frame received outside PTT recording"
                         )
-                    frame = AudioFrame.decode(binary)
-                    if frame.stream != STREAM_MIC:
-                        raise EdgeProtocolError(
-                            "client may only send microphone frames"
-                        )
-                    observation = tracker.observe(frame)
-                    if observation.duplicate_or_old:
-                        await websocket.send_json(
-                            {
-                                "type": "audio.warning",
-                                "code": "duplicate_or_old",
-                                "sequence": frame.sequence,
-                            }
-                        )
-                        continue
-                    if observation.gap:
-                        await websocket.send_json(
-                            {
-                                "type": "audio.warning",
-                                "code": "sequence_gap",
-                                "missing_frames": observation.gap,
-                                "sequence": frame.sequence,
-                            }
-                        )
-                    if len(frame.payload) % 2:
+                    if legacy_m5:
+                        if len(binary) > MAX_AUDIO_PAYLOAD:
+                            raise EdgeProtocolError("M5 PCM frame is too large")
+                        payload = binary
+                    else:
+                        frame = AudioFrame.decode(binary)
+                        if frame.stream != STREAM_MIC:
+                            raise EdgeProtocolError(
+                                "client may only send microphone frames"
+                            )
+                        observation = tracker.observe(frame)
+                        if observation.duplicate_or_old:
+                            await websocket.send_json(
+                                {
+                                    "type": "audio.warning",
+                                    "code": "duplicate_or_old",
+                                    "sequence": frame.sequence,
+                                }
+                            )
+                            continue
+                        if observation.gap:
+                            await websocket.send_json(
+                                {
+                                    "type": "audio.warning",
+                                    "code": "sequence_gap",
+                                    "missing_frames": observation.gap,
+                                    "sequence": frame.sequence,
+                                }
+                            )
+                        payload = frame.payload
+                    if len(payload) % 2:
                         raise EdgeProtocolError(
                             "PCM frame payload must be 16-bit aligned"
                         )
                     if (
                         max_input_bytes is not None
-                        and recorded_bytes + len(frame.payload) > max_input_bytes
+                        and recorded_bytes + len(payload) > max_input_bytes
                     ):
                         recording = False
                         raw_spool.cleanup()
@@ -502,8 +685,8 @@ def create_live_router(base) -> APIRouter:
                             }
                         )
                         continue
-                    raw_spool.write(frame.payload)
-                    recorded_bytes += len(frame.payload)
+                    raw_spool.write(payload)
+                    recorded_bytes += len(payload)
         except WebSocketDisconnect:
             return
         except HostApiError as exc:

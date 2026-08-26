@@ -1,0 +1,45 @@
+{
+  "api_version": "2",
+  "id": "sonic-forge",
+  "name": "SonicForge",
+  "version": "0.1.0",
+  "description": "Japanese and English speech, game audio and music generation",
+  "publisher": "souten-yd",
+  "requires": {"addon_contract": ">=2.0 <3.0"},
+  "runtime": {"kind": "external-service", "base_url": "http://127.0.0.1:9140", "health_path": "/health"},
+  "host_capabilities": ["context.read","theme.read","route.open","files.pick","files.export","projects.pick","jobs.read","jobs.write","notifications.show","resources.acquire","ai.inference","devices.relay"],
+  "contributions": {
+    "navigation": [{"id":"workspace","label":{"ja":"オーディオ","en":"Audio"},"route":"/x/sonic-forge/workspace","icon":"audio","permission":"apps.view"}],
+    "embedded_views": [{"id":"workspace","label":"SonicForge","route":"/x/sonic-forge/workspace","path":"/","mobile":"companion","permission":"apps.view"}],
+    "commands": [{"id":"create-audio","label":{"ja":"音声・音楽を作成","en":"Create audio"},"endpoint":"/addon/v1/commands/create","permission":"apps.view"}],
+    "quick_actions": [],
+    "settings": [{"id":"settings","label":"SonicForge","route":"/x/sonic-forge/workspace/settings","permission":"settings.manage"}],
+    "workflow_executors": [
+      {"id":"sonic.speech.synthesize","label":{"ja":"音声合成","en":"Synthesize speech"},"endpoint":"/addon/v1/workflow/speech/synthesize","input_schema_path":"/schemas/speech-synthesize-request.json","output_schema_path":"/schemas/job-reference.json","permission":"workflows.run"},
+      {"id":"sonic.speech.transcribe","label":{"ja":"文字起こし","en":"Transcribe audio"},"endpoint":"/addon/v1/workflow/speech/transcribe","input_schema_path":"/schemas/speech-transcribe-request.json","output_schema_path":"/schemas/job-reference.json","permission":"workflows.run"},
+      {"id":"sonic.audio.generate","label":{"ja":"効果音を生成","en":"Generate audio"},"endpoint":"/addon/v1/workflow/audio/generate","input_schema_path":"/schemas/generate-request.json","output_schema_path":"/schemas/job-reference.json","permission":"workflows.run"},
+      {"id":"sonic.music.generate","label":{"ja":"音楽を生成","en":"Generate music"},"endpoint":"/addon/v1/workflow/music/generate","input_schema_path":"/schemas/generate-request.json","output_schema_path":"/schemas/job-reference.json","permission":"workflows.run"}
+    ],
+    "agent_tools": [
+      {"id":"sonic.capabilities","label":"Inspect SonicForge capabilities","endpoint":"/addon/v1/agent/capabilities","schema_path":"/schemas/empty-input.json","permission":"workflows.run"},
+      {"id":"sonic.generate","label":"Generate speech, sound or music","endpoint":"/addon/v1/agent/generate","schema_path":"/schemas/generate-request.json","permission":"workflows.run"},
+      {"id":"sonic.pipeline","label":"Run a typed speech/audio pipeline","endpoint":"/addon/v1/agent/pipeline","schema_path":"/schemas/pipeline-request.json","permission":"workflows.run"},
+      {"id":"sonic.transcribe","label":"Transcribe audio","endpoint":"/addon/v1/agent/transcribe","schema_path":"/schemas/speech-transcribe-request.json","permission":"workflows.run"},
+      {"id":"sonic.inspect","label":"Inspect a SonicForge asset","endpoint":"/addon/v1/agent/inspect","schema_path":"/schemas/asset-reference.json","permission":"workflows.run"},
+      {"id":"sonic.pack","label":"Place a SonicForge asset in the current project","endpoint":"/addon/v1/agent/pack","schema_path":"/schemas/project-asset-placement.json","permission":"workflows.run"}
+    ],
+    "device_relays": [
+      {"id":"voice","label":{"ja":"音声エージェント端末","en":"Voice agent device"},"endpoint":"/addon/v1/live/ws","protocol":"sonic-edge/1","transport":"websocket","permission":"workflows.run"}
+    ],
+    "context_actions": [
+      {"id":"transcribe-audio","label":{"ja":"SonicForgeで文字起こし","en":"Transcribe in SonicForge"},"endpoint":"/addon/v1/context/transcribe-audio","contexts":["file"],"permission":"project_lab.view"},
+      {"id":"open-audio","label":{"ja":"SonicForgeで開く","en":"Open in SonicForge"},"endpoint":"/addon/v1/context/open-audio","contexts":["file","project"],"permission":"project_lab.view"}
+    ],
+    "setup_checklist": [
+      {"id":"core","label":{"ja":"SonicForge本体","en":"SonicForge core"},"permission":"settings.manage"},
+      {"id":"speech-essentials","label":{"ja":"音声基本環境","en":"Speech Essentials"},"permission":"settings.manage"},
+      {"id":"game-audio","label":{"ja":"ゲーム音声","en":"Game Audio"},"permission":"settings.manage"},
+      {"id":"music","label":{"ja":"音楽生成","en":"Music"},"permission":"settings.manage"}
+    ]
+  }
+}

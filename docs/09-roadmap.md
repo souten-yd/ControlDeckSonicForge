@@ -26,7 +26,7 @@ SF7  Hardening, benchmark and release readiness
 
 ### SF0-0 Documentation baseline
 
-Deliverables include all docs through `14-bilingual-ux-and-critical-review.md`.
+Deliverables include the normative architecture/product documents through `18-controldeck-generic-ai-media-gateway.md` plus the implementation evidence ledger.
 
 Acceptance:
 
@@ -216,7 +216,7 @@ Freeze v1:
 
 - Add-on contribution IDs
 - four stable workflow executors
-- five initial agent tools
+- six initial agent tools
 - capability naming principles
 - `auto|ja|en` content language contract
 - public request/result schemas
@@ -429,6 +429,7 @@ No mandatory separate localization executor unless real workflow evidence justif
 ```text
 sonic.capabilities
 sonic.generate
+sonic.pipeline
 sonic.transcribe
 sonic.inspect
 sonic.pack

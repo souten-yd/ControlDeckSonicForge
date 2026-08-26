@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <base href="../">
+  <title>SonicForge Runtime</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header><div><strong>SonicForge</strong><span id="serviceState"></span></div><div><button id="localeBtn">JA / EN</button></div></header>
+<nav id="topnav"><button data-view="studio">Studio</button><button data-view="voices">Voices</button><button data-view="library">Library</button><button data-view="runtime" class="active">Runtime</button></nav>
+<main>
+<section id="studio" class="view"><div class="tabs"><button data-task="speech" class="active">Speech</button><button data-task="transcribe">Transcribe</button><button data-task="sfx">SFX</button><button data-task="music">Music</button><button data-task="localization">Localization</button></div>
+<div class="toolbar"><button class="level active" data-level="easy">Easy</button><button class="level" data-level="customize">Customize</button><button class="level" data-level="expert">Expert</button></div>
+<div id="taskPanel"></div><div id="activeJob"></div></section>
+<section id="voices" class="view"><h2 data-i18n="voices">Voices</h2><div id="voiceList"></div></section>
+<section id="library" class="view"><h2 data-i18n="library">Library</h2><div id="assetList"></div></section>
+<section id="runtime" class="view active"><h2 data-i18n="runtime">Runtime</h2><div id="setupPanel"></div></section>
+</main>
+<script src="app.js"></script>
+<script src="localization.js"></script>
+<script>document.querySelector('#topnav button[data-view="runtime"]')?.click();</script>
+</body></html>

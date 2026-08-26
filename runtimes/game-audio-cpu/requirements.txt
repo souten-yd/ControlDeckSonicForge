@@ -1,0 +1,12 @@
+# Stable Audio 3 Small-SFX is the conservative CPU baseline. GPU/ROCm promotion requires measured evidence.
+torch==2.7.1
+torchaudio==2.7.1
+numpy>=2.2.6,<3
+einops>=0.8.2
+einops-exts>=0.0.4
+packaging>=26.0
+safetensors>=0.7.0
+tqdm>=4.67.3
+huggingface-hub>=1.7.1
+transformers>=5.8.0
+soundfile>=0.13.1

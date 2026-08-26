@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SonicForge</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header><div><strong>SonicForge</strong><span id="serviceState"></span></div><div><button id="localeBtn">JA / EN</button></div></header>
+<nav id="topnav"><button data-view="studio" class="active" data-i18n="studio">Studio</button><button data-view="voices" data-i18n="voices">Voices</button><button data-view="library" data-i18n="library">Library</button><button data-view="runtime" data-i18n="runtime">Runtime</button></nav>
+<main>
+<section id="studio" class="view active"><div class="tabs"><button data-task="speech" class="active" data-i18n="speech">Speech</button><button data-task="transcribe" data-i18n="transcribeTab">Transcribe</button><button data-task="sfx" data-i18n="sfx">SFX</button><button data-task="music" data-i18n="music">Music</button><button data-task="localization" data-i18n="localization">Localization</button></div>
+<div class="toolbar"><button class="level active" data-level="easy" data-i18n="easy">Easy</button><button class="level" data-level="customize" data-i18n="customize">Customize</button><button class="level" data-level="expert" data-i18n="expert">Expert</button></div>
+<div id="taskPanel"></div><div id="activeJob"></div></section>
+<section id="voices" class="view"><h2 data-i18n="voices">Voices</h2><div id="voiceList"></div></section>
+<section id="library" class="view"><h2 data-i18n="library">Library</h2><div id="assetList"></div></section>
+<section id="runtime" class="view"><h2 data-i18n="runtime">Runtime</h2><div id="setupPanel"></div></section>
+</main>
+<script src="app.js"></script>
+<script src="localization.js"></script>
+</body></html>

@@ -9,6 +9,7 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
 - Generic ControlDeck PR #242 merged as `864eeaef892c7ea21a1cf5121623feadc68a5a54`.
 - SonicForge PR #3 merged as `ded89ea84d4c866a3ba8fb6516e09239ca70af6c` after the dependency merge and a fresh 95-test SonicForge rerun.
 - The post-merge `origin/main` smoke `tests/test_core.py::test_embedded_frontend_routes` passed. The pre-merge exact-head real Chrome evidence remains the authenticated workspace/API/mutation/WebSocket run recorded below; no code changed between that accepted PR head and its merge commit.
+- The merged generic Host repair was then integrated into the active local ControlDeck checkout without discarding its parallel commits or unrelated `frontend/tsconfig.tsbuildinfo` change. After restarting `control-deck-web.service`, authenticated Chrome repeated the workspace GET, temporary voice POST/DELETE cleanup and event WebSocket against the live `127.0.0.1:8765` service with zero failed responses, CORS errors or console errors.
 
 ## 1. Executive status
 

@@ -1,4 +1,4 @@
-import importlib, sys, time
+import importlib, json, sys, time
 from fastapi.testclient import TestClient
 
 def load_app():
@@ -83,3 +83,106 @@ def test_serve_has_bounded_graceful_shutdown(env, monkeypatch):
     monkeypatch.setattr(sys,'argv',['sonic-forge','serve'])
     assert __main__.main()==0
     assert captured['kwargs']['timeout_graceful_shutdown']==15
+
+
+def test_setup_plan_cli_is_read_only(env, monkeypatch, capsys):
+    from sonicforge import __main__
+
+    captured = {}
+
+    def plan(_settings, profile, components):
+        captured.update(profile=profile, components=components)
+        return {"profile": profile, "components": components or []}
+
+    monkeypatch.setattr(__main__.setup_service, "plan", plan)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["sonic-forge", "setup", "plan", "game-audio"],
+    )
+
+    assert __main__.main() == 0
+    assert captured == {"profile": "game-audio", "components": None}
+    assert json.loads(capsys.readouterr().out)["profile"] == "game-audio"
+
+
+def test_setup_apply_cli_passes_explicit_terms(env, monkeypatch, capsys):
+    from sonicforge import __main__
+
+    captured = {}
+
+    class SessionContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    async def apply(_settings, _session, profile, components, *, accepted_terms):
+        captured.update(
+            profile=profile,
+            components=components,
+            accepted_terms=accepted_terms,
+        )
+        return {"profile": profile, "components": components or []}
+
+    monkeypatch.setattr(
+        __main__, "make_session_factory", lambda _settings: SessionContext
+    )
+    monkeypatch.setattr(__main__.setup_service, "apply", apply)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "sonic-forge",
+            "setup",
+            "apply",
+            "game-audio",
+            "--accept-term",
+            "stability-ai-community-license",
+        ],
+    )
+
+    assert __main__.main() == 0
+    assert captured == {
+        "profile": "game-audio",
+        "components": None,
+        "accepted_terms": ["stability-ai-community-license"],
+    }
+    assert json.loads(capsys.readouterr().out)["profile"] == "game-audio"
+
+
+def test_setup_apply_cli_reports_setup_error_without_traceback(
+    env, monkeypatch, capsys
+):
+    from sonicforge import __main__
+
+    async def apply(*_args, **_kwargs):
+        raise __main__.setup_service.SetupError(
+            "terms_required:stability-ai-community-license"
+        )
+
+    class SessionContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(
+        __main__, "make_session_factory", lambda _settings: SessionContext
+    )
+    monkeypatch.setattr(__main__.setup_service, "apply", apply)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["sonic-forge", "setup", "apply", "game-audio"],
+    )
+
+    assert __main__.main() == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert json.loads(captured.err) == {
+        "ok": False,
+        "error": "terms_required:stability-ai-community-license",
+    }

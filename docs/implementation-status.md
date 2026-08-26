@@ -33,7 +33,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Area | State | Evidence / note |
 |---|---|---|
 | Specification / Add-on v2 boundary | COMPLETE | external-service; Host owns generic control plane, Add-on owns domain engines/assets |
-| FastAPI core / health / setup | IMPLEMENTED | durable SQLite state, setup profiles, isolated runtimes, staged atomic activation and model-prefetch metadata |
+| FastAPI core / health / setup | IMPLEMENTED + CLI PARITY PASS | durable SQLite state, setup profiles, isolated runtimes, staged atomic activation and model-prefetch metadata; `setup plan/apply/repair` use the same orchestration and require explicit known `--accept-term` values |
 | Durable Jobs / cancel / restart handling | IMPLEMENTED | local + Host Job projection |
 | Host Job credential lifetime | IMPLEMENTED ON SONICFORGE + CONTROLDECK #240 | short-lived bearer remains internal safety TTL; active Job/lease/AI residency renews credentials so 10 minutes is not a processing limit |
 | Resource Broker | REAL HOSTED + LIVE + CRASH PASS | hosted and live speech acquired/renewed/released leases; SIGKILL stopped renewal, killed the persistent ASR child and the orphaned lease expired through Host TTL reaping |
@@ -70,7 +70,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
 | Release signing | REAL BUILD/VERIFY/TAMPER PASS | disposable Ed25519 key, canonical byte-exact manifest, onefile `doctor`/service startup and artifact tamper rejection passed |
 | ControlDeck signed Release Bundle verifier | REAL HOST INSTALL/UPDATE/ROLLBACK PASS ON #239 | disposable trusted key: fresh 0.1.0, side-by-side 0.1.1 and post-switch unhealthy 0.1.2 rollback to healthy 0.1.1 passed; production publisher key remains an operator input |
-| Current branch-wide lightweight tests | PASS WITH WARNING | exact head `8e3c174`: 91 passed; only the known Starlette TestClient deprecation warning remains |
+| Current branch-wide lightweight tests | PASS WITH WARNING | current branch: 94 passed; only the known Starlette TestClient deprecation warning remains |
 | Batched GitHub CI | NOT RUN | by explicit project policy, run once only after local acceptance is green |
 
 ## 3. Voice-chat execution model

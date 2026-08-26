@@ -420,8 +420,8 @@ UI and CLI call the same orchestration logic:
 ./sf.sh serve
 ./sf.sh doctor
 ./sf.sh setup plan [profile]
-./sf.sh setup apply [profile]
-./sf.sh setup repair [component]
+./sf.sh setup apply [profile] [--component component] [--accept-term terms-id]
+./sf.sh setup repair <component> [--accept-term terms-id]
 ./sf.sh env list
 ./sf.sh env prune
 ./sf.sh model list
@@ -429,6 +429,10 @@ UI and CLI call the same orchestration logic:
 ```
 
 `doctor` is strictly read-only.
+
+`--accept-term` is explicit, repeatable and restricted to known setup terms.
+Omitting it never accepts a third-party license. `provision --profile ...`
+remains a compatibility alias for `setup apply`.
 
 ## 18. UX rule for complexity
 

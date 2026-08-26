@@ -15,7 +15,8 @@ case "$cmd" in
   bootstrap) ensure_core ;;
   serve) ensure_core; exec "$VENV/bin/python" -m sonicforge serve "$@" ;;
   doctor) ensure_core; exec "$VENV/bin/python" -m sonicforge doctor "$@" ;;
+  setup) ensure_core; exec "$VENV/bin/python" -m sonicforge setup "$@" ;;
   provision) ensure_core; exec "$VENV/bin/python" -m sonicforge provision "$@" ;;
   test) ensure_core; exec "$VENV/bin/python" -m pytest "$@" ;;
-  *) echo "usage: $0 {bootstrap|serve|doctor|provision|test}" >&2; exit 2 ;;
+  *) echo "usage: $0 {bootstrap|serve|doctor|setup|provision|test}" >&2; exit 2 ;;
 esac

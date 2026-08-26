@@ -81,6 +81,7 @@ def install_live_streaming_extensions() -> None:
         audio_queue: asyncio.Queue[AudioQueueItem | None] = asyncio.Queue(maxsize=2)
         generated: list[tuple[str, WorkerResult, dict[str, Any]]] = []
         text_parts: list[str] = []
+        fallback_chunks: list[str] = []
         sequential_fallback = False
 
         async def produce_text() -> None:
@@ -118,6 +119,7 @@ def install_live_streaming_extensions() -> None:
                     await audio_queue.put(None)
                     return
                 if sequential_fallback:
+                    fallback_chunks.append(chunk)
                     continue
                 request = self.runtime._worker_request(
                     tts_stage, PipelineValue(kind="text", text=chunk)
@@ -150,6 +152,7 @@ def install_live_streaming_extensions() -> None:
                     if "admission ended: rejected" not in str(exc).lower():
                         raise
                     sequential_fallback = True
+                    fallback_chunks.append(chunk)
                     continue
                 if worker.output_path is None:
                     raise WorkerError("streaming TTS worker returned no audio")
@@ -159,9 +162,11 @@ def install_live_streaming_extensions() -> None:
                 await audio_queue.put((chunk_index, chunk, worker, request))
                 index += 1
 
-        async def deliver_audio() -> None:
+        async def deliver_audio(
+            queue: asyncio.Queue[AudioQueueItem | None],
+        ) -> None:
             while True:
-                item = await audio_queue.get()
+                item = await queue.get()
                 if item is None:
                     return
                 index, chunk, worker, _request = item
@@ -205,7 +210,7 @@ def install_live_streaming_extensions() -> None:
                 synthesize(), name=f"sonicforge-stream-tts-{job_id}"
             )
             group.create_task(
-                deliver_audio(), name=f"sonicforge-stream-audio-{job_id}"
+                deliver_audio(audio_queue), name=f"sonicforge-stream-audio-{job_id}"
             )
 
         response_text = "".join(text_parts).strip()
@@ -223,50 +228,59 @@ def install_live_streaming_extensions() -> None:
                     except HostApiError as exc:
                         if exc.status_code not in {404, 409, 503}:
                             raise
-            request = self.runtime._worker_request(
-                tts_stage, PipelineValue(kind="text", text=response_text)
+            if not fallback_chunks:
+                fallback_chunks.append(response_text)
+            fallback_audio: asyncio.Queue[AudioQueueItem | None] = asyncio.Queue(
+                maxsize=2
             )
-            request = self.jobs._resolve_voice(request)
 
-            async def fallback_progress(fraction: float, message: str) -> None:
-                await self.jobs._set(
-                    job_id,
-                    progress=min(0.94, 0.65 + 0.25 * max(0.0, min(1.0, fraction))),
-                    result={"message": f"Sequential TTS fallback: {message}"},
+            async def synthesize_fallback() -> None:
+                for index, chunk in enumerate(fallback_chunks):
+                    request = self.runtime._worker_request(
+                        tts_stage, PipelineValue(kind="text", text=chunk)
+                    )
+                    request = self.jobs._resolve_voice(request)
+
+                    async def fallback_progress(
+                        fraction: float, message: str, *, chunk_index: int = index
+                    ) -> None:
+                        await self.jobs._set(
+                            job_id,
+                            progress=min(
+                                0.94,
+                                0.65
+                                + 0.25 * max(0.0, min(1.0, fraction)),
+                            ),
+                            result={
+                                "message": (
+                                    f"Sequential TTS fallback chunk {chunk_index}: "
+                                    f"{message}"
+                                )
+                            },
+                        )
+
+                    worker = await self.worker_pool.execute(
+                        request,
+                        work_dir / f"tts-sequential-{index:03d}",
+                        fallback_progress,
+                    )
+                    if worker.output_path is None:
+                        raise WorkerError(
+                            "sequential TTS fallback returned no audio"
+                        )
+                    generated.append((chunk, worker, request))
+                    await fallback_audio.put((index, chunk, worker, request))
+                await fallback_audio.put(None)
+
+            async with asyncio.TaskGroup() as group:
+                group.create_task(
+                    synthesize_fallback(),
+                    name=f"sonicforge-sequential-tts-{job_id}",
                 )
-
-            worker = await self.worker_pool.execute(
-                request,
-                work_dir / "tts-sequential-fallback",
-                fallback_progress,
-            )
-            if worker.output_path is None:
-                raise WorkerError("sequential TTS fallback returned no audio")
-            generated.append((response_text, worker, request))
-            await emit(
-                {
-                    "type": "turn.response_text.delta",
-                    "job_id": job_id,
-                    "text": response_text,
-                }
-            )
-            await emit(
-                {
-                    "type": "turn.speech.chunk.started",
-                    "job_id": job_id,
-                    "chunk": 0,
-                    "text": response_text,
-                }
-            )
-            await emit_audio(worker.output_path, 0)
-            await emit(
-                {
-                    "type": "turn.speech.chunk.completed",
-                    "job_id": job_id,
-                    "chunk": 0,
-                    "text": response_text,
-                }
-            )
+                group.create_task(
+                    deliver_audio(fallback_audio),
+                    name=f"sonicforge-sequential-audio-{job_id}",
+                )
         elif not generated:
             raise WorkerError("streaming LLM produced no speakable TTS chunks")
 

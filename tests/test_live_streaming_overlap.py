@@ -171,14 +171,21 @@ def test_next_tts_chunk_starts_while_previous_audio_is_still_delivering(tmp_path
 
 def test_rejected_overlap_drains_llm_then_runs_sequential_tts(tmp_path):
     class RejectFirstWorkerPool(FakeWorkerPool):
+        def __init__(self, tmp_path):
+            super().__init__(tmp_path)
+            self.third_started = asyncio.Event()
+
         async def execute(self, request, work_dir, progress, *, fail_fast=False):
             if not self.calls:
                 self.calls += 1
                 self.fail_fast.append(fail_fast)
                 raise WorkerError("Live GPU admission ended: rejected")
-            return await super().execute(
+            result = await super().execute(
                 request, work_dir, progress, fail_fast=fail_fast
             )
+            if self.calls == 3:
+                self.third_started.set()
+            return result
 
     class NoHoldHostSession(FakeHostSession):
         hold_id = None
@@ -199,6 +206,8 @@ def test_rejected_overlap_drains_llm_then_runs_sequential_tts(tmp_path):
 
         async def emit_audio(path, index):
             audio.append((path, index))
+            if index == 0:
+                await asyncio.wait_for(runner.worker_pool.third_started.wait(), 0.5)
 
         session = session_contract()
         result = await runner._stream_ai_to_tts(
@@ -214,10 +223,10 @@ def test_rejected_overlap_drains_llm_then_runs_sequential_tts(tmp_path):
         )
 
         assert runner.worker_pool.evictions == ["asr"]
-        assert runner.worker_pool.fail_fast == [True, False]
+        assert runner.worker_pool.fail_fast == [True, False, False]
         assert runner.host_client.releases == 1
-        assert runner.worker_pool.calls == 2
-        assert len(audio) == 1
+        assert runner.worker_pool.calls == 3
+        assert len(audio) == 2
         assert result[0].endswith("二番目の十分に長い文です。")
         assert result[1].payload["delivery_overlap"] is False
         assert result[1].payload["sequential_fallback"] is True
@@ -226,6 +235,9 @@ def test_rejected_overlap_drains_llm_then_runs_sequential_tts(tmp_path):
             for event in events
             if event["type"] == "turn.response_text.delta"
         ]
-        assert deltas == [result[0]]
+        assert deltas == [
+            "これは最初の十分に長い文です。",
+            "これは二番目の十分に長い文です。",
+        ]
 
     asyncio.run(scenario())

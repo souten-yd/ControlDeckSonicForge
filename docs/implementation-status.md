@@ -44,7 +44,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | ASR Japanese | REAL MODEL PASS | Kotoba-Whisper v2 transcribed the generated Japanese fixture through scoped `grant:` + Host Job/Broker in 10.057 s; recognition was usable but rendered “SonicForge” imperfectly |
 | ASR multilingual/English | EN/AUTO/MIXED REAL PASS | Whisper large-v3-turbo accurately transcribed explicit `en`, single-language `auto`, and a JA+EN fixture; mixed `auto` re-runs language detection across long-silence segments and preserves continuous timestamps |
 | Speech Essentials provisioning | CLEAN ROCM INSTALL PASS | isolated `speech-rocm` runtime activated only after all five model snapshots completed; exact revisions recorded in runtime metadata |
-| SFX | TERMS GATE REAL PASS, MODEL NOT TESTED | real setup without acceptance failed `terms_required:stability-ai-community-license` and kept Game Audio `missing`; Small-SFX download/generation awaits explicit user acceptance |
+| SFX | TERMS GATE REAL PASS, MODEL NOT TESTED | real setup without acceptance failed `terms_required:stability-ai-community-license` and kept Game Audio `missing`; on 2026-08-26 the user explicitly removed Small-SFX setup/generation from this merge's required scope, so the optional pack remains missing and must be accepted separately after Hugging Face access is configured |
 | Japanese SFX conditioning | IMPLEMENTED | ControlDeck LLM may normalize JP intent to English acoustic prompt; both prompts kept in provenance |
 | Music/BGM | CLEAN ROCM SETUP + REAL GENERATION PASS | ACE-Step 1.5 pinned source and prepared `acestep-v15-turbo` + `acestep-5Hz-lm-0.6B`; real target generation produced a 10.000 s, 48 kHz stereo WAV without model-cache growth |
 | Localization Studio | IMPLEMENTED | JP/EN lines, durable render, `pending/failed/changed/all` retry modes |
@@ -300,13 +300,13 @@ Run `SF受入確認` on the target local machine and prove at least:
 9. long meeting capture, incremental transcript, reconnect/interruption behavior and optional summary;
 10. >10-minute CPU-only hosted work survives credential rotation;
 11. SIGKILL SonicForge while voice stack is warm and prove child/lease/hold cleanup;
-12. Stable Audio 3 Small-SFX clean pack setup + CPU generation without first-use hidden model download;
+12. Stable Audio 3 Small-SFX clean pack setup + CPU generation without first-use hidden model download (**explicitly removed by the user from this merge's required scope on 2026-08-26; remains `NOT TESTED`, not PASS**);
 13. ACE-Step AMD/ROCm clean pack setup + music generation using the prepared checkpoints;
 14. real ffmpeg export/audio.process and ZIP package;
 15. OpenCode `sonic.generate` / `sonic.pipeline` end to end;
 16. existing edge/M5 client direct live API and, if used, paired relay voice-agent path;
 17. signed Release Bundle fresh install/update/failure rollback with real public key setup.
 
-After all mandatory local gates pass, run the **single batched milestone CI**, inspect exact PR heads, then use `SF受入マージ`. Merge generic ControlDeck dependencies before SonicForge and run a short post-merge smoke test.
+After all mandatory local gates pass, run the **single batched milestone CI**, inspect exact PR heads, then use `SF受入マージ`. For this merge only, item 12 is not mandatory by explicit user direction; this exception does not imply model compatibility, availability or license acceptance. Merge generic ControlDeck dependencies before SonicForge and run a short post-merge smoke test.
 
 Until those checks are executed, target-hardware/model compatibility remains `NOT TESTED`, not PASS.

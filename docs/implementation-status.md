@@ -70,7 +70,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
 | Release signing | REAL BUILD/VERIFY/TAMPER PASS | disposable Ed25519 key, canonical byte-exact manifest, onefile `doctor`/service startup and artifact tamper rejection passed |
 | ControlDeck signed Release Bundle verifier | REAL HOST INSTALL/UPDATE/ROLLBACK PASS ON #239 | disposable trusted key: fresh 0.1.0, side-by-side 0.1.1 and post-switch unhealthy 0.1.2 rollback to healthy 0.1.1 passed; production publisher key remains an operator input |
-| Current branch-wide lightweight tests | PASS WITH WARNING | current worktree: 87 passed; only the known Starlette TestClient deprecation warning remains |
+| Current branch-wide lightweight tests | PASS WITH WARNING | exact head `8e3c174`: 91 passed; only the known Starlette TestClient deprecation warning remains |
 | Batched GitHub CI | NOT RUN | by explicit project policy, run once only after local acceptance is green |
 
 ## 3. Voice-chat execution model

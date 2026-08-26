@@ -310,3 +310,23 @@ Run `SF受入確認` on the target local machine and prove at least:
 After all mandatory local gates pass, run the **single batched milestone CI**, inspect exact PR heads, then use `SF受入マージ`. For this merge only, item 12 is not mandatory by explicit user direction; this exception does not imply model compatibility, availability or license acceptance. Merge generic ControlDeck dependencies before SonicForge and run a short post-merge smoke test.
 
 Until those checks are executed, target-hardware/model compatibility remains `NOT TESTED`, not PASS.
+
+## 10. Merge completion — 2026-08-26
+
+The user explicitly removed only the terms-gated Stable Audio 3 Small-SFX setup/generation from this merge's required scope. Game Audio remains `missing` and **NOT TESTED**; the merge does not claim model availability, compatibility or third-party account acceptance.
+
+The dependency-first merge sequence completed without force or required-check bypass:
+
+- ControlDeck #239 tested head `4ffcc538cddad43463a90d4bad1776e8bfa6406a` merged as `386899ccc90fce273b9c22a0f2050e19e935d83f`;
+- ControlDeck #240 tested head `e10abfa10e7cfcb59282687648395a37860dbfc8` merged as `06d558c65db2961ab600d818d7e1604660953bbe`;
+- SonicForge #1 tested head `17d5a3228898dde690e376a4f807de2c96db2110` merged as `947aceda7980cbd29a0c2451a2a6fa5249431b54`.
+
+Exact-head and post-merge evidence:
+
+- SonicForge head and merged `main`: 95 tests passed and `compileall` passed;
+- ControlDeck #239 exact head: 803 passed, 1 skipped; #240 exact head: 798 passed, 1 skipped;
+- merged ControlDeck `main` `06d558c65db2961ab600d818d7e1604660953bbe`: 815 passed, 1 skipped, including a 53-test post-dependency focused smoke;
+- local SonicForge health remained `healthy`, with `core`, `speech-essentials` and `music` `ok` and the intentionally skipped `game-audio` pack `missing`;
+- the single batched GitHub workflow run `32920460756` passed on merged SonicForge `main` head `947aceda7980cbd29a0c2451a2a6fa5249431b54`.
+
+The physical M5 board remains **NOT TESTED** because no board was connected. Previously recorded real model, browser, Relay, Resource Broker, long-session, release and delivery evidence remains the acceptance evidence for the unchanged runtime code.

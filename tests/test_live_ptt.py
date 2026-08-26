@@ -108,11 +108,17 @@ def test_half_duplex_ptt_runs_as_durable_turn_and_streams_audio(env):
             assert saw_audio_start is True
             assert speaker_bytes > 0
             assert complete["job_id"].startswith("job:")
+            assert complete["timing"]["basis"] == "ptt.stop"
+            assert (
+                complete["timing"]["end_of_speech_to_asr_final_ms"] >= 0
+            )
+            assert complete["timing"]["full_response_completion_ms"] >= 0
             job = client.get(
                 "/addon/v1/jobs/" + complete["job_id"].replace(":", "%3A")
             ).json()
             assert job["task"] == "live.turn"
             assert job["state"] == "succeeded"
+            assert job["result"]["timing"] == complete["timing"]
             socket.send_json({"type": "close"})
             assert socket.receive()["type"] == "websocket.close"
 

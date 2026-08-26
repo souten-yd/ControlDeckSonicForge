@@ -373,6 +373,25 @@ queue depth / dropped frames / underruns
 
 The most important performance regression test is that turn 2+ remains warm and materially faster than a cold turn when the target machine has enough memory for coexistence.
 
+Successful PTT turns persist the measurable response path in the durable local
+Job result under `timing`. The basis is the server's receipt of `ptt.stop` or the
+deployed M5Companion `listen.end` mapping. The report contains monotonic
+millisecond milestones for ASR final, first visible LLM token, first speakable
+chunk, first audio delivery and response completion, plus these derived values:
+
+```text
+end_of_speech_to_asr_final_ms
+asr_final_to_first_llm_token_ms
+asr_final_to_first_speakable_chunk_ms
+first_speakable_chunk_to_first_audio_ms
+end_of_speech_to_first_audio_ms
+full_response_completion_ms
+```
+
+Modern clients also receive this report in `turn.complete`. Existing
+M5Companion protocol 2 keeps its deployed wire shape; its acceptance evidence
+is read from the durable Job instead of adding an unsupported device frame.
+
 ## 13. Implementation sequence
 
 1. trusted-local basic ASR/TTS/SFX/music API;

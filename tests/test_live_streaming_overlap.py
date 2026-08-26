@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 
-from sonicforge.live_runtime import LiveTurnRunner
+from sonicforge.live_runtime import LiveTurnRunner, LiveTurnTiming
 from sonicforge.live_streaming_extensions import install_live_streaming_extensions
 from sonicforge.pipeline_schema import LiveSessionCreate
 from sonicforge.workers import WorkerError, WorkerResult
@@ -111,6 +112,34 @@ def session_contract() -> LiveSessionCreate:
     )
 
 
+def test_live_turn_timing_reports_required_intervals():
+    timing = LiveTurnTiming(10.0)
+    timing.milestones = {
+        "asr_final": 11.0,
+        "first_llm_token": 11.25,
+        "first_speakable_chunk": 11.5,
+        "first_audio": 12.0,
+        "response_complete": 13.0,
+    }
+
+    assert timing.report() == {
+        "basis": "ptt.stop",
+        "milestones_ms": {
+            "asr_final": 1000.0,
+            "first_llm_token": 1250.0,
+            "first_speakable_chunk": 1500.0,
+            "first_audio": 2000.0,
+            "response_complete": 3000.0,
+        },
+        "end_of_speech_to_asr_final_ms": 1000.0,
+        "asr_final_to_first_llm_token_ms": 250.0,
+        "asr_final_to_first_speakable_chunk_ms": 500.0,
+        "first_speakable_chunk_to_first_audio_ms": 500.0,
+        "end_of_speech_to_first_audio_ms": 2000.0,
+        "full_response_completion_ms": 3000.0,
+    }
+
+
 def test_next_tts_chunk_starts_while_previous_audio_is_still_delivering(tmp_path):
     async def scenario():
         install_live_streaming_extensions()
@@ -126,6 +155,7 @@ def test_next_tts_chunk_starts_while_previous_audio_is_still_delivering(tmp_path
         tts_stage = session.pipeline.stages[2]
         events = []
         first_audio_entered = asyncio.Event()
+        timing = LiveTurnTiming(time.monotonic())
 
         async def emit(event):
             events.append(event)
@@ -149,6 +179,7 @@ def test_next_tts_chunk_starts_while_previous_audio_is_still_delivering(tmp_path
                 tmp_path / "work",
                 emit,
                 emit_audio,
+                timing,
             ),
             2.0,
         )
@@ -157,6 +188,16 @@ def test_next_tts_chunk_starts_while_previous_audio_is_still_delivering(tmp_path
         assert runner.worker_pool.second_started.is_set()
         assert runner.worker_pool.calls == 2
         assert runner.worker_pool.fail_fast == [True, True]
+        assert set(timing.milestones) == {
+            "first_llm_token",
+            "first_speakable_chunk",
+            "first_audio",
+        }
+        assert (
+            timing.milestones["first_llm_token"]
+            <= timing.milestones["first_speakable_chunk"]
+            <= timing.milestones["first_audio"]
+        )
         assert result[0].endswith("二番目の十分に長い文です。")
         assert result[1].payload["delivery_overlap"] is True
         assert result[1].payload["sequential_fallback"] is False
@@ -200,6 +241,7 @@ def test_rejected_overlap_drains_llm_then_runs_sequential_tts(tmp_path):
         runner.worker_pool = RejectFirstWorkerPool(tmp_path)
         events = []
         audio = []
+        timing = LiveTurnTiming(time.monotonic())
 
         async def emit(event):
             events.append(event)
@@ -220,6 +262,7 @@ def test_rejected_overlap_drains_llm_then_runs_sequential_tts(tmp_path):
             tmp_path / "fallback-work",
             emit,
             emit_audio,
+            timing,
         )
 
         assert runner.worker_pool.evictions == ["asr"]
@@ -227,6 +270,11 @@ def test_rejected_overlap_drains_llm_then_runs_sequential_tts(tmp_path):
         assert runner.host_client.releases == 1
         assert runner.worker_pool.calls == 3
         assert len(audio) == 2
+        assert set(timing.milestones) == {
+            "first_llm_token",
+            "first_speakable_chunk",
+            "first_audio",
+        }
         assert result[0].endswith("二番目の十分に長い文です。")
         assert result[1].payload["delivery_overlap"] is False
         assert result[1].payload["sequential_fallback"] is True

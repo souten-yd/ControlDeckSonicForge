@@ -7,7 +7,7 @@ from typing import Any
 from .host.client import HostApiError
 from .jobs import HostedExecution
 from .live_chunking import SpeakableTextChunker
-from .live_runtime import LiveTurnRunner
+from .live_runtime import LiveTurnRunner, LiveTurnTiming
 from .pipeline_runtime import PipelineValue
 from .pipeline_schema import LiveSessionCreate, PipelineStage
 from .workers import WorkerError, WorkerResult
@@ -39,6 +39,7 @@ def install_live_streaming_extensions() -> None:
         work_dir: Path,
         emit,
         emit_audio,
+        timing: LiveTurnTiming | None = None,
     ) -> tuple[str, WorkerResult, dict[str, Any], Path | None]:
         identity = await self.host_session.identity()
         if identity is None:
@@ -51,6 +52,8 @@ def install_live_streaming_extensions() -> None:
         await self.worker_pool.evict("asr")
         if ai.get("stream") is not True:
             text = await self._host_ai_complete(session, ai_stage, input_text, hosted)
+            if timing is not None:
+                timing.mark("first_speakable_chunk")
             await emit(
                 {"type": "turn.response_text", "job_id": job_id, "text": text}
             )
@@ -73,6 +76,8 @@ def install_live_streaming_extensions() -> None:
             )
             if worker.output_path is None:
                 raise WorkerError("TTS live worker returned no audio")
+            if timing is not None:
+                timing.mark("first_audio")
             await emit_audio(worker.output_path, 0)
             return text, worker, request, worker.output_path
 
@@ -103,10 +108,16 @@ def install_live_streaming_extensions() -> None:
                 fragment = event.get("content")
                 if not isinstance(fragment, str) or not fragment:
                     continue
+                if timing is not None:
+                    timing.mark("first_llm_token")
                 text_parts.append(fragment)
                 for chunk in chunker.feed(fragment):
+                    if timing is not None:
+                        timing.mark("first_speakable_chunk")
                     await text_queue.put(chunk)
             for chunk in chunker.flush():
+                if timing is not None:
+                    timing.mark("first_speakable_chunk")
                 await text_queue.put(chunk)
             await text_queue.put(None)
 
@@ -189,6 +200,8 @@ def install_live_streaming_extensions() -> None:
                         "text": chunk,
                     }
                 )
+                if timing is not None:
+                    timing.mark("first_audio")
                 await emit_audio(worker.output_path, index)
                 await emit(
                     {

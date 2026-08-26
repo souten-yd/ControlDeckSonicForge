@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import time
 import uuid
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -24,6 +25,48 @@ LiveAudio = Callable[[Path, int], Awaitable[None]]
 
 
 @dataclass
+class LiveTurnTiming:
+    started_monotonic: float
+    milestones: dict[str, float] = field(default_factory=dict)
+
+    def mark(self, name: str) -> None:
+        self.milestones.setdefault(name, time.monotonic())
+
+    def report(self) -> dict[str, Any]:
+        elapsed = {
+            name: round((value - self.started_monotonic) * 1000, 1)
+            for name, value in self.milestones.items()
+        }
+        report: dict[str, Any] = {
+            "basis": "ptt.stop",
+            "milestones_ms": elapsed,
+        }
+        intervals = {
+            "end_of_speech_to_asr_final_ms": (None, "asr_final"),
+            "asr_final_to_first_llm_token_ms": ("asr_final", "first_llm_token"),
+            "asr_final_to_first_speakable_chunk_ms": (
+                "asr_final",
+                "first_speakable_chunk",
+            ),
+            "first_speakable_chunk_to_first_audio_ms": (
+                "first_speakable_chunk",
+                "first_audio",
+            ),
+            "end_of_speech_to_first_audio_ms": (None, "first_audio"),
+            "full_response_completion_ms": (None, "response_complete"),
+        }
+        for key, (start, stop) in intervals.items():
+            if stop not in self.milestones:
+                continue
+            start_value = (
+                self.started_monotonic if start is None else self.milestones.get(start)
+            )
+            if start_value is not None:
+                report[key] = round((self.milestones[stop] - start_value) * 1000, 1)
+        return report
+
+
+@dataclass
 class LiveTurnResult:
     job_id: str
     audio_path: Path | None
@@ -33,6 +76,7 @@ class LiveTurnResult:
     trace: list[dict[str, Any]]
     work_dir: Path
     streamed_audio: bool = False
+    timing: dict[str, Any] = field(default_factory=dict)
 
     def cleanup(self) -> None:
         if self.audio_path is not None and self.asset_id is None:
@@ -106,6 +150,7 @@ class LiveTurnRunner:
         hosted: HostedExecution | None,
         emit: LiveEvent,
         emit_audio: LiveAudio | None = None,
+        turn_started_monotonic: float | None = None,
     ) -> LiveTurnResult:
         compile_pipeline(session.pipeline)
         if session.pipeline.input.kind != "audio_stream":
@@ -131,7 +176,19 @@ class LiveTurnRunner:
         if hosted is not None:
             self.jobs.hosted[row.id] = hosted
         task = asyncio.create_task(
-            self._execute(row.id, session, audio_path, hosted, emit, emit_audio),
+            self._execute(
+                row.id,
+                session,
+                audio_path,
+                hosted,
+                emit,
+                emit_audio,
+                LiveTurnTiming(
+                    turn_started_monotonic
+                    if turn_started_monotonic is not None
+                    else time.monotonic()
+                ),
+            ),
             name=f"sonicforge-live-turn-{row.id}",
         )
         self.jobs.tasks[row.id] = task
@@ -254,6 +311,7 @@ class LiveTurnRunner:
         work_dir: Path,
         emit: LiveEvent,
         emit_audio: LiveAudio,
+        timing: LiveTurnTiming | None = None,
     ) -> tuple[str, WorkerResult, dict[str, Any], Path | None]:
         identity = await self.host_session.identity()
         if identity is None:
@@ -265,6 +323,8 @@ class LiveTurnRunner:
         await self.worker_pool.evict("asr")
         if ai.get("stream") is not True:
             text = await self._host_ai_complete(session, ai_stage, input_text, hosted)
+            if timing is not None:
+                timing.mark("first_speakable_chunk")
             await emit(
                 {"type": "turn.response_text", "job_id": job_id, "text": text}
             )
@@ -287,6 +347,8 @@ class LiveTurnRunner:
             )
             if worker.output_path is None:
                 raise WorkerError("TTS live worker returned no audio")
+            if timing is not None:
+                timing.mark("first_audio")
             await emit_audio(worker.output_path, 0)
             return text, worker, request, worker.output_path
 
@@ -331,6 +393,8 @@ class LiveTurnRunner:
                 if worker.output_path is None:
                     raise WorkerError("streaming TTS worker returned no audio")
                 generated.append((chunk, worker, request))
+                if timing is not None:
+                    timing.mark("first_audio")
                 await emit_audio(worker.output_path, index)
                 await emit(
                     {
@@ -366,6 +430,8 @@ class LiveTurnRunner:
                 fragment = event.get("content")
                 if not isinstance(fragment, str) or not fragment:
                     continue
+                if timing is not None:
+                    timing.mark("first_llm_token")
                 text_parts.append(fragment)
                 await emit(
                     {
@@ -375,8 +441,12 @@ class LiveTurnRunner:
                     }
                 )
                 for chunk in chunker.feed(fragment):
+                    if timing is not None:
+                        timing.mark("first_speakable_chunk")
                     await queue.put(chunk)
             for chunk in chunker.flush():
+                if timing is not None:
+                    timing.mark("first_speakable_chunk")
                 await queue.put(chunk)
         except BaseException as exc:
             stream_error = exc
@@ -440,6 +510,7 @@ class LiveTurnRunner:
         hosted: HostedExecution | None,
         emit: LiveEvent,
         emit_audio: LiveAudio | None,
+        timing: LiveTurnTiming,
     ) -> LiveTurnResult:
         compiled = compile_pipeline(session.pipeline)
         active = session.pipeline.stages[
@@ -491,6 +562,7 @@ class LiveTurnRunner:
                 )
                 trace.append(item)
                 transcript = value.text
+                timing.mark("asr_final")
                 await emit(
                     {
                         "type": "turn.transcript",
@@ -534,6 +606,7 @@ class LiveTurnRunner:
                         work_dir,
                         emit,
                         emit_audio,
+                        timing,
                     )
                 )
                 trace.extend(
@@ -617,6 +690,7 @@ class LiveTurnRunner:
                         final_request = worker_request
                         if stage.kind == "speech.asr":
                             transcript = value.text
+                            timing.mark("asr_final")
                             if transcript:
                                 await emit(
                                     {
@@ -702,6 +776,8 @@ class LiveTurnRunner:
                     },
                 )
 
+            timing.mark("response_complete")
+            timing_report = timing.report()
             result = {
                 "message": "Live turn complete",
                 "transcript": transcript,
@@ -709,6 +785,7 @@ class LiveTurnRunner:
                 "asset_id": asset_id,
                 "pipeline": {"stages": trace},
                 "streamed_audio": streamed_audio,
+                "timing": timing_report,
             }
             await self.jobs._set(
                 job_id, state="succeeded", progress=1.0, result=result
@@ -722,6 +799,7 @@ class LiveTurnRunner:
                 trace=trace,
                 work_dir=work_dir,
                 streamed_audio=streamed_audio,
+                timing=timing_report,
             )
         except asyncio.CancelledError:
             await self.jobs._set(

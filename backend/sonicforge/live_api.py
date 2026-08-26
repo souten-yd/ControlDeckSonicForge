@@ -485,6 +485,7 @@ def create_live_router(base) -> APIRouter:
                     if kind == "ptt.stop":
                         if not recording or raw_spool is None:
                             raise EdgeProtocolError("PTT is not recording")
+                        turn_started_monotonic = time.monotonic()
                         recording = False
                         raw_path = raw_spool.finalize()
                         raw_spool = None
@@ -581,6 +582,7 @@ def create_live_router(base) -> APIRouter:
                                 hosted=execution,
                                 emit=emit,
                                 emit_audio=emit_audio,
+                                turn_started_monotonic=turn_started_monotonic,
                             )
                             try:
                                 if (
@@ -606,6 +608,7 @@ def create_live_router(base) -> APIRouter:
                                             "transcript": result.transcript,
                                             "response_text": result.response_text,
                                             "streamed_audio": result.streamed_audio,
+                                            "timing": result.timing,
                                         }
                                     )
                             finally:

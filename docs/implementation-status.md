@@ -4,6 +4,13 @@ Last updated: 2026-08-26
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
 
+## Live mobile registry reachability repair
+
+- The live Host still stored the pre-release managed Add-on manifest with `workspace.mobile: companion`, even though repository and public v0.1.0 manifests declare `embedded`. The effective API therefore returned `companion`; authenticated Chrome 320x720 reached `More -> Audio` but rendered the status-only companion with zero workspace iframes.
+- Re-registering the current v0.1.0 `addon.json` through the authenticated generic Add-on API atomically refreshed the managed manifest while preserving enabled state, capability grants and healthy service state. The stored manifest remains mode 0600 and now reports `mobile: embedded` / `availability: available`.
+- After a ControlDeck restart, authenticated Chrome 320x720 repeated `More -> Audio`, rendered one SonicForge workspace iframe and exposed its `Studio / Library / Jobs / More` navigation. Document/body width remained 320 and failed requests, HTTP errors and console errors were all zero.
+- This was stale live registry state rather than a source or release-bundle code defect. Acceptance now compares the live effective contribution with the exact manifest and repeats the mobile route after Host restart.
+
 ## Embedded UI repair merge acceptance
 
 - Generic ControlDeck PR #242 merged as `864eeaef892c7ea21a1cf5121623feadc68a5a54`.

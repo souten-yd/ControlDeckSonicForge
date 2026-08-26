@@ -11,6 +11,13 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
 - The post-merge `origin/main` smoke `tests/test_core.py::test_embedded_frontend_routes` passed. The pre-merge exact-head real Chrome evidence remains the authenticated workspace/API/mutation/WebSocket run recorded below; no code changed between that accepted PR head and its merge commit.
 - The merged generic Host repair was then integrated into the active local ControlDeck checkout without discarding its parallel commits or unrelated `frontend/tsconfig.tsbuildinfo` change. After restarting `control-deck-web.service`, authenticated Chrome repeated the workspace GET, temporary voice POST/DELETE cleanup and event WebSocket against the live `127.0.0.1:8765` service with zero failed responses, CORS errors or console errors.
 
+## Mobile full-workspace release candidate
+
+- The `workspace` contribution now declares `mobile: embedded` instead of the status-only companion, so phone users receive the real SonicForge workspace.
+- At 320x720 the embedded UI uses `Studio / Library / Jobs / More`, keeps Voices and Runtime under More, provides 48 px bottom-navigation targets, reserves Host/device safe areas, prevents iOS input zoom and keeps exactly one workspace view visible.
+- Authenticated Chrome against isolated ControlDeck `127.0.0.1:18766` and exact branch SonicForge `127.0.0.1:19140` passed Japanese/English switching, Jobs/More/Runtime navigation, authoritative API reconnect and the event WebSocket with document/body `scrollWidth == 320` and zero failed responses, CORS errors or console errors. Desktop embedded regression also passed GET, temporary voice POST/DELETE cleanup and WebSocket with zero browser errors.
+- The branch-wide lightweight suite remains 95 passed with only the known Starlette TestClient deprecation warning. Signed public release/catalog admission is tracked as the dependent distribution step and is not claimed by this UI evidence alone.
+
 ## 1. Executive status
 
 The planned v1 implementation is now **feature-complete at the code/contract level** for the requested local-first scope:
@@ -74,7 +81,7 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | M5/edge binary protocol | MODERN + DEPLOYED COMPATIBILITY IMPLEMENTED | `sonic-edge/1` keeps sequence/sample-clock framing; deployed M5Companion protocol 2 maps `listen.*`, header-less raw PCM, `state` and `speech.*` without firmware changes |
 | Existing M5/edge client server API | REAL MODEL SIMULATED-CLIENT PASS, REAL DEVICE NOT CONNECTED | exact CoreS3 protocol-2 frames completed real Whisper-large-v3-turbo -> Qwen TTS turns with paced 16 kHz PCM; physical Wi-Fi/reconnect/playback remains NOT TESTED because the device is absent |
 | ControlDeck paired Device Relay | REAL PAIRING/ROTATION/REVOKE/MODEL E2E PASS | one-time code reuse returned 403; relay/device-scoped 8-hour token rotated on reconnect; removing the paired user's relay permission rejected reconnect with HTTP 403; protocol-2 CoreS3 frames completed Whisper -> Host llama -> Qwen TTS through #240 |
-| Bilingual/mobile browser UX | REAL DIRECT + EMBEDDED CHROME PASS | direct service rendered the required JA and EN top-level/task labels at 320x720 with `scrollWidth == innerWidth`; authenticated ControlDeck opaque-frame workspace rendered authoritative `available` state, completed temporary voice POST/DELETE cleanup, received the event WebSocket, and produced zero failed/CORS/console errors |
+| Bilingual/mobile browser UX | REAL DIRECT + FULL EMBEDDED CHROME PASS | direct service rendered required JA/EN labels; the authenticated 320x720 opaque-frame workspace now exposes the full task UI with `Studio / Library / Jobs / More`, 48 px targets, one visible view, zero horizontal overflow and zero failed/CORS/console errors; desktop embedded mutation/WebSocket regression also passed |
 | Wake/VAD | CLIENT/OPTIONAL ENHANCEMENT | not required for SonicForge v1 acceptance unless it changes the server contract |
 | Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
 | Release signing | REAL BUILD/VERIFY/TAMPER PASS | disposable Ed25519 key, canonical byte-exact manifest, onefile `doctor`/service startup and artifact tamper rejection passed |

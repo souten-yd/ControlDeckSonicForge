@@ -22,6 +22,9 @@ def test_embedded_frontend_routes(env):
         app_js=c.get('/app.js'); assert app_js.status_code==200
         assert "X-Control-Deck-Bridge-Session" in app_js.text and "credentials='include'" in app_js.text
         assert "control-deck-bridge.${state.nonce}" in app_js.text
+        assert "#mobileNav button" in app_js.text and "loadActiveJobs" in app_js.text
+        styles=c.get('/styles.css'); assert styles.status_code==200
+        assert "safe-area-inset-bottom" in styles.text and "min-height:44px" in styles.text
 
 def test_fake_generation_persists_asset(env):
     m=load_app()

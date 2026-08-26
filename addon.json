@@ -10,7 +10,7 @@
   "host_capabilities": ["context.read","theme.read","route.open","files.pick","files.export","projects.pick","jobs.read","jobs.write","notifications.show","resources.acquire","ai.inference","devices.relay"],
   "contributions": {
     "navigation": [{"id":"workspace","label":{"ja":"オーディオ","en":"Audio"},"route":"/x/sonic-forge/workspace","icon":"audio","permission":"apps.view"}],
-    "embedded_views": [{"id":"workspace","label":"SonicForge","route":"/x/sonic-forge/workspace","path":"/","mobile":"companion","permission":"apps.view"}],
+    "embedded_views": [{"id":"workspace","label":"SonicForge","route":"/x/sonic-forge/workspace","path":"/","mobile":"embedded","permission":"apps.view"}],
     "commands": [{"id":"create-audio","label":{"ja":"音声・音楽を作成","en":"Create audio"},"endpoint":"/addon/v1/commands/create","permission":"apps.view"}],
     "quick_actions": [],
     "settings": [{"id":"settings","label":"SonicForge","route":"/x/sonic-forge/workspace/settings","permission":"settings.manage"}],

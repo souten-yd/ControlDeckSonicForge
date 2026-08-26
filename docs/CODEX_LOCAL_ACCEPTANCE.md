@@ -441,6 +441,13 @@ Before release-related merge:
 - failed provisioning/update keeps previous known-good usable;
 - no private publisher key is committed or copied into runtime data.
 
+For a live/source registration and every installed release, do not infer mobile behavior from the repository manifest alone:
+
+- query the authenticated ControlDeck effective Add-on API and confirm the installed `workspace` contribution reports the same `mobile` mode as the exact `addon.json` under acceptance;
+- at 320px, open ControlDeck `More`, select the SonicForge navigation contribution, and confirm `mobile: embedded` creates the workspace iframe rather than the status-only companion;
+- confirm the embedded `Studio / Library / Jobs / More` navigation, no horizontal overflow, and no failed requests, HTTP errors or console errors;
+- restart ControlDeck and repeat the effective-contract check and mobile route so stale or non-persistent registry state cannot pass acceptance.
+
 ## 17. Final report format
 
 Produce a compact table with at least:

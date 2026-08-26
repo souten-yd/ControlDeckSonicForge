@@ -16,7 +16,14 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
 - The `workspace` contribution now declares `mobile: embedded` instead of the status-only companion, so phone users receive the real SonicForge workspace.
 - At 320x720 the embedded UI uses `Studio / Library / Jobs / More`, keeps Voices and Runtime under More, provides 48 px bottom-navigation targets, reserves Host/device safe areas, prevents iOS input zoom and keeps exactly one workspace view visible.
 - Authenticated Chrome against isolated ControlDeck `127.0.0.1:18766` and exact branch SonicForge `127.0.0.1:19140` passed Japanese/English switching, Jobs/More/Runtime navigation, authoritative API reconnect and the event WebSocket with document/body `scrollWidth == 320` and zero failed responses, CORS errors or console errors. Desktop embedded regression also passed GET, temporary voice POST/DELETE cleanup and WebSocket with zero browser errors.
-- The branch-wide lightweight suite remains 95 passed with only the known Starlette TestClient deprecation warning. Signed public release/catalog admission is tracked as the dependent distribution step and is not claimed by this UI evidence alone.
+- The branch-wide lightweight suite remains 95 passed with only the known Starlette TestClient deprecation warning.
+
+## v0.1.0 signed release and ControlDeck distribution
+
+- SonicForge PR #6 merged the mobile workspace as `62532efbabc02463bad1163af6eb0c5a76c9dc3a`; the exact merged head was tagged and published as [v0.1.0](https://github.com/souten-yd/ControlDeckSonicForge/releases/tag/v0.1.0).
+- The Linux x86_64 artifact is 29,970,963 bytes with SHA-256 `da4a50ffa317fc1bda3ed87a95032a50a83e61470b5e49f1354d87ca7f0efd48`. A repository-external Ed25519 publisher key signed the canonical manifest; a fresh download independently passed signature, adjacent checksum, GitHub digest and artifact digest verification, packaged `doctor`, and the release-focused 5-test suite.
+- The public bundle passed generic ControlDeck fresh install/enable/uninstall in isolated data. Before Speech Essentials setup, generic ControlDeck PR #243 preserves only setup-safe UI surfaces so the full mobile workspace remains reachable while execution surfaces stay unavailable.
+- ControlDeck PR #244 admitted the release to the trusted catalog without a per-release digest pin or SonicForge-specific Host path. After merge and live Host restart, the feature API returned `available=true` / `not-installed`, and authenticated Settings at 320x720 and 1280x800 displayed the verified bundle candidate with zero horizontal overflow, failed responses, HTTP errors or console errors.
 
 ## 1. Executive status
 
@@ -84,8 +91,8 @@ The remaining promotion work is primarily **local execution/benchmarking and mer
 | Bilingual/mobile browser UX | REAL DIRECT + FULL EMBEDDED CHROME PASS | direct service rendered required JA/EN labels; the authenticated 320x720 opaque-frame workspace now exposes the full task UI with `Studio / Library / Jobs / More`, 48 px targets, one visible view, zero horizontal overflow and zero failed/CORS/console errors; desktop embedded mutation/WebSocket regression also passed |
 | Wake/VAD | CLIENT/OPTIONAL ENHANCEMENT | not required for SonicForge v1 acceptance unless it changes the server contract |
 | Full-duplex/AEC/barge-in | PLANNED SERVER ENHANCEMENT | intentionally not a v1 promotion blocker |
-| Release signing | REAL BUILD/VERIFY/TAMPER PASS | disposable Ed25519 key, canonical byte-exact manifest, onefile `doctor`/service startup and artifact tamper rejection passed |
-| ControlDeck signed Release Bundle verifier | REAL HOST INSTALL/UPDATE/ROLLBACK PASS ON #239 | disposable trusted key: fresh 0.1.0, side-by-side 0.1.1 and post-switch unhealthy 0.1.2 rollback to healthy 0.1.1 passed; production publisher key remains an operator input |
+| Release signing | PUBLIC v0.1.0 BUILD/VERIFY PASS | repository-external production Ed25519 key, canonical byte-exact manifest, fresh-download signature/checksum/digest verification, packaged `doctor` and release-focused tests passed; disposable-key tamper rejection remains covered |
+| ControlDeck signed Release Bundle verifier | LIVE CATALOG + GENERIC INSTALL PASS | #239 verifier/update/rollback evidence remains green; #243 keeps setup UI reachable; #244 trusts the publisher key and exposes the public v0.1.0 candidate on the live Host without a per-release digest pin |
 | Current branch-wide lightweight tests | PASS WITH WARNING | current branch: 95 passed; only the known Starlette TestClient deprecation warning remains |
 | Batched GitHub CI | NOT RUN | by explicit project policy, run once only after local acceptance is green |
 

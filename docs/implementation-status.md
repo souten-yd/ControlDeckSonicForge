@@ -1,8 +1,16 @@
 # SonicForge Implementation Status
 
-Last updated: 2026-08-26
+Last updated: 2026-08-27
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
+
+## Automatic Speech Essentials Feature provisioning
+
+- The v0.1.1 source now follows MediaForge's generic Release Bundle lifecycle: `control-deck-feature.json` declares `provision_args: ["provision"]` instead of running the read-only `doctor` command as provisioning. The existing SonicForge `provision` command defaults to `speech-essentials`; Game Audio and Music remain optional and no gated terms are accepted implicitly.
+- ControlDeck's unchanged generic provider runs provision and doctor against managed persistent feature data before switching/starting the staged version, then registers the Add-on only after service health passes. Existing provider tests confirm provision-before-smoke, failed-provision no-switch, failed-health rollback/Add-on restoration and SonicForge's publisher-signed catalog contract.
+- Local branch suite: 97 passed with the known Starlette TestClient deprecation warning. A real v0.1.1 PyInstaller bundle exposed the expected provision/doctor/serve lifecycle; its packaged `provision` command converged Speech Essentials in isolated test-mode feature data, and the packaged service then reported `healthy` with `speech-essentials: ok` while optional packs remained missing. A repository-external disposable Ed25519 key signed that artifact and `verify_release.py` accepted its exact identity, size and digest.
+- The embedded workspace and settings entry documents now inline their CSS and JavaScript, following MediaForge's self-contained initial-document pattern for ControlDeck's opaque sandbox. An authenticated real Chrome run through the live Host loaded the branch service at both 1280x800 and 320x700, displayed the desktop and mobile navigation respectively, and returned 200 for the initial frame, Bridge-authorized API calls and WebSocket connection. No page or console errors occurred; the only aborted requests were the Host's expected effective-Add-on event stream during navigation. The temporary test Add-on registration, user and service were removed and the installed v0.1.0 registration was restored afterward.
+- A production-mode install into the live managed Feature data is **NOT TESTED** on this branch. The current live Feature data is nearly empty while 33 GiB of previously validated SonicForge runtime/model/assets remain under the older `/data1tb/ControlDeck/data/sonicforge` root; duplicating or migrating that state was not performed implicitly. v0.1.1 is not published or installed by this source change.
 
 ## Live mobile registry reachability repair
 

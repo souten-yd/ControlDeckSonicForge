@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import selectinload
 
@@ -20,6 +20,7 @@ from .host.files import read_grant
 from .jobs import HostedExecution, JobManager
 from .schemas import LocalizationBatchCreate, SetupApplyRequest, TaskRequest, VoiceCreate
 from . import setup as setup_service
+from . import __version__
 
 settings = load_settings()
 ensure_directories(settings)
@@ -140,7 +141,7 @@ async def lifespan(app: FastAPI):
     await host_client.close()
 
 
-app = FastAPI(title="SonicForge", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="SonicForge", version=__version__, lifespan=lifespan)
 
 
 @app.get("/health")
@@ -372,5 +373,44 @@ async def context_open_audio(): return {"route": "/x/sonic-forge/workspace", "ta
 async def host_error_handler(_request: Request, exc: HostApiError): return JSONResponse(status_code=exc.status_code, content={"error": {"code": exc.code, "message": str(exc)}})
 
 frontend = settings.repo_root / "frontend"; schemas_dir = settings.repo_root / "schemas"
+
+
+def _inlined_frontend(entry: str) -> str:
+    """Return a self-contained initial document for the opaque Host iframe.
+
+    ControlDeck intentionally gives embedded Add-ons an opaque origin. As a
+    result, initial external stylesheet/script requests cannot depend on the
+    frame bootstrap cookie. Keep the first document self-contained, following
+    the established MediaForge integration pattern; subsequent API and socket
+    traffic is authenticated with the Browser Bridge session nonce.
+    """
+    document = (frontend / entry).read_text(encoding="utf-8")
+    styles = (frontend / "styles.css").read_text(encoding="utf-8")
+    application = (frontend / "app.js").read_text(encoding="utf-8")
+    localization = (frontend / "localization.js").read_text(encoding="utf-8")
+    if "</style" in styles.lower() or "</script" in application.lower() or "</script" in localization.lower():
+        raise RuntimeError("frontend assets contain an unsafe inline closing tag")
+    replacements = {
+        '<link rel="stylesheet" href="styles.css">': f"<style>\n{styles}\n</style>",
+        '<script src="app.js"></script>': f"<script>\n{application}\n</script>",
+        '<script src="localization.js"></script>': f"<script>\n{localization}\n</script>",
+    }
+    for marker, content in replacements.items():
+        if document.count(marker) != 1:
+            raise RuntimeError(f"frontend entry point has an unexpected marker count: {marker}")
+        document = document.replace(marker, content)
+    return document
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_workspace() -> HTMLResponse:
+    return HTMLResponse(_inlined_frontend("index.html"))
+
+
+@app.get("/settings/", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_settings() -> HTMLResponse:
+    return HTMLResponse(_inlined_frontend("settings/index.html"))
+
+
 if schemas_dir.is_dir(): app.mount("/schemas", StaticFiles(directory=schemas_dir), name="schemas")
 if frontend.is_dir(): app.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")

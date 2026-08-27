@@ -1,9 +1,25 @@
 import asyncio
 import os
 
+import pytest
+
 from sonicforge import setup
 from sonicforge.config import ensure_directories, load_settings
 from sonicforge.db import make_session_factory
+
+
+def test_runtime_bootstrap_uses_host_python_in_frozen_bundle(monkeypatch):
+    monkeypatch.setattr(setup.shutil, "which", lambda name: "/usr/bin/python3" if name == "python3" else None)
+    monkeypatch.setattr(setup.sys, "executable", "/tmp/sonicforge-core")
+
+    assert setup._runtime_bootstrap_python() == "/usr/bin/python3"
+
+
+def test_runtime_bootstrap_requires_host_python(monkeypatch):
+    monkeypatch.setattr(setup.shutil, "which", lambda _name: None)
+
+    with pytest.raises(setup.SetupError, match="python3 is required"):
+        setup._runtime_bootstrap_python()
 
 
 def test_setup_plan_and_idempotent_apply(env):

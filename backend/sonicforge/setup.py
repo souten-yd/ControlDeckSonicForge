@@ -331,6 +331,22 @@ def _fingerprint(spec: RuntimeSpec) -> str:
     return h.hexdigest()
 
 
+def _runtime_bootstrap_python() -> str:
+    """Select the host interpreter used to create heavyweight worker venvs.
+
+    In a PyInstaller Release Bundle ``sys.executable`` is the SonicForge
+    launcher, not a general-purpose Python interpreter.  Invoking it with
+    ``-m venv`` therefore re-enters the SonicForge CLI.  MediaForge solves the
+    same packaging boundary by locating the host's explicit ``python3``
+    executable; keep that precedent here without sharing either product's
+    environment.
+    """
+    executable = shutil.which("python3")
+    if executable is None:
+        raise SetupError("python3 is required to provision SonicForge runtimes")
+    return executable
+
+
 async def _prefetch_models(
     settings: Settings,
     python: Path,
@@ -443,7 +459,7 @@ async def _build_runtime(settings: Settings, spec: RuntimeSpec) -> dict:
     if spec.component == "music":
         env["ACESTEP_CHECKPOINTS_DIR"] = str(settings.models_dir / "ace-step")
     try:
-        await _run_process([sys.executable, "-m", "venv", str(staging)], env=env)
+        await _run_process([_runtime_bootstrap_python(), "-m", "venv", str(staging)], env=env)
         pip = staging / "bin/pip"
         python = staging / "bin/python"
         await _run_process([str(pip), "install", "--upgrade", "pip"], env=env)

@@ -10,7 +10,7 @@ def test_release_bundle_rejects_foreign_pyinstaller(monkeypatch, tmp_path):
 
 
 def test_release_bundle_provisions_default_profile_before_registration():
-    feature = build_release_bundle._feature_manifest("0.1.1")
+    feature = build_release_bundle._feature_manifest("0.1.2")
 
     assert feature["entrypoint"] == "bin/sonicforge-core"
     assert feature["provision_args"] == ["provision"]

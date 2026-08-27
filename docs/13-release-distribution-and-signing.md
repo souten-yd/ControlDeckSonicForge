@@ -156,14 +156,20 @@ The release bundle should contain the lightweight SonicForge core and setup orch
 After signed bundle installation:
 
 ```text
-signed lightweight SonicForge feature installed
-  -> service healthy/setup_required
-  -> user opens SonicForge
-  -> one-click Speech Essentials provisioning
+signed lightweight SonicForge bundle verified and extracted to staging
+  -> ControlDeck invokes SonicForge `provision`
+  -> default Speech Essentials converges in persistent feature data
+  -> ControlDeck runs `doctor` and atomically selects the staged version
+  -> ControlDeck starts the service and checks health
+  -> ControlDeck registers the Add-on; failure restores the previous version
   -> optional Game Audio / Music packs
 ```
 
 Heavy runtimes/models remain SonicForge-managed, independently versioned and recoverable.
+They are downloaded by SonicForge's provisioner and are not embedded in or
+trusted merely because of the signed lightweight bundle. Provision failure
+must prevent activation/registration and preserve the previous known-good
+version, matching the MediaForge Release Bundle lifecycle.
 
 ## 11. Model/runtime artifact integrity
 

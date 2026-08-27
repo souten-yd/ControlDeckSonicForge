@@ -322,18 +322,24 @@ Never make optional music/SFX setup a prerequisite for transcription.
 
 ## 11. Setup philosophy
 
-Expected first use after the lightweight signed feature is installed:
+Expected installation through ControlDeck's trusted Feature surface:
 
 ```text
-SonicForge opens
-  -> setup_required
-  -> hardware/disk/network/license preflight
-  -> [音声基本環境をセットアップ / Set up Speech Essentials]
+signed lightweight SonicForge bundle verified
+  -> bundle provision lifecycle runs the default Speech Essentials profile
+  -> hardware/disk/network preflight
   -> SonicForge-owned TTS/ASR runtime packs
-  -> required model terms/consent
   -> real smoke tests
-  -> Japanese/English speech capabilities available/degraded
+  -> ControlDeck selects and starts the staged version
+  -> health passes and ControlDeck registers the Add-on
+  -> Japanese/English speech capabilities available
 ```
+
+This follows MediaForge's generic Release Bundle lifecycle. If provisioning or
+smoke/health validation fails, installation fails before the new Add-on version
+is registered and ControlDeck restores the previous known-good selection. Speech
+Essentials does not require acceptance of Game Audio terms. Terms-gated or
+optional packs are never accepted or installed implicitly.
 
 Later, entering SFX or Music offers a contextual one-click pack install.
 
@@ -352,7 +358,7 @@ The current Host/signature compatibility transition is documented in `13-release
 V1 is successful when a user can:
 
 1. install/update SonicForge through the generic trusted signed feature path without contaminating other environments;
-2. provision Speech Essentials from a single primary UI action;
+2. receive provisioned Speech Essentials as part of the single trusted Feature install action;
 3. synthesize useful Japanese and English speech;
 4. transcribe useful Japanese and English audio and representative mixed-language cases;
 5. complete normal speech/audio/music tasks without Expert settings;

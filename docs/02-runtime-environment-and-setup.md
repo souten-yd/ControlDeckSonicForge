@@ -17,9 +17,17 @@ A. lightweight SonicForge feature
    target trust = Ed25519 publisher-signed release manifest
 
 B. SonicForge ML capability packs
-   provisioned by SonicForge itself after the service is available
-   separate runtimes/models, durable one-click setup
+   provisioned by SonicForge itself through the bundle lifecycle and setup API
+   separate runtimes/models, durable and idempotent setup
 ```
+
+The default ControlDeck Feature install follows the same generic lifecycle as
+MediaForge: the signed lightweight bundle declares `provision`, ControlDeck
+invokes it before activation, and SonicForge converges `speech-essentials` in
+its persistent feature-data directory. ControlDeck selects and starts the staged
+version after provision and doctor pass, then registers the Add-on manifest only
+after the health gate passes. A failed start/health gate restores the previous
+version. Optional Game Audio and Music packs remain contextual one-click actions.
 
 See `13-release-distribution-and-signing.md` for release trust.
 
@@ -150,11 +158,16 @@ Core launches workers as subprocesses/services; it does not import their heavy M
 
 ## 5. One-click provisioning UX
 
-The default prominent action is deliberately smaller than the original "install everything" design:
+The default profile is deliberately smaller than the original "install everything" design:
 
 **音声基本環境をセットアップ / Set up Speech Essentials**
 
 Speech Essentials targets first-class Japanese + English TTS/ASR on the detected hardware.
+
+For a trusted ControlDeck Feature install, this profile runs automatically as
+the bundle's `provision` lifecycle. The Runtime view retains the same action for
+repair/reconciliation and for source/standalone deployments that did not use
+the Feature installer.
 
 SFX and Music are optional contextual packs. Entering an uninstalled task gives a direct action such as:
 

@@ -468,7 +468,9 @@ No internal imports/shared directory shortcuts.
 
 ### SF7-1 Clean install/update matrix
 
-Test signed lightweight install plus:
+Test the signed lightweight Feature lifecycle, whose default `provision`
+automatically converges Speech Essentials before service activation and Add-on
+registration, plus:
 
 - Speech Essentials
 - Game Audio optional pack

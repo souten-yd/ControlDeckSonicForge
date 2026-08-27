@@ -37,6 +37,30 @@ def _pyinstaller_argv(requested: Path | None) -> list[str]:
     return [sys.executable, "-m", "PyInstaller"]
 
 
+def _feature_manifest(version: str) -> dict[str, object]:
+    """Use the generic Release Bundle lifecycle shared with MediaForge.
+
+    ControlDeck runs ``provision`` before selecting the new version, starting
+    its service, and registering the Add-on manifest.  SonicForge's provision
+    command converges the default Speech Essentials profile in the persistent
+    feature-data directory, so a successful Feature install is immediately
+    usable while optional Game Audio and Music packs remain explicit.
+    """
+    return {
+        "schema_version": 1,
+        "feature_id": "sonic-forge",
+        "version": version,
+        "platform": "linux",
+        "architecture": "x86_64",
+        "entrypoint": "bin/sonicforge-core",
+        "addon_manifest": "control-deck-addon.json",
+        "provision_args": ["provision"],
+        "smoke_args": ["doctor"],
+        "service_args": ["serve"],
+        "health_url": "http://127.0.0.1:9140/health",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(); parser.add_argument("--version", required=True); parser.add_argument("--output-dir", type=Path, required=True); parser.add_argument("--pyinstaller", type=Path); args = parser.parse_args()
     if platform.system() != "Linux" or platform.machine().lower() not in {"x86_64", "amd64"}: raise SystemExit("only linux-x86_64 release bundles are currently supported")
@@ -52,7 +76,7 @@ def main() -> int:
         subprocess.run(command, check=True, cwd=ROOT)
         bundle = work / name; _copy(dist / "sonicforge-core", bundle / "bin/sonicforge-core", 0o755)
         (bundle / "control-deck-addon.json").write_text(json.dumps(addon, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        feature = {"schema_version": 1, "feature_id": "sonic-forge", "version": args.version, "platform": "linux", "architecture": "x86_64", "entrypoint": "bin/sonicforge-core", "addon_manifest": "control-deck-addon.json", "provision_args": ["doctor"], "smoke_args": ["doctor"], "service_args": ["serve"], "health_url": "http://127.0.0.1:9140/health"}
+        feature = _feature_manifest(args.version)
         (bundle / "control-deck-feature.json").write_text(json.dumps(feature, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         artifact = args.output_dir / f"{name}.tar.gz"
         with tarfile.open(artifact, "w:gz", compresslevel=9) as archive: archive.add(bundle, arcname=name, recursive=True)

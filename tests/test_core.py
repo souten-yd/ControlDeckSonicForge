@@ -16,8 +16,12 @@ def test_health_and_capabilities(env):
 def test_embedded_frontend_routes(env):
     m=load_app()
     with TestClient(m.app) as c:
-        root=c.get('/'); assert root.status_code==200 and 'localization.js' in root.text
+        root=c.get('/'); assert root.status_code==200
+        assert '<style>' in root.text and 'renderLocalizationBatch' in root.text and 'control-deck-addon.connect' in root.text
+        assert '<link rel="stylesheet" href="styles.css">' not in root.text and '<script src="app.js"></script>' not in root.text and '<script src="localization.js"></script>' not in root.text
         settings=c.get('/settings/'); assert settings.status_code==200 and '<base href="../">' in settings.text and 'data-view="runtime"' in settings.text
+        assert '<style>' in settings.text and 'control-deck-addon.connect' in settings.text
+        assert '<link rel="stylesheet" href="styles.css">' not in settings.text and '<script src="app.js"></script>' not in settings.text and '<script src="localization.js"></script>' not in settings.text
         localization=c.get('/localization.js'); assert localization.status_code==200 and 'renderLocalizationBatch' in localization.text
         app_js=c.get('/app.js'); assert app_js.status_code==200
         assert "X-Control-Deck-Bridge-Session" in app_js.text and "credentials='include'" in app_js.text
@@ -156,6 +160,41 @@ def test_setup_apply_cli_passes_explicit_terms(env, monkeypatch, capsys):
         "accepted_terms": ["stability-ai-community-license"],
     }
     assert json.loads(capsys.readouterr().out)["profile"] == "game-audio"
+
+
+def test_provision_cli_defaults_to_speech_essentials(env, monkeypatch, capsys):
+    from sonicforge import __main__
+
+    captured = {}
+
+    class SessionContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    async def apply(_settings, _session, profile, components, *, accepted_terms):
+        captured.update(
+            profile=profile,
+            components=components,
+            accepted_terms=accepted_terms,
+        )
+        return {"profile": profile, "components": [{"component": profile}]}
+
+    monkeypatch.setattr(
+        __main__, "make_session_factory", lambda _settings: SessionContext
+    )
+    monkeypatch.setattr(__main__.setup_service, "apply", apply)
+    monkeypatch.setattr(sys, "argv", ["sonic-forge", "provision"])
+
+    assert __main__.main() == 0
+    assert captured == {
+        "profile": "speech-essentials",
+        "components": None,
+        "accepted_terms": [],
+    }
+    assert json.loads(capsys.readouterr().out)["profile"] == "speech-essentials"
 
 
 def test_setup_apply_cli_reports_setup_error_without_traceback(

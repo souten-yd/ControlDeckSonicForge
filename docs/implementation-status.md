@@ -1,6 +1,6 @@
 # SonicForge Implementation Status
 
-Last updated: 2026-08-27
+Last updated: 2026-08-28
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
 
@@ -14,6 +14,42 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
 - The v0.1.2 branch suite passed 99 tests. A real frozen v0.1.2 candidate then completed production-mode Speech Essentials provisioning into ControlDeck's managed Feature data: it built the independent ROCm worker venv, installed all five pinned speech model snapshots, and converged 17 GiB of managed state. Its packaged read-only doctor passed and the packaged service reported `healthy` with `speech-essentials: ok`; Game Audio and Music remained missing as intended.
 - PR #10 merged as `12b3c5acab2e4f9e0757991dbe70ff2b20b68492`. The exact merged v0.1.2 artifact is 30,001,260 bytes with SHA-256 `27458dc45398bca58ebc38fa4653a228265762f513dec2a2fd354853475c34f5`; the trusted publisher signature verified before publication and a fresh GitHub release download passed its published SHA-256 file. The live generic ControlDeck Add-on update job `654f86ecd846` succeeded from v0.1.0 to v0.1.2 with `enabled=true` and `health=healthy`; `current`, the generated systemd unit and the effective Add-on manifest all resolve to v0.1.2.
 - Final authenticated real-Chrome acceptance through the live ControlDeck route `/x/sonic-forge/workspace` passed at 1280x800 and 320x700. Both rendered one SonicForge iframe, the expected desktop/mobile navigation, `serviceState=available`, and no Speech Essentials setup gate. Both initial frame requests returned 200; no external CSS/JavaScript requests, unexpected failed requests, page errors or console errors occurred. The temporary administrator was removed after its sessions were revoked; audit and Feature-job evidence were preserved.
+
+## v0.2.0 workspace UI rebuild
+
+- The v0.2.0 branch suite passed 101 tests. The workspace was driven headlessly through
+  the Chrome DevTools Protocol across every mode, task and view, at 1440px and 390px, in
+  light and dark, in Japanese and English, with **zero JavaScript exceptions**. Speech,
+  SFX, a localization batch and a typed pipeline were executed end to end against a live
+  service, and each produced a playable asset through the new result and library surfaces.
+- Three defects were found by that run and fixed before release: `applyLocale()` replaced
+  the `textContent` of labels that wrap a control and so destroyed the control (the voice
+  select rendered empty); assets were rendered before their jobs were known, so fresh
+  items displayed a raw asset ID; and `capabilities.py` reported a hardcoded service
+  version of `0.1.0`.
+- PR #12 merged as `379af838247275c0c5d31acc52c76ddc1d9d9285`. The v0.2.0 artifact is
+  30,040,407 bytes with SHA-256
+  `d51834272a66c5f1fd4de33f2cb195787eb6127d7c16d456304384dd4be9be8c`. Before publication
+  the frozen bundle was served directly and confirmed to emit the rebuilt shell
+  (`mode-simple`/`mode-advanced`, `shell-nav`, the `data-adv-template` fragments, the
+  inlined localization module), to report `service.version = 0.2.0`, to expose all nine
+  delivery profiles, and to serve `/settings/` as the same document with
+  `data-start-view="settings"` and `<base href="../">`. `verify_release.py` accepted the
+  detached publisher signature against the exact Ed25519 key in ControlDeck's trusted
+  catalog (`g4c486WbOPjVYuwtkMLxqriGlolip0Tfen2E262+PC0=`).
+- The live generic ControlDeck Add-on update succeeded from v0.1.2 to v0.2.0 with
+  `enabled=true`, `health=healthy` and an empty error. `current` resolves to
+  `versions/0.2.0`, the running service is the v0.2.0 binary, `/health` reports `healthy`
+  with `speech-essentials: ok` while Game Audio and Music remain missing as intended, and
+  the effective Add-on manifest is v0.2.0 and passes `deck.sh ext lint`. The 17 GiB of
+  managed Speech Essentials state carried over without re-provisioning.
+- Authenticated real-browser acceptance through the live ControlDeck route
+  `/x/sonic-forge/workspace` is **NOT TESTED** for v0.2.0. The unauthenticated
+  `/addon-frame/sonic-forge/` proxy correctly returns 401, and the operator elected to
+  perform the logged-in check rather than issue a session. The Host-proxied path itself
+  (proxy root derivation, Bridge session nonce header, credentialed API calls and the
+  WebSocket subprotocol) is unchanged from the accepted v0.1.2 code and is covered by the
+  frontend transport tests, but that is reasoning rather than executed evidence.
 
 ## Live mobile registry reachability repair
 

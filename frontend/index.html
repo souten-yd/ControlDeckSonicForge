@@ -1,25 +1,530 @@
 <!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>SonicForge</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-<header><div><strong>SonicForge</strong><span id="serviceState"></span></div><div><button id="localeBtn">JA / EN</button></div></header>
-<nav id="topnav"><button data-view="studio" class="active" data-i18n="studio">Studio</button><button data-view="voices" data-i18n="voices">Voices</button><button data-view="library" data-i18n="library">Library</button><button data-view="runtime" data-i18n="runtime">Runtime</button></nav>
-<main>
-<section id="studio" class="view active"><div class="tabs"><button data-task="speech" class="active" data-i18n="speech">Speech</button><button data-task="transcribe" data-i18n="transcribeTab">Transcribe</button><button data-task="sfx" data-i18n="sfx">SFX</button><button data-task="music" data-i18n="music">Music</button><button data-task="localization" data-i18n="localization">Localization</button></div>
-<div class="toolbar"><button class="level active" data-level="easy" data-i18n="easy">Easy</button><button class="level" data-level="customize" data-i18n="customize">Customize</button><button class="level" data-level="expert" data-i18n="expert">Expert</button></div>
-<div id="taskPanel"></div><div id="activeJob"></div></section>
-<section id="voices" class="view"><h2 data-i18n="voices">Voices</h2><div id="voiceList"></div></section>
-<section id="library" class="view"><h2 data-i18n="library">Library</h2><div id="assetList"></div></section>
-<section id="jobs" class="view mobile-only"><h2 data-i18n="jobs">Jobs</h2><div id="jobList"></div></section>
-<section id="more" class="view mobile-only"><h2 data-i18n="more">More</h2><div class="card mobile-menu"><button data-target-view="voices"><span data-i18n="voices">Voices</span><small data-i18n="manageVoices">Create and manage voice profiles</small></button><button data-target-view="runtime"><span data-i18n="runtime">Runtime</span><small data-i18n="manageRuntime">Setup runtimes and optional packs</small></button></div></section>
-<section id="runtime" class="view"><h2 data-i18n="runtime">Runtime</h2><div id="setupPanel"></div></section>
-</main>
-<nav id="mobileNav" class="mobile-only" aria-label="Primary"><button data-view="studio" class="active" data-i18n="studio">Studio</button><button data-view="library" data-i18n="library">Library</button><button data-view="jobs" data-i18n="jobs">Jobs</button><button data-view="more" data-i18n="more">More</button></nav>
-<script src="app.js"></script>
-<script src="localization.js"></script>
-</body></html>
+<html lang="ja" data-bridge="waiting">
+  <head>
+    <meta charset="utf-8">
+    <!-- SONIC_FORGE_BASE -->
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <title>SonicForge</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div id="app" data-mode="simple" data-view="studio" data-start-view="studio" data-task="speech" aria-busy="true">
+
+      <div id="skeleton" aria-hidden="true">
+        <div class="sk sk-title"></div>
+        <div class="sk sk-block"></div>
+        <div class="sk sk-block"></div>
+      </div>
+
+      <header id="shell-header">
+        <h1>SonicForge</h1>
+        <span class="pill" id="service-pill" data-i18n-title="localOnlyHint">ローカルのみ</span>
+        <span class="grow"></span>
+        <div class="modeswitch" role="group" data-i18n-label="displayMode" aria-label="表示モード">
+          <button type="button" id="mode-simple" aria-pressed="true" data-i18n="modeSimple">シンプル</button>
+          <button type="button" id="mode-advanced" aria-pressed="false" data-i18n="modeAdvanced">詳細</button>
+        </div>
+        <button type="button" id="locale-toggle" class="icon" aria-label="日本語 / English" title="日本語 / English">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="8.4"/>
+            <path d="M3.6 12h16.8M12 3.6a13 13 0 0 1 0 16.8M12 3.6a13 13 0 0 0 0 16.8"/>
+          </svg>
+        </button>
+        <button type="button" id="nav-settings" class="icon settings-entry" data-view="settings"
+                data-i18n-label="settingsTitle" aria-label="ランタイムとボイスの設定">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="3.2"/>
+            <path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l1.8-1.4-1.9-3.2-2.2.9a7.6 7.6 0 0 0-2.6-1.5L14.2 3H9.8l-.3 2.3a7.6 7.6 0 0 0-2.6 1.5l-2.2-.9L2.8 9.1l1.8 1.4a7.6 7.6 0 0 0 0 3l-1.8 1.4 1.9 3.2 2.2-.9a7.6 7.6 0 0 0 2.6 1.5l.3 2.3h4.4l.3-2.3a7.6 7.6 0 0 0 2.6-1.5l2.2.9 1.9-3.2z"/>
+          </svg>
+          <span class="settings-label" data-i18n="settings">設定</span>
+        </button>
+      </header>
+
+      <nav id="shell-nav" aria-label="SonicForge">
+        <button type="button" id="nav-studio" data-view="studio" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M4 11v2M8 8v8M12 4.6v14.8M16 8v8M20 11v2"/>
+          </svg>
+          <span data-i18n="studio">スタジオ</span>
+        </button>
+        <button type="button" id="nav-library" data-view="library">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M9.4 18.2V6.4l9.2-2v11.4"/>
+            <circle cx="7" cy="18.2" r="2.4"/>
+            <circle cx="16.2" cy="15.8" r="2.4"/>
+          </svg>
+          <span data-i18n="library">ライブラリ</span>
+        </button>
+        <button type="button" id="nav-activity" data-view="activity">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="8.4"/>
+            <path d="M12 7.2V12l3.1 1.9"/>
+          </svg>
+          <span data-i18n="activity">状況</span>
+          <span class="badge" id="activity-badge" hidden>0</span>
+        </button>
+        <button type="button" id="nav-pipeline" data-view="pipeline" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="5.2" cy="12" r="2.2"/>
+            <circle cx="12" cy="6.4" r="2.2"/>
+            <circle cx="12" cy="17.6" r="2.2"/>
+            <circle cx="18.8" cy="12" r="2.2"/>
+            <path d="M7 10.8 10.2 7.6M7 13.2l3.2 3.2M13.8 7.6 17 10.8M13.8 16.4 17 13.2"/>
+          </svg>
+          <span data-i18n="pipeline">パイプライン</span>
+        </button>
+      </nav>
+
+      <main>
+        <!-- ── スタジオ ─────────────────────────────────────────── -->
+        <section id="view-studio" class="view" data-view="studio">
+          <div id="studio-task-picker">
+            <div id="task-switch" class="task-switch" role="group" data-i18n-label="whatToMake" aria-label="作るもの">
+              <button type="button" data-task="speech" aria-pressed="true" data-i18n="taskSpeech">音声</button>
+              <button type="button" data-task="transcribe" data-i18n="taskTranscribe">文字起こし</button>
+              <button type="button" data-task="sfx" data-i18n="taskSfx">効果音</button>
+              <button type="button" data-task="music" data-i18n="taskMusic">音楽</button>
+              <button type="button" data-task="localization" data-advanced-only hidden data-i18n="taskLocalization">ローカライズ</button>
+              <button type="button" data-task="meeting" data-advanced-only hidden data-i18n="taskMeeting">会議</button>
+            </div>
+            <p id="task-summary" class="hint"></p>
+          </div>
+
+          <!-- 検証は submit 側で行う。ブラウザ既定の吹き出しは文言を持てず、
+               モバイルで見落としやすいので novalidate にする。 -->
+          <form id="studio-form" class="panel" novalidate>
+            <div id="capability-gate" class="gate" hidden>
+              <b id="capability-gate-title"></b>
+              <p class="hint" id="capability-gate-reason"></p>
+              <button type="button" id="capability-gate-action" class="cta-secondary" data-i18n="openSetup">セットアップを開く</button>
+            </div>
+
+            <!-- 音声 -->
+            <div data-task-fields="speech" class="panel-fields">
+              <div class="field-head">
+                <label class="field-label" for="speech-text" data-i18n="speechTextLabel">読み上げるテキスト</label>
+                <button type="button" id="studio-reset" class="icon" data-i18n-label="resetForm" aria-label="入力と設定を初期に戻す">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4.2V9h-4.8"/>
+                  </svg>
+                </button>
+              </div>
+              <textarea id="speech-text" maxlength="8000" rows="5" placeholder="こんにちは。今日はいい天気ですね。"></textarea>
+              <label data-i18n="voice">ボイス
+                <select id="speech-voice"></select>
+              </label>
+              <p class="section-label" data-i18n="speechStyle">話し方</p>
+              <div id="speech-style-chips" class="chips" role="radiogroup" data-i18n-label="speechStyle" aria-label="話し方"></div>
+              <p class="section-label" data-i18n="speechLanguageLabel">読み上げる言語</p>
+              <div id="speech-language-chips" class="chips" role="radiogroup" data-i18n-label="contentLanguage" aria-label="読み上げる言語"></div>
+            </div>
+
+            <!-- 文字起こし -->
+            <div data-task-fields="transcribe" class="panel-fields" hidden>
+              <p class="field-label" data-i18n="audioFile">音声ファイル</p>
+              <div class="file-row">
+                <button type="button" id="transcribe-pick" class="dropzone" data-i18n="chooseAudio">＋ 音声ファイルを選ぶ</button>
+                <button type="button" id="transcribe-clear" hidden data-i18n="clearFile">使わない</button>
+              </div>
+              <p id="transcribe-file-note" class="hint"></p>
+              <p class="section-label" data-i18n="transcribeLanguageLabel">話されている言語</p>
+              <div id="transcribe-language-chips" class="chips" role="radiogroup" data-i18n-label="contentLanguage" aria-label="話されている言語"></div>
+            </div>
+
+            <!-- 効果音 -->
+            <div data-task-fields="sfx" class="panel-fields" hidden>
+              <label class="field-label" for="sfx-prompt" data-i18n="sfxPromptLabel">どんな音ですか？</label>
+              <textarea id="sfx-prompt" maxlength="2000" rows="4" placeholder="金属の扉が重く閉まり、遠くで反響する"></textarea>
+              <p id="sfx-prompt-preview" class="hint" role="status"></p>
+              <p class="section-label" data-i18n="sfxKind">音の種類</p>
+              <div id="sfx-kind-chips" class="chips" role="radiogroup" data-i18n-label="sfxKind" aria-label="音の種類"></div>
+              <p class="section-label" data-i18n="length">長さ</p>
+              <div id="sfx-length-chips" class="chips" role="radiogroup" data-i18n-label="length" aria-label="長さ"></div>
+            </div>
+
+            <!-- 音楽 -->
+            <div data-task-fields="music" class="panel-fields" hidden>
+              <label class="field-label" for="music-prompt" data-i18n="musicPromptLabel">どんな曲ですか？</label>
+              <textarea id="music-prompt" maxlength="2000" rows="4" placeholder="夜の街を歩くような、落ち着いたシンセのBGM"></textarea>
+              <p id="music-prompt-preview" class="hint" role="status"></p>
+              <p class="section-label" data-i18n="musicMood">雰囲気</p>
+              <div id="music-mood-chips" class="chips" role="radiogroup" data-i18n-label="musicMood" aria-label="雰囲気"></div>
+              <p class="section-label" data-i18n="length">長さ</p>
+              <div id="music-length-chips" class="chips" role="radiogroup" data-i18n-label="length" aria-label="長さ"></div>
+              <label class="check"><input id="music-instrumental" type="checkbox" checked> <span data-i18n="instrumental">歌なし（BGM）</span></label>
+            </div>
+
+            <div data-adv-slot="task"></div>
+            <div data-adv-slot="common"></div>
+
+            <p id="studio-error" class="error" role="alert" hidden></p>
+            <button class="primary" type="submit" id="studio-submit" data-i18n="create">作る</button>
+            <p id="studio-status" role="status" class="hint"></p>
+          </form>
+
+          <div id="stage">
+            <div id="stage-progress" hidden>
+              <p class="stage-phase" id="progress-phase"></p>
+              <div class="track"><i id="progress-bar"></i></div>
+              <p class="hint" id="progress-detail"></p>
+              <button type="button" id="progress-cancel" data-i18n="cancel">中止</button>
+            </div>
+
+            <div id="stage-result" hidden>
+              <div class="player">
+                <p class="field-label" id="result-title"></p>
+                <audio id="result-audio" controls preload="metadata"></audio>
+              </div>
+              <pre id="result-text" class="transcript" hidden></pre>
+              <p id="result-meta" class="hint"></p>
+              <div class="actions">
+                <button type="button" id="result-again" data-i18n="makeAnother">もう一度作る</button>
+                <button type="button" id="result-export" data-i18n="exportAsset">書き出す</button>
+                <button type="button" id="result-detail" data-i18n="details">詳細</button>
+              </div>
+            </div>
+
+            <div id="stage-recent">
+              <p class="section-label" data-i18n="recent">最近作ったもの</p>
+              <div id="recent-strip" class="strip"></div>
+              <p id="recent-empty" class="hint" data-i18n="recentEmpty">まだ何もありません。</p>
+            </div>
+          </div>
+
+          <!-- ローカライズ（詳細モードのみ） -->
+          <div id="localization-panel" hidden></div>
+
+          <!-- 会議（詳細モードのみ） -->
+          <div id="meeting-panel" hidden></div>
+        </section>
+
+        <!-- ── ライブラリ ───────────────────────────────────────── -->
+        <section id="view-library" class="view" data-view="library" hidden>
+          <div class="view-head one-line">
+            <div id="library-filter" class="chips" role="radiogroup" data-i18n-label="filter" aria-label="絞り込み"></div>
+            <button type="button" data-refresh="library" class="icon" data-i18n-label="refresh" aria-label="一覧を更新">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4.2V9h-4.8"/>
+              </svg>
+            </button>
+          </div>
+          <p id="library-count" class="hint" role="status"></p>
+          <div id="library-grid" class="grid"></div>
+          <p id="library-empty" class="hint" hidden data-i18n="libraryEmpty">まだ音声がありません。</p>
+          <p id="library-error" class="error" role="alert" hidden></p>
+        </section>
+
+        <!-- ── 状況 ─────────────────────────────────────────────── -->
+        <section id="view-activity" class="view" data-view="activity" hidden>
+          <div class="view-head one-line">
+            <p id="activity-count" class="hint" role="status"></p>
+            <button type="button" data-refresh="activity" class="icon" data-i18n-label="refresh" aria-label="一覧を更新">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4.2V9h-4.8"/>
+              </svg>
+            </button>
+          </div>
+          <div id="activity-rows" class="rows"></div>
+          <p id="activity-empty" class="hint" hidden data-i18n="noJobs">実行中・完了した処理はありません。</p>
+        </section>
+
+        <!-- ── パイプライン（詳細モードのみ） ───────────────────── -->
+        <section id="view-pipeline" class="view" data-view="pipeline" hidden>
+          <div class="panel">
+            <p class="field-label" data-i18n="pipelineTitle">音声パイプライン</p>
+            <p class="hint" data-i18n="pipelineHint">文字起こし・ControlDeckのAI・読み上げ・効果音・音楽を、順番につないで一度に実行します。</p>
+
+            <p class="section-label" data-i18n="pipelinePreset">よく使う組み合わせ</p>
+            <div id="pipeline-presets" class="chips" role="radiogroup" data-i18n-label="pipelinePreset" aria-label="よく使う組み合わせ"></div>
+
+            <p class="section-label" data-i18n="pipelineInput">入力</p>
+            <div id="pipeline-input-kinds" class="chips" role="radiogroup" data-i18n-label="pipelineInput" aria-label="入力"></div>
+            <div id="pipeline-input-text" class="panel-fields">
+              <textarea id="pipeline-text" maxlength="20000" rows="4" placeholder="読み上げたい文章、または各段に渡す文章"></textarea>
+            </div>
+            <div id="pipeline-input-file" class="file-row" hidden>
+              <button type="button" id="pipeline-pick" class="dropzone" data-i18n="chooseAudio">＋ 音声ファイルを選ぶ</button>
+              <button type="button" id="pipeline-clear" hidden data-i18n="clearFile">使わない</button>
+            </div>
+            <label id="pipeline-input-asset" hidden data-i18n="fromLibrary">ライブラリから選ぶ
+              <select id="pipeline-asset"></select>
+            </label>
+
+            <p class="section-label" data-i18n="pipelineStages">処理の並び</p>
+            <div id="pipeline-flow" class="stage-flow"></div>
+            <div id="pipeline-stages" class="stage-list"></div>
+            <div class="form-row">
+              <label data-i18n="startAt">開始する段
+                <select id="pipeline-start"></select>
+              </label>
+              <label data-i18n="stopAfter">終了する段
+                <select id="pipeline-stop"></select>
+              </label>
+            </div>
+
+            <p class="section-label" data-i18n="pipelineDelivery">受け取り方</p>
+            <div class="form-row">
+              <label data-i18n="deliveryMode">形式
+                <select id="pipeline-delivery"></select>
+              </label>
+              <label data-i18n="filename">ファイル名
+                <input id="pipeline-filename" type="text" maxlength="240" placeholder="dialogue.wav">
+              </label>
+            </div>
+            <div id="pipeline-project-row" class="file-row" hidden>
+              <button type="button" id="pipeline-project-pick" class="dropzone" data-i18n="chooseProjectOutput">＋ 書き出し先を選ぶ</button>
+            </div>
+
+            <p id="pipeline-note" class="hint" role="status"></p>
+            <p id="pipeline-error" class="error" role="alert" hidden></p>
+            <div class="form-row">
+              <button type="button" id="pipeline-validate" data-i18n="validate">組み合わせを確認</button>
+              <button type="button" id="pipeline-run" class="primary" data-i18n="run">実行</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── 設定 ─────────────────────────────────────────────── -->
+        <section id="view-settings" class="view" data-view="settings" hidden>
+          <div class="view-head">
+            <p class="field-label" data-i18n="runtimeTitle">利用できる機能</p>
+            <button type="button" data-refresh="settings" class="icon" data-i18n-label="refresh" aria-label="一覧を更新">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4.2V9h-4.8"/>
+              </svg>
+            </button>
+          </div>
+          <p class="hint" data-i18n="runtimeHint">必要なものだけを、必要になったときに準備します。音声を使うだけなら「音声基本環境」だけで足ります。</p>
+          <div id="setup-rows" class="rows"></div>
+          <p id="setup-error" class="error" role="alert" hidden></p>
+
+          <details id="setup-plan-block" class="settings-section">
+            <summary data-i18n="setupPlan">準備の内訳とハードウェア</summary>
+            <div class="form-row">
+              <label data-i18n="setupProfile">まとめて準備する
+                <select id="setup-profile"></select>
+              </label>
+              <button type="button" id="setup-plan-refresh" data-i18n="recheck">内訳を確認</button>
+            </div>
+            <dl id="setup-plan-facts" class="facts"></dl>
+            <p id="setup-plan-warn" class="notice warn" hidden></p>
+            <button type="button" id="setup-plan-apply" class="cta-secondary" data-i18n="setupStart">この内容で準備する</button>
+          </details>
+
+          <div class="settings-section">
+            <div class="view-head">
+              <p class="field-label" data-i18n="voicesTitle">ボイス</p>
+              <button type="button" id="voice-add" class="cta-secondary" data-i18n="voiceAdd">＋ ボイスを作る</button>
+            </div>
+            <p class="hint" data-i18n="voicesHint">同じ話し手を何度も使うために覚えさせておけます。スタジオの「音声」で選べます。</p>
+            <div id="voice-rows" class="rows"></div>
+            <p id="voice-empty" class="hint" hidden data-i18n="voicesEmpty">まだ登録がありません。組み込みボイスがそのまま使えます。</p>
+            <p id="voice-error" class="error" role="alert" hidden></p>
+          </div>
+
+          <div class="settings-section" data-advanced-only hidden>
+            <p class="field-label" data-i18n="devicesTitle">音声エージェント端末</p>
+            <p class="hint" data-i18n="devicesHint">M5などの小型端末をControlDeck経由でペアリングします。端末側のファームウェアはここでは扱いません。</p>
+            <div class="form-row">
+              <label data-i18n="deviceLabel">端末の名前
+                <input id="device-label" type="text" maxlength="80" placeholder="居間のスピーカー">
+              </label>
+              <label data-i18n="deviceRelay">中継
+                <select id="device-relay"><option value="voice">voice</option></select>
+              </label>
+            </div>
+            <button type="button" id="device-pair" data-i18n="devicePair">ペアリングを作る</button>
+            <pre id="device-result" hidden></pre>
+            <p id="device-error" class="error" role="alert" hidden></p>
+          </div>
+
+          <details class="settings-section" data-advanced-only hidden>
+            <summary data-i18n="diagnostics">診断情報</summary>
+            <dl id="diagnostics-facts" class="facts"></dl>
+            <p class="section-label" data-i18n="capabilityDetail">機能ごとの状態</p>
+            <div id="capability-rows" class="rows"></div>
+          </details>
+        </section>
+      </main>
+
+      <div id="mini-progress" hidden>
+        <span id="mini-phase"></span>
+        <span class="track"><i id="mini-bar"></i></span>
+        <button type="button" id="mini-cancel" data-i18n-label="cancel" aria-label="中止">✕</button>
+      </div>
+
+      <dialog id="export-dialog">
+        <h2 data-i18n="exportTitle">音声を書き出す</h2>
+        <p id="export-summary" class="hint"></p>
+        <label data-i18n="exportProfile">書き出しプロファイル
+          <select id="export-profile"></select>
+        </label>
+        <p id="export-purpose" class="hint"></p>
+        <label data-i18n="filename">ファイル名
+          <input id="export-filename" type="text" maxlength="240">
+        </label>
+        <label class="check"><input id="export-to-project" type="checkbox"> <span data-i18n="exportToProject">ControlDeckのプロジェクトへ書き出す</span></label>
+        <p id="export-error" class="error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button type="button" id="export-cancel" data-i18n="back">戻る</button>
+          <button type="button" id="export-confirm" class="primary" data-i18n="exportAsset">書き出す</button>
+        </div>
+      </dialog>
+
+      <dialog id="voice-dialog">
+        <h2 data-i18n="voiceAdd">＋ ボイスを作る</h2>
+        <label data-i18n="name">名前
+          <input id="voice-name" type="text" maxlength="120" placeholder="主人公 / ナレーター">
+        </label>
+        <p class="section-label" data-i18n="voiceKind">作り方</p>
+        <div id="voice-kind-chips" class="chips" role="radiogroup" data-i18n-label="voiceKind" aria-label="作り方"></div>
+        <p id="voice-kind-hint" class="hint"></p>
+        <div id="voice-fields"></div>
+        <p class="section-label" data-i18n="voiceLanguages">使う言語</p>
+        <div id="voice-language-chips" class="chips" role="group" data-i18n-label="voiceLanguages" aria-label="使う言語"></div>
+        <p id="voice-dialog-error" class="error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button type="button" id="voice-cancel" data-i18n="back">戻る</button>
+          <button type="button" id="voice-save" class="primary" data-i18n="save">保存</button>
+        </div>
+      </dialog>
+
+      <dialog id="detail-dialog">
+        <h2 data-i18n="details">詳細</h2>
+        <dl id="detail-facts" class="facts"></dl>
+        <details><summary data-i18n="provenance">生成の記録</summary><pre id="detail-raw"></pre></details>
+        <div class="dialog-actions">
+          <button type="button" id="detail-close" class="primary" data-i18n="close">閉じる</button>
+        </div>
+      </dialog>
+
+      <dialog id="confirm-dialog">
+        <h2 id="confirm-title"></h2>
+        <p id="confirm-body" class="hint"></p>
+        <div class="dialog-actions">
+          <button type="button" id="confirm-cancel" data-i18n="back">戻る</button>
+          <button type="button" id="confirm-ok" class="primary danger-action" data-i18n="delete">削除する</button>
+        </div>
+      </dialog>
+    </div>
+
+    <!-- 詳細モードの断片は hidden にせず DOM から外す。タブ順とスクリーン
+         リーダーを汚さず、テストが「存在するか」で検証できるようにするため。 -->
+    <template data-adv-template="common">
+      <div class="advanced">
+        <p class="section-label" data-i18n="advancedCommon">共通の詳細設定</p>
+        <label data-i18n="quality">品質
+          <select id="advanced-quality"></select>
+        </label>
+        <div class="form-row">
+          <label data-i18n="outputFormat">出力形式
+            <select id="advanced-format">
+              <option value="wav">WAV（無圧縮・編集向け）</option>
+              <option value="flac">FLAC（可逆圧縮）</option>
+              <option value="mp3">MP3（配布向け）</option>
+              <option value="ogg">OGG（ゲーム向け）</option>
+            </select>
+          </label>
+          <label data-i18n="sampleRate">サンプルレート
+            <select id="advanced-sample-rate">
+              <option value="" data-i18n="auto">自動</option>
+              <option value="48000">48000 Hz（映像・ゲーム）</option>
+              <option value="44100">44100 Hz（音楽）</option>
+              <option value="24000">24000 Hz（音声）</option>
+              <option value="16000">16000 Hz（小型端末）</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label data-i18n="channels">チャンネル
+            <select id="advanced-channels">
+              <option value="" data-i18n="auto">自動</option>
+              <option value="1">モノラル</option>
+              <option value="2">ステレオ</option>
+            </select>
+          </label>
+          <label data-i18n="profileName">プロファイル名
+            <input id="advanced-profile" type="text" maxlength="120" placeholder="default">
+          </label>
+        </div>
+
+        <p class="section-label" data-i18n="advancedRouting">エンジンの指定</p>
+        <p class="hint" data-i18n="advancedRoutingHint">空欄なら、この機材で最も確実な経路を自動で選びます。</p>
+        <div class="form-row">
+          <label data-i18n="engine">エンジン
+            <input id="advanced-engine" type="text" maxlength="120" placeholder="auto">
+          </label>
+          <label data-i18n="model">モデル
+            <input id="advanced-model" type="text" maxlength="240" placeholder="auto">
+          </label>
+        </div>
+        <div class="form-row">
+          <label data-i18n="device">デバイス
+            <select id="advanced-device">
+              <option value="auto" data-i18n="auto">自動</option>
+              <option value="cpu">CPU</option>
+              <option value="cuda">GPU</option>
+            </select>
+          </label>
+          <label data-i18n="seed">シード
+            <input id="advanced-seed" type="number" inputmode="numeric" placeholder="指定しない">
+          </label>
+        </div>
+
+        <p class="section-label" data-i18n="advancedOutputTarget">書き出し先</p>
+        <div class="file-row">
+          <button type="button" id="advanced-project-pick" class="dropzone" data-i18n="chooseProjectOutput">＋ 書き出し先を選ぶ</button>
+          <button type="button" id="advanced-project-clear" hidden data-i18n="clearFile">使わない</button>
+        </div>
+        <p id="advanced-project-note" class="hint" data-i18n="projectOutputHint">選ぶと、できあがった音声をControlDeckのプロジェクトにも保存します。</p>
+      </div>
+    </template>
+
+    <template data-adv-template="task-speech">
+      <div class="advanced">
+        <p class="section-label" data-i18n="advancedSpeech">読み上げの詳細設定</p>
+        <label data-i18n="styleInstruction">話し方の指示（自由文）
+          <textarea id="advanced-style-instruction" maxlength="600" rows="3" placeholder="落ち着いた低めの声で、ゆっくり丁寧に読む"></textarea>
+        </label>
+        <p class="hint" data-i18n="styleInstructionHint">上の「話し方」プリセットより優先されます。空欄ならプリセットを使います。</p>
+      </div>
+    </template>
+
+    <template data-adv-template="task-transcribe">
+      <div class="advanced">
+        <p class="section-label" data-i18n="advancedTranscribe">文字起こしの詳細設定</p>
+        <p class="hint" data-i18n="advancedTranscribeHint">区切りと時刻は、この機材で採用されている経路が返せる範囲で結果に含まれます。</p>
+        <label class="check"><input id="advanced-timestamps" type="checkbox" checked> <span data-i18n="timestamps">区切りごとの時刻を表示する</span></label>
+      </div>
+    </template>
+
+    <template data-adv-template="task-sfx">
+      <div class="advanced">
+        <p class="section-label" data-i18n="advancedSfx">効果音の詳細設定</p>
+        <label data-i18n="lengthSeconds">長さ（0.1〜120秒）
+          <input id="advanced-duration" type="number" min="0.1" max="120" step="0.1" value="3">
+        </label>
+        <p class="hint" data-i18n="sfxAmbienceHint">「環境音」を選ぶと、単発の効果音ではなく持続する環境音として生成します。</p>
+      </div>
+    </template>
+
+    <template data-adv-template="task-music">
+      <div class="advanced">
+        <p class="section-label" data-i18n="advancedMusic">音楽の詳細設定</p>
+        <div class="form-row">
+          <label data-i18n="lengthSeconds">長さ（10〜600秒）
+            <input id="advanced-duration" type="number" min="10" max="600" step="1" value="30">
+          </label>
+          <label data-i18n="bpm">テンポ（BPM）
+            <input id="advanced-bpm" type="number" min="30" max="300" step="1" placeholder="指定しない">
+          </label>
+        </div>
+        <div id="advanced-bpm-chips" class="chips" role="group" data-i18n-label="bpm" aria-label="テンポ"></div>
+      </div>
+    </template>
+
+    <script src="app.js"></script>
+    <script src="localization.js"></script>
+  </body>
+</html>

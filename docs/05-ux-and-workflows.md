@@ -1,7 +1,7 @@
 # UX and Workflows
 
 Status: Normative product UX baseline  
-Date: 2026-08-25
+Date: 2026-08-28
 
 ## 1. UX principle
 
@@ -9,15 +9,16 @@ SonicForge exposes powerful speech/audio/music workflows without requiring users
 
 The product is **Japanese/English bilingual**, task-oriented and recommended-by-default.
 
-Settings use three levels:
+Settings use two levels, shown as one switch in the header — the same control, in the
+same place, as MediaForge:
 
 ```text
-Easy / かんたん
-Customize / 調整
-Expert / 詳細
+シンプル / Simple
+詳細 / Advanced
 ```
 
-Complexity is revealed by need, not shown all at once.
+Complexity is revealed by need, not shown all at once. Advanced reaches every public
+capability, but presents it as named choices rather than raw engine knobs.
 
 ## 2. Information architecture
 
@@ -29,30 +30,31 @@ Inside SonicForge:
 
 ```text
 Studio
-Voices
 Library
-Runtime
+Activity
+Pipeline        (Advanced only)
 ```
+
+Runtime setup, Voices, device pairing and diagnostics live behind the Settings entry in
+the header, which is where MediaForge puts the equivalent material.
 
 Studio task tabs:
 
 ```text
 Speech
 Transcribe
-SFX
+SFX             (includes ambience as a preset)
 Music
-Localization
+Localization    (Advanced only)
+Meeting         (Advanced only)
 ```
 
 This replaces the earlier redundant pattern where Create/Speech/Transcribe/Game Audio/Music all appeared as separate top-level destinations.
 
-Mobile target:
-
-```text
-Studio | Library | Jobs | More
-```
-
-`More` contains Voices/Runtime and less frequent administration.
+Mobile target: the same navigation becomes a fixed bottom tab bar; there is no separate
+mobile-only information architecture and no `More` bucket to get lost in. When setup is
+still required, the Settings entry carries a visible mark, because the header state pill
+is folded away at phone widths.
 
 ## 3. Localization / UI language
 
@@ -147,9 +149,13 @@ Selecting a card changes the Studio task tab; it does not create a second duplic
 
 Recent/running work can appear below as a small section with `View all` rather than dominating creation.
 
-## 7. Three-level settings pattern
+## 7. Two-level settings pattern
 
-### 7.1 Easy
+Simple carries what the earlier Easy level carried. Advanced carries the earlier Customize
+and Expert material, split into a per-task block and a shared block, so the number of
+switch positions matches MediaForge without hiding anything from people who need it.
+
+### 7.1 Simple
 
 Show only the decisions necessary for a good result.
 
@@ -192,7 +198,7 @@ Loop
 [ Create ]
 ```
 
-### 7.2 Customize
+### 7.2 Advanced — task block
 
 Show normalized outcome controls:
 
@@ -208,7 +214,7 @@ Show normalized outcome controls:
 
 These should remain understandable without knowing the engine.
 
-### 7.3 Expert
+### 7.3 Advanced — shared block
 
 May show:
 
@@ -220,7 +226,10 @@ May show:
 - detailed codec/sample settings
 - model residency/resource diagnostics
 
-Expert options are grouped and namespaced; they do not contaminate the stable normal settings schema.
+These options are grouped and namespaced; they do not contaminate the stable normal
+settings schema. Each is offered as a named choice where one exists — output format, sample
+rate, channels, device and tempo are selects or chips, not bare numbers — so reaching a
+capability never requires knowing an engine's vocabulary.
 
 ## 8. Contextual controls
 
@@ -237,7 +246,7 @@ Examples:
 
 ## 9. Speech Studio
 
-### Easy
+### Simple
 
 - text
 - voice
@@ -245,7 +254,7 @@ Examples:
 - simple style preset when supported
 - Preview / Generate
 
-### Customize
+### Advanced — task block
 
 - quality
 - speed
@@ -253,7 +262,7 @@ Examples:
 - pronunciation dictionary
 - output profile
 
-### Expert
+### Advanced — shared block
 
 - engine/model
 - detailed natural-language instruction
@@ -307,21 +316,21 @@ The confirmation is an auditable user statement, not legal certification by the 
 
 ## 12. Transcribe UX
 
-Easy:
+Simple:
 
 - audio
 - language Auto/Japanese/English
 - timestamps toggle
 - Transcribe
 
-Customize:
+Advanced — task block:
 
 - quality
 - punctuation/normalization
 - output: text/subtitle
 - segmentation mode
 
-Expert:
+Advanced — shared block:
 
 - engine/model
 - VAD/chunking thresholds
@@ -344,7 +353,7 @@ Loop
 Custom
 ```
 
-Easy:
+Simple:
 
 - description
 - type
@@ -352,14 +361,14 @@ Easy:
 - 2–3 variations default
 - loop yes/no when relevant
 
-Customize:
+Advanced — task block:
 
 - variation count
 - intensity/mood tags
 - loudness/export profile
 - loop policy
 
-Expert:
+Advanced — shared block:
 
 - engine/model/seed
 - model-native prompt/control options
@@ -376,7 +385,7 @@ One durable job can create a variation group with consistent metadata and scoped
 
 ## 14. Music UX
 
-Easy:
+Simple:
 
 - description
 - duration
@@ -384,7 +393,7 @@ Easy:
 - loop
 - Create
 
-Customize:
+Advanced — task block:
 
 - Fast/Recommended/High quality
 - BPM
@@ -392,7 +401,7 @@ Customize:
 - candidate count
 - output profile
 
-Expert:
+Advanced — shared block:
 
 - model/engine
 - key/time signature when supported
@@ -519,7 +528,7 @@ Japanese ASR         Available
 English ASR          Available/Degraded
 ```
 
-Expert/Diagnostics reveals engine/runtime/model details.
+Advanced mode's Diagnostics section reveals engine/runtime/model details.
 
 Actions:
 
@@ -630,7 +639,7 @@ Generate Audio
 Generate Music
 ```
 
-Keep the stable executor set small. Model pinning belongs to optional fields/Expert policy.
+Keep the stable executor set small. Model pinning belongs to optional fields and Advanced-mode policy.
 
 Unavailable saved nodes remain visible with an actionable reason; do not delete them.
 
@@ -660,4 +669,4 @@ Unavailable saved nodes remain visible with an actionable reason; do not delete 
 
 Japanese and English are equal product UI locales.
 
-Model/vendor jargon stays in Expert/Diagnostics unless required for license/source attribution.
+Model/vendor jargon stays in Advanced mode and Diagnostics unless required for license/source attribution.

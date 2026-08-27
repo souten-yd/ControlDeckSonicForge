@@ -373,6 +373,7 @@ async def context_open_audio(): return {"route": "/x/sonic-forge/workspace", "ta
 async def host_error_handler(_request: Request, exc: HostApiError): return JSONResponse(status_code=exc.status_code, content={"error": {"code": exc.code, "message": str(exc)}})
 
 frontend = settings.repo_root / "frontend"; schemas_dir = settings.repo_root / "schemas"
+BASE_MARKER = "<!-- SONIC_FORGE_BASE -->"
 
 
 def _inlined_frontend(entry: str) -> str:
@@ -404,12 +405,22 @@ def _inlined_frontend(entry: str) -> str:
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def embedded_workspace() -> HTMLResponse:
-    return HTMLResponse(_inlined_frontend("index.html"))
+    return HTMLResponse(_inlined_frontend("index.html").replace(BASE_MARKER, "", 1))
 
 
 @app.get("/settings/", response_class=HTMLResponse, include_in_schema=False)
 async def embedded_settings() -> HTMLResponse:
-    return HTMLResponse(_inlined_frontend("settings/index.html"))
+    """Serve the same workspace shell, opened on the settings view.
+
+    The settings entry point used to be a second hand-maintained copy of the
+    shell, which drifted from the workspace whenever a view was added. It is
+    the same application; only the entry view and the relative base differ.
+    """
+    document = _inlined_frontend("index.html")
+    document = document.replace(BASE_MARKER, '<base href="../">', 1)
+    return HTMLResponse(
+        document.replace('data-start-view="studio"', 'data-start-view="settings"', 1)
+    )
 
 
 if schemas_dir.is_dir(): app.mount("/schemas", StaticFiles(directory=schemas_dir), name="schemas")

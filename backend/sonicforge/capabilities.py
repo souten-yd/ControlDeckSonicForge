@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from . import __version__
 from .db import SetupComponent
 
 
@@ -26,7 +27,7 @@ def capability_document(session: Session, *, fake_enabled: bool = False) -> dict
         }
     return {
         "api_version": "1",
-        "service": {"id": "sonic-forge", "version": "0.1.0", "state": "available" if speech else "setup_required"},
+        "service": {"id": "sonic-forge", "version": __version__, "state": "available" if speech else "setup_required"},
         "setup": {
             "state": "available" if speech else "setup_required",
             "profile": "speech-essentials" if speech else None,

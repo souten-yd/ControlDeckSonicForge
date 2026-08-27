@@ -13,22 +13,55 @@ def test_health_and_capabilities(env):
         h=c.get('/health').json(); assert h['contract_version']=='2.0'; assert h['status']=='healthy'
         caps=c.get('/addon/v1/capabilities').json(); ids={x['id'] for x in caps['capabilities']}; assert 'speech.tts.synthesize' in ids; assert 'music.generate' in ids
 
+def _compact(value: str) -> str:
+    """Compare source invariants without pinning the authoring whitespace."""
+    return ''.join(value.split())
+
 def test_embedded_frontend_routes(env):
     m=load_app()
     with TestClient(m.app) as c:
         root=c.get('/'); assert root.status_code==200
         assert '<style>' in root.text and 'renderLocalizationBatch' in root.text and 'control-deck-addon.connect' in root.text
         assert '<link rel="stylesheet" href="styles.css">' not in root.text and '<script src="app.js"></script>' not in root.text and '<script src="localization.js"></script>' not in root.text
-        settings=c.get('/settings/'); assert settings.status_code==200 and '<base href="../">' in settings.text and 'data-view="runtime"' in settings.text
+        assert '<base href="../">' not in root.text and 'data-start-view="studio"' in root.text
+        settings=c.get('/settings/'); assert settings.status_code==200 and '<base href="../">' in settings.text and 'data-start-view="settings"' in settings.text
         assert '<style>' in settings.text and 'control-deck-addon.connect' in settings.text
         assert '<link rel="stylesheet" href="styles.css">' not in settings.text and '<script src="app.js"></script>' not in settings.text and '<script src="localization.js"></script>' not in settings.text
         localization=c.get('/localization.js'); assert localization.status_code==200 and 'renderLocalizationBatch' in localization.text
         app_js=c.get('/app.js'); assert app_js.status_code==200
-        assert "X-Control-Deck-Bridge-Session" in app_js.text and "credentials='include'" in app_js.text
+        assert "X-Control-Deck-Bridge-Session" in app_js.text and _compact("credentials = 'include'") in _compact(app_js.text)
         assert "control-deck-bridge.${state.nonce}" in app_js.text
-        assert "#mobileNav button" in app_js.text and "loadActiveJobs" in app_js.text
+        assert "#shell-nav button" in app_js.text and "loadActiveJobs" in app_js.text
         styles=c.get('/styles.css'); assert styles.status_code==200
-        assert "safe-area-inset-bottom" in styles.text and "min-height:44px" in styles.text
+        # モバイルの下端と、指で押せる大きさ。どちらも欠けると実機で使えなくなる。
+        assert "safe-area-inset-bottom" in styles.text and _compact("min-height: 44px") in _compact(styles.text)
+        assert _compact("--tabbar: 60px") in _compact(styles.text)
+
+def test_simple_and_advanced_modes_are_wired(env):
+    """シンプル/詳細の切り替えと、詳細だけの断片が実際に存在すること。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        root=c.get('/').text
+        assert 'id="mode-simple"' in root and 'id="mode-advanced"' in root
+        for name in ('common', 'task-speech', 'task-transcribe', 'task-sfx', 'task-music'):
+            assert f'data-adv-template="{name}"' in root
+        assert 'data-adv-slot="task"' in root and 'data-adv-slot="common"' in root
+        # 詳細でしか出さないものは、シンプルの初期状態で hidden になっている。
+        assert 'data-advanced-only hidden' in root
+
+def test_advanced_surfaces_every_public_capability(env):
+    """詳細モードから到達できる先が、公開APIの機能を取りこぼしていないこと。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        app_js=c.get('/app.js').text
+        for path in ('/pipelines/compile', '/pipelines', '/delivery/audio/profiles',
+                     '/devices/pairings', '/meetings', '/setup/plan', '/voices',
+                     '/localization/batches', '/assets/'):
+            assert path in app_js or path in c.get('/localization.js').text
+        for task in ('speech.tts.synthesize', 'speech.asr.transcribe',
+                     'audio.sfx.generate', 'audio.ambience.generate', 'music.generate'):
+            assert task in app_js
+        assert 'speech.localization.batch' in c.get('/localization.js').text
 
 def test_fake_generation_persists_asset(env):
     m=load_app()

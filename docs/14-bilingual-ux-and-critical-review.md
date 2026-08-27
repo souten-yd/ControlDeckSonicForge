@@ -11,7 +11,7 @@ This review makes the following product-level changes:
 
 1. **Japanese and English become first-class supported speech languages.** Japanese remains a quality priority, not an exclusive mode.
 2. UI locale and speech-content language are separate concepts.
-3. Settings use **three levels**: Easy / Customize / Expert, not a binary Simple/Advanced split.
+3. Settings use **two levels**: シンプル / 詳細 (Simple / Advanced). This supersedes the three-level Easy / Customize / Expert model originally proposed here — see §3.
 4. Recommended first setup installs **Speech Essentials** by default; SFX and Music are optional one-click packs rather than mandatory multi-GB first-run downloads.
 5. The workspace is simplified to **Studio / Voices / Library / Runtime**, with task tabs inside Studio.
 6. New **Localization Studio** workflows support paired Japanese/English game dialogue and batch export.
@@ -65,9 +65,19 @@ Support:
 
 When the language is known, explicit language should be preferred over auto-detection for predictable pronunciation and routing.
 
-## 3. Three-level settings model
+## 3. Two-level settings model
 
 The UI should not expose every model parameter simply because an engine has it.
+
+> **Superseded, 2026-08-28.** This section originally specified three levels
+> (Easy / Customize / Expert) and argued explicitly against a binary split. The shipped UI
+> uses two: シンプル / 詳細. The concern that motivated three levels — that "Advanced"
+> becomes a dumping ground of engine knobs — is addressed structurally instead: Advanced is
+> split into a per-task block and a shared block, and every setting is offered as a named
+> choice where one exists. The reason for the change is product unification: ControlDeck
+> ships MediaForge and SonicForge together, and two different disclosure models made the
+> pair read as two unrelated products. Read "Easy" below as Simple, and "Customize"/"Expert"
+> as the two blocks of Advanced.
 
 ### Level 1 — Easy / かんたん
 

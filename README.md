@@ -18,7 +18,7 @@ It is deliberately isolated from ControlDeck core and from MediaForge runtime en
 - durable jobs, cancellation, reconnect/resume, progress and provenance
 - ControlDeck Add-on Platform v2 / AI Resource Broker integration
 - shared ControlDeck Generic AI/Media Gateway control plane aligned with MediaForge
-- **Easy / Customize / Expert** progressive settings instead of exposing model knobs by default
+- **シンプル / 詳細 (Simple / Advanced)** progressive settings instead of exposing model knobs by default, matching the MediaForge switch
 - one-click **Speech Essentials** provisioning, with Game Audio and Music as optional one-click packs
 - publisher-signed ControlDeck release bundles using the MediaForge Ed25519 manifest pattern
 
@@ -115,12 +115,18 @@ When these disagree with this repository, stop implementation, identify which co
 Normal users should not need to choose a model. The default pattern is:
 
 ```text
-Easy       task + a few meaningful choices
-Customize  common outcome controls
-Expert     engine/model/seed/runtime and model-native details
+シンプル / Simple    task + a few meaningful choices, everything else recommended
+詳細 / Advanced      outcome controls, engine/model/seed/runtime and model-native details,
+                     grouped per task and presented as named choices rather than raw knobs
 ```
 
-Studio contains Speech / Transcribe / SFX / Music / Localization task tabs, while top-level in-app navigation stays small: Studio / Voices / Library / Runtime.
+The switch is the same control MediaForge uses, in the same place, so the two Add-ons
+read as one product. Advanced keeps the former Customize and Expert material, split into
+a per-task block and a shared block; it never becomes a wall of numeric fields.
+
+Studio contains Speech / Transcribe / SFX / Music task tabs, with Localization and Meeting
+added in Advanced. Top-level in-app navigation stays small: Studio / Library / Activity,
+plus Pipeline in Advanced, with Runtime setup, Voices and devices behind the Settings entry.
 
 ## Implementation direction
 

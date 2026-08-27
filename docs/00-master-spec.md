@@ -31,24 +31,30 @@ Users and agents ask for outcomes:
 - generate a UI sound, impact, ambience or loop
 - create BGM with a target mood/BPM/duration
 
-Public APIs express outcomes. Engine/model selection is a routing decision unless explicitly pinned in Expert settings.
+Public APIs express outcomes. Engine/model selection is a routing decision unless explicitly pinned in Advanced settings.
 
 ### 2.2 Separate process, separate environment
 
 SonicForge is a real Add-on service and never becomes a package imported by ControlDeck.
 Its core/runtime/model/data environments are SonicForge-owned and are not shared with ControlDeck or MediaForge.
 
-### 2.3 Easy first, detail on demand
+### 2.3 Simple first, detail on demand
 
-The UI uses three disclosure levels:
+The UI uses two disclosure levels, shown as one switch in the header:
 
 ```text
-Easy       3–5 task-level inputs and recommended defaults
-Customize  common outcome controls independent of a particular engine
-Expert     engine/model/seed/runtime and engine-native details
+シンプル / Simple    3–5 task-level inputs and recommended defaults
+詳細 / Advanced      outcome controls, plus engine/model/seed/runtime and engine-native
+                     details, grouped into a per-task block and a shared block
 ```
 
-Expert mode must never be required for an ordinary successful job.
+The earlier three-level model (Easy / Customize / Expert) collapses into these two.
+The content is unchanged: Simple carries what Easy carried, and Advanced carries the
+Customize and Expert material in named, grouped form. The reason for the change is
+product unification — ControlDeck ships MediaForge and SonicForge side by side, and a
+different number of switch positions in each made the pair read as two products.
+
+Advanced mode must never be required for an ordinary successful job.
 
 ### 2.4 Setup is a product feature
 
@@ -220,17 +226,21 @@ Studio | Library | Jobs | More
 
 ## 6. Primary UX patterns
 
-### Easy
+### Simple
 
 Use task presets and smart routing. Do not show model names.
 
-### Customize
+### Advanced
 
-Show normalized controls that describe outcomes, such as speed, emotion strength, BPM, loop behavior, variations, quality and output profile.
+Two grouped blocks per task, in this order:
 
-### Expert
+1. task detail — normalized controls that describe outcomes, such as delivery instruction,
+   length, BPM, loop behavior, variations and timestamps;
+2. shared detail — quality, output format/sample rate/channels, profile name, model/engine
+   pins, seed, device/runtime and the project output destination.
 
-Show model/engine pins, seed, engine-native parameters, device/runtime, chunking/VAD thresholds and diagnostics.
+Every field offers named choices where a named choice exists; free numeric entry is the
+fallback, not the first offer.
 
 ### Preview / Render Final
 
@@ -361,7 +371,7 @@ V1 is successful when a user can:
 2. receive provisioned Speech Essentials as part of the single trusted Feature install action;
 3. synthesize useful Japanese and English speech;
 4. transcribe useful Japanese and English audio and representative mixed-language cases;
-5. complete normal speech/audio/music tasks without Expert settings;
+5. complete normal speech/audio/music tasks without leaving Simple mode;
 6. optionally install Game Audio/Music without reinstalling Speech Essentials;
 7. produce at least one useful SFX class and one useful music/BGM class;
 8. navigate/background the client and return to a still-running durable job;

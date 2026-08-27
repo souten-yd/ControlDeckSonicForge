@@ -1,65 +1,2916 @@
-const I18N={
-  ja:{studio:'スタジオ',voices:'ボイス',library:'ライブラリ',runtime:'ランタイム',jobs:'ジョブ',more:'その他',manageVoices:'ボイスプロファイルの作成と管理',manageRuntime:'ランタイムと追加パックのセットアップ',noJobs:'ジョブはまだありません',speech:'音声生成',transcribeTab:'文字起こし',sfx:'効果音',music:'音楽',localization:'ローカライズ',easy:'かんたん',customize:'カスタマイズ',expert:'エキスパート',setup:'音声基本環境をセットアップ',generate:'生成',transcribe:'文字起こし',description:'説明',text:'テキスト',language:'言語',voice:'ボイス',audio:'音声',length:'長さ',localizationStudio:'ローカライズスタジオ',localizationHint:'1行ごとに line_id | キャラクター | 日本語 | English を入力します。',batchName:'バッチ名',createBatch:'バッチを作成',recommended:'おすすめ',optional:'任意パック',selectAudio:'音声ファイルを選択',noAudio:'音声ファイルを選択してください',bridgeOnly:'ControlDeckから開いて選択してください',clone:'参照音声から作成',design:'声をデザイン',builtIn:'組み込みボイス',save:'保存',name:'名前',rights:'この音声を利用・複製する権利があることを確認します',terms:'Stability AI Community Licenseを確認・同意しました',install:'セットアップ',musicStatus:'MusicのROCm経路は対象PCで実機検証済みです。',setupRequired:'この機能の追加セットアップが必要です'},
-  en:{studio:'Studio',voices:'Voices',library:'Library',runtime:'Runtime',jobs:'Jobs',more:'More',manageVoices:'Create and manage voice profiles',manageRuntime:'Set up runtimes and optional packs',noJobs:'No jobs yet',speech:'Speech',transcribeTab:'Transcribe',sfx:'SFX',music:'Music',localization:'Localization',easy:'Easy',customize:'Customize',expert:'Expert',setup:'Set up Speech Essentials',generate:'Generate',transcribe:'Transcribe',description:'Description',text:'Text',language:'Language',voice:'Voice',audio:'Audio',length:'Length',localizationStudio:'Localization Studio',localizationHint:'Enter one row per line: line_id | character | Japanese | English.',batchName:'Batch name',createBatch:'Create batch',recommended:'Recommended',optional:'Optional packs',selectAudio:'Choose audio file',noAudio:'Choose an audio file first',bridgeOnly:'Open from ControlDeck to choose a file',clone:'Create from reference audio',design:'Design a voice',builtIn:'Built-in voice',save:'Save',name:'Name',rights:'I confirm that I have the rights/permission to use and clone this voice',terms:'I reviewed and accept the Stability AI Community License',install:'Set up',musicStatus:'The Music ROCm route has passed target-PC validation.',setupRequired:'This capability needs an optional setup pack'}
+/* SonicForge workspace.
+   MediaForge と同じ組み立て方をする。ホストの handshake でテーマ・ロケール・
+   セーフエリアを受け取り、表示は「シンプル / 詳細」の 2 段だけに畳む。
+   詳細だけの断片は <template> から差し込み、シンプルでは DOM から外す。 */
+
+const I18N = {
+  ja: {
+    localOnlyHint: "音声の生成と文字起こしはこの端末の中だけで実行されます",
+    localOnly: "ローカルのみ",
+    displayMode: "表示モード",
+    modeSimple: "シンプル",
+    modeAdvanced: "詳細",
+    settings: "設定",
+    settingsTitle: "ランタイムとボイスの設定",
+    studio: "スタジオ",
+    library: "ライブラリ",
+    activity: "状況",
+    pipeline: "パイプライン",
+
+    whatToMake: "作るもの",
+    taskSpeech: "音声",
+    taskTranscribe: "文字起こし",
+    taskSfx: "効果音",
+    taskMusic: "音楽",
+    taskLocalization: "ローカライズ",
+    taskMeeting: "会議",
+    summarySpeech: "書いた文章を、選んだ声で読み上げます。",
+    summaryTranscribe: "音声ファイルから文字を起こします。",
+    summarySfx: "説明した音を、短い効果音として作ります。",
+    summaryMusic: "説明した雰囲気のBGMを作ります。",
+    summaryLocalization: "日本語と英語のセリフをまとめて生成します。",
+    summaryMeeting: "話している内容をその場で文字にして残します。",
+
+    speechTextLabel: "読み上げるテキスト",
+    speechStyle: "話し方",
+    contentLanguage: "言語",
+    speechLanguageLabel: "読み上げる言語",
+    transcribeLanguageLabel: "話されている言語",
+    voice: "ボイス",
+    builtInVoice: "組み込みボイス（おまかせ）",
+    audioFile: "音声ファイル",
+    chooseAudio: "＋ 音声ファイルを選ぶ",
+    clearFile: "使わない",
+    sfxPromptLabel: "どんな音ですか？",
+    sfxKind: "音の種類",
+    musicPromptLabel: "どんな曲ですか？",
+    musicMood: "雰囲気",
+    length: "長さ",
+    instrumental: "歌なし（BGM）",
+    create: "作る",
+    creating: "作っています…",
+    transcribeAction: "文字起こしする",
+    resetForm: "入力と設定を初期に戻す",
+    refresh: "一覧を更新",
+    filter: "絞り込み",
+
+    auto: "自動",
+    japanese: "日本語",
+    english: "English",
+    quality: "品質",
+    qualityFast: "速さ優先",
+    qualityBalanced: "おすすめ",
+    qualityHigh: "品質優先",
+
+    styleAuto: "おまかせ",
+    styleGentle: "やさしく",
+    styleBright: "元気に",
+    styleCalm: "落ち着いて",
+    styleNarration: "ナレーション",
+
+    sfxUi: "UI音",
+    sfxImpact: "打撃・衝撃",
+    sfxMechanical: "機械",
+    sfxMagic: "魔法・SF",
+    sfxFoley: "足音・生活音",
+    sfxAmbience: "環境音",
+    sfxCustom: "指定しない",
+
+    moodAuto: "おまかせ",
+    moodCalm: "静か・落ち着いた",
+    moodEnergetic: "明るい・元気",
+    moodTense: "緊張感",
+    moodEpic: "壮大",
+    moodRetro: "レトロ",
+
+    bpmSlow: "ゆっくり",
+    bpmMedium: "標準",
+    bpmFast: "速い",
+    bpmNone: "指定しない",
+
+    advancedCommon: "共通の詳細設定",
+    advancedSpeech: "読み上げの詳細設定",
+    advancedTranscribe: "文字起こしの詳細設定",
+    advancedTranscribeHint: "区切りと時刻は、この機材で採用されている経路が返せる範囲で結果に含まれます。",
+    advancedSfx: "効果音の詳細設定",
+    advancedMusic: "音楽の詳細設定",
+    advancedRouting: "エンジンの指定",
+    advancedRoutingHint: "空欄なら、この機材で最も確実な経路を自動で選びます。",
+    advancedOutputTarget: "書き出し先",
+    outputFormat: "出力形式",
+    sampleRate: "サンプルレート",
+    channels: "チャンネル",
+    profileName: "プロファイル名",
+    engine: "エンジン",
+    model: "モデル",
+    device: "デバイス",
+    seed: "シード",
+    styleInstruction: "話し方の指示（自由文）",
+    styleInstructionHint: "上の「話し方」プリセットより優先されます。空欄ならプリセットを使います。",
+    timestamps: "区切りごとの時刻を表示する",
+    lengthSeconds: "長さ（秒）",
+    bpm: "テンポ（BPM）",
+    sfxAmbienceHint: "「環境音」を選ぶと、単発の効果音ではなく持続する環境音として生成します。",
+    chooseProjectOutput: "＋ 書き出し先を選ぶ",
+    projectOutputHint: "選ぶと、できあがった音声をControlDeckのプロジェクトにも保存します。",
+    projectOutputSelected: "書き出し先を選びました。",
+    promptPreview: "送信する説明",
+
+    preparing: "準備しています",
+    running: "生成しています",
+    queued: "順番を待っています",
+    done: "できあがりました",
+    failed: "できませんでした",
+    canceled: "中止しました",
+    cancel: "中止",
+    makeAnother: "もう一度作る",
+    exportAsset: "書き出す",
+    details: "詳細",
+    close: "閉じる",
+    back: "戻る",
+    save: "保存",
+    delete: "削除する",
+    recent: "最近作ったもの",
+    recentEmpty: "まだ何もありません。作りたいものを書いて「作る」を押してください。",
+    noJobs: "実行中・完了した処理はありません。",
+    libraryEmpty: "まだ音声がありません。",
+
+    exportTitle: "音声を書き出す",
+    exportProfile: "書き出しプロファイル",
+    filename: "ファイル名",
+    exportToProject: "ControlDeckのプロジェクトへ書き出す",
+    exportStarted: "書き出しを開始しました。",
+
+    runtimeTitle: "利用できる機能",
+    runtimeHint: "必要なものだけを、必要になったときに準備します。音声を使うだけなら「音声基本環境」だけで足ります。",
+    setupPlan: "準備の内訳とハードウェア",
+    setupProfile: "まとめて準備する",
+    setupStart: "この内容で準備する",
+    recheck: "内訳を確認",
+    setUp: "セットアップ",
+    repair: "修復",
+    update: "更新",
+    openSetup: "セットアップを開く",
+    setupRequired: "この機能にはセットアップが必要です",
+    componentCore: "SonicForge本体",
+    componentSpeech: "音声基本環境",
+    componentSpeechDetail: "日本語・英語の音声合成と文字起こし",
+    componentGame: "ゲーム音声",
+    componentGameDetail: "効果音と環境音の生成（Stable Audio 3 Small-SFX）",
+    componentMusic: "音楽生成",
+    componentMusicDetail: "BGMと楽曲の生成（ACE-Step 1.5）",
+    profileSpeech: "音声基本環境だけ",
+    profileGame: "ゲーム音声を追加",
+    profileMusic: "音楽生成を追加",
+    profileFull: "すべて（フルスタジオ）",
+    profileCpu: "CPUだけで動く構成",
+    termsStability: "Stability AI Community Licenseを確認し、同意しました",
+    termsRequired: "先にライセンスへの同意が必要です。",
+    backend: "演算バックエンド",
+    freeSpace: "空き容量",
+    requiredSpace: "必要な容量の見込み",
+    platform: "プラットフォーム",
+    blockers: "準備できない理由",
+    diagnostics: "診断情報",
+    capabilityDetail: "機能ごとの状態",
+
+    voicesTitle: "ボイス",
+    voicesHint: "同じ話し手を何度も使うために覚えさせておけます。スタジオの「音声」で選べます。",
+    voicesEmpty: "まだ登録がありません。組み込みボイスがそのまま使えます。",
+    voiceAdd: "＋ ボイスを作る",
+    voiceKind: "作り方",
+    voiceBuiltIn: "組み込みの声を選ぶ",
+    voiceDesign: "声を言葉でデザインする",
+    voiceClone: "参照音声から作る",
+    voiceBuiltInHint: "用意されている話者から選びます。権利の確認は要りません。",
+    voiceDesignHint: "どんな声かを言葉で書くと、その特徴に寄せた声を作ります。",
+    voiceCloneHint: "手元の音声に似せた声を作ります。利用する権利があることの確認が要ります。",
+    voiceSpeaker: "話者",
+    voiceInstruction: "声の説明",
+    voiceReference: "参照音声",
+    voiceReferenceText: "参照音声の書き起こし（任意）",
+    voiceLanguages: "使う言語",
+    voiceRights: "この音声を利用・複製する権利があることを確認します",
+    voiceRightsRequired: "権利の確認にチェックが必要です。",
+    name: "名前",
+    nameRequired: "名前を入力してください。",
+    deleteVoiceTitle: "このボイスを削除しますか？",
+    deleteVoiceBody: "このボイスを使った既存の音声は残りますが、これ以降は選べなくなります。",
+
+    devicesTitle: "音声エージェント端末",
+    devicesHint: "M5などの小型端末をControlDeck経由でペアリングします。端末側のファームウェアはここでは扱いません。",
+    deviceLabel: "端末の名前",
+    deviceRelay: "中継",
+    devicePair: "ペアリングを作る",
+
+    pipelineTitle: "音声パイプライン",
+    pipelineHint: "文字起こし・ControlDeckのAI・読み上げ・効果音・音楽を、順番につないで一度に実行します。",
+    pipelinePreset: "よく使う組み合わせ",
+    pipelineInput: "入力",
+    pipelineStages: "処理の並び",
+    pipelineDelivery: "受け取り方",
+    startAt: "開始する段",
+    stopAfter: "終了する段",
+    deliveryMode: "形式",
+    validate: "組み合わせを確認",
+    run: "実行",
+    fromLibrary: "ライブラリから選ぶ",
+    inputText: "文章",
+    inputFile: "音声ファイル",
+    inputAsset: "ライブラリの音声",
+    stageAsr: "文字起こし",
+    stageAi: "ControlDeckのAI",
+    stageTts: "読み上げ",
+    stageSfx: "効果音",
+    stageMusic: "音楽",
+    stageProcess: "音声の整形",
+    deliveryText: "文字だけ受け取る",
+    deliveryAsset: "ライブラリに保存",
+    deliveryProject: "プロジェクトへ書き出す",
+    presetDub: "文字起こし → 翻訳 → 読み上げ",
+    presetTranscribe: "文字起こしだけ",
+    presetSpeak: "読み上げだけ",
+    presetRewrite: "文字起こし → 要約",
+    pipelineValid: "この組み合わせで実行できます",
+    pipelineOutputText: "受け取るのは文字です",
+    pipelineOutputAudio: "受け取るのは音声です",
+
+    localizationTitle: "ローカライズスタジオ",
+    localizationHint: "1行につき「ID | キャラクター | 日本語 | English」を入力します。CSVを貼り付けても構いません。",
+    batchName: "バッチ名",
+    createBatch: "バッチを作って生成",
+    openBatch: "既存のバッチを開く",
+    renderPending: "未生成を生成",
+    renderFailed: "失敗のみ再生成",
+    renderChanged: "変更のみ再生成",
+    renderAll: "すべて再生成",
+    filenamePattern: "ファイル名の付け方",
+    lineId: "ID",
+    character: "キャラクター",
+    status: "状態",
+    locales: "生成する言語",
+    noLines: "行がありません。上のテキスト欄に入力してください。",
+
+    meetingTitle: "会議の文字起こし",
+    meetingHint: "マイクの音声をその場で文字にします。翻訳と要約はControlDeckのAIを使います。",
+    meetingStart: "録音を開始",
+    meetingStop: "停止して仕上げる",
+    meetingRecording: "録音中",
+    meetingTitleField: "会議名",
+    meetingTranslate: "翻訳する",
+    meetingSummarize: "終わったら要約する",
+    meetingTargetLanguage: "翻訳先",
+    meetingChunk: "区切りの長さ（秒）",
+    meetingPast: "これまでの会議",
+    meetingNoPast: "まだ記録がありません。",
+    meetingTranscript: "全文を開く",
+    meetingMicDenied: "マイクを使えませんでした。ControlDeck側でマイクの利用を許可してください。",
+    meetingMicUnsupported: "このブラウザではマイクからの録音に対応していません。",
+    meetingSummary: "要約",
+
+    stateAvailable: "利用可能",
+    statePreparing: "準備中",
+    stateSetupRequired: "セットアップが必要",
+    stateUnavailable: "利用不可",
+    stateFailed: "失敗",
+    stateQueued: "待機中",
+    stateRunning: "実行中",
+    stateSucceeded: "完了",
+    stateCanceled: "中止",
+    provenance: "生成の記録",
+    audioAsset: "音声",
+    aiInstruction: "AIへの指示",
+    inputLevel: "入力レベル",
+    itemCount: "件",
+
+    needText: "文章を入力してください。",
+    needPrompt: "どんな音・曲かを書いてください。",
+    needAudio: "先に音声ファイルを選んでください。",
+    bridgeOnly: "この操作はControlDeckから開いたときだけ使えます。",
+    genericError: "うまくいきませんでした。",
+  },
+  en: {
+    localOnlyHint: "Generation and transcription run only on this machine",
+    localOnly: "Local only",
+    displayMode: "Display mode",
+    modeSimple: "Simple",
+    modeAdvanced: "Advanced",
+    settings: "Settings",
+    settingsTitle: "Runtime and voice settings",
+    studio: "Studio",
+    library: "Library",
+    activity: "Activity",
+    pipeline: "Pipeline",
+
+    whatToMake: "What to make",
+    taskSpeech: "Speech",
+    taskTranscribe: "Transcribe",
+    taskSfx: "SFX",
+    taskMusic: "Music",
+    taskLocalization: "Localization",
+    taskMeeting: "Meeting",
+    summarySpeech: "Read your text aloud with the voice you choose.",
+    summaryTranscribe: "Turn an audio file into text.",
+    summarySfx: "Create a short sound effect from a description.",
+    summaryMusic: "Create background music from a description.",
+    summaryLocalization: "Render Japanese and English dialogue lines together.",
+    summaryMeeting: "Capture what is being said as text, as it happens.",
+
+    speechTextLabel: "Text to read",
+    speechStyle: "Delivery",
+    contentLanguage: "Language",
+    speechLanguageLabel: "Language to read in",
+    transcribeLanguageLabel: "Language being spoken",
+    voice: "Voice",
+    builtInVoice: "Built-in voice (recommended)",
+    audioFile: "Audio file",
+    chooseAudio: "+ Choose an audio file",
+    clearFile: "Remove",
+    sfxPromptLabel: "What does it sound like?",
+    sfxKind: "Kind of sound",
+    musicPromptLabel: "What kind of music?",
+    musicMood: "Mood",
+    length: "Length",
+    instrumental: "Instrumental (BGM)",
+    create: "Create",
+    creating: "Creating…",
+    transcribeAction: "Transcribe",
+    resetForm: "Reset input and settings",
+    refresh: "Refresh",
+    filter: "Filter",
+
+    auto: "Auto",
+    japanese: "日本語",
+    english: "English",
+    quality: "Quality",
+    qualityFast: "Faster",
+    qualityBalanced: "Recommended",
+    qualityHigh: "Higher quality",
+
+    styleAuto: "Recommended",
+    styleGentle: "Gentle",
+    styleBright: "Bright",
+    styleCalm: "Calm",
+    styleNarration: "Narration",
+
+    sfxUi: "UI",
+    sfxImpact: "Impact",
+    sfxMechanical: "Mechanical",
+    sfxMagic: "Magic / Sci-fi",
+    sfxFoley: "Footsteps / Foley",
+    sfxAmbience: "Ambience",
+    sfxCustom: "No preset",
+
+    moodAuto: "Recommended",
+    moodCalm: "Calm",
+    moodEnergetic: "Energetic",
+    moodTense: "Tense",
+    moodEpic: "Epic",
+    moodRetro: "Retro",
+
+    bpmSlow: "Slow",
+    bpmMedium: "Medium",
+    bpmFast: "Fast",
+    bpmNone: "Unset",
+
+    advancedCommon: "Shared advanced settings",
+    advancedSpeech: "Speech advanced settings",
+    advancedTranscribe: "Transcription advanced settings",
+    advancedTranscribeHint: "Segments and timings are included as far as the adopted route can report them.",
+    advancedSfx: "Sound effect advanced settings",
+    advancedMusic: "Music advanced settings",
+    advancedRouting: "Engine selection",
+    advancedRoutingHint: "Leave blank to let SonicForge pick the most reliable route for this machine.",
+    advancedOutputTarget: "Output destination",
+    outputFormat: "Output format",
+    sampleRate: "Sample rate",
+    channels: "Channels",
+    profileName: "Profile name",
+    engine: "Engine",
+    model: "Model",
+    device: "Device",
+    seed: "Seed",
+    styleInstruction: "Delivery instruction (free text)",
+    styleInstructionHint: "Takes precedence over the preset above. Leave blank to use the preset.",
+    timestamps: "Show a timestamp for each segment",
+    lengthSeconds: "Length (seconds)",
+    bpm: "Tempo (BPM)",
+    sfxAmbienceHint: "Ambience produces a sustained background instead of a one-shot effect.",
+    chooseProjectOutput: "+ Choose a destination",
+    projectOutputHint: "The finished audio is also written to the ControlDeck project you choose.",
+    projectOutputSelected: "Destination selected.",
+    promptPreview: "Description sent",
+
+    preparing: "Preparing",
+    running: "Generating",
+    queued: "Waiting in queue",
+    done: "Ready",
+    failed: "Did not finish",
+    canceled: "Canceled",
+    cancel: "Cancel",
+    makeAnother: "Make another",
+    exportAsset: "Export",
+    details: "Details",
+    close: "Close",
+    back: "Back",
+    save: "Save",
+    delete: "Delete",
+    recent: "Recent",
+    recentEmpty: "Nothing yet. Describe what you want and press Create.",
+    noJobs: "No running or finished work yet.",
+    libraryEmpty: "No audio yet.",
+
+    exportTitle: "Export audio",
+    exportProfile: "Delivery profile",
+    filename: "File name",
+    exportToProject: "Write into the ControlDeck project",
+    exportStarted: "Export started.",
+
+    runtimeTitle: "Available capabilities",
+    runtimeHint: "Prepare only what you need, when you need it. Speech Essentials alone covers speech and transcription.",
+    setupPlan: "What will be prepared, and hardware",
+    setupProfile: "Prepare together",
+    setupStart: "Prepare this",
+    recheck: "Check again",
+    setUp: "Set up",
+    repair: "Repair",
+    update: "Update",
+    openSetup: "Open setup",
+    setupRequired: "This capability needs setup first",
+    componentCore: "SonicForge core",
+    componentSpeech: "Speech Essentials",
+    componentSpeechDetail: "Japanese/English speech synthesis and transcription",
+    componentGame: "Game Audio",
+    componentGameDetail: "Sound effects and ambience (Stable Audio 3 Small-SFX)",
+    componentMusic: "Music",
+    componentMusicDetail: "Background music and songs (ACE-Step 1.5)",
+    profileSpeech: "Speech Essentials only",
+    profileGame: "Add Game Audio",
+    profileMusic: "Add Music",
+    profileFull: "Everything (Full Studio)",
+    profileCpu: "CPU-only setup",
+    termsStability: "I reviewed and accept the Stability AI Community License",
+    termsRequired: "Accept the license first.",
+    backend: "Compute backend",
+    freeSpace: "Free space",
+    requiredSpace: "Estimated space needed",
+    platform: "Platform",
+    blockers: "Why it cannot be prepared",
+    diagnostics: "Diagnostics",
+    capabilityDetail: "Capability states",
+
+    voicesTitle: "Voices",
+    voicesHint: "Save a speaker to reuse it. Saved voices appear in the Speech task.",
+    voicesEmpty: "Nothing saved yet. The built-in voices work as they are.",
+    voiceAdd: "+ Create a voice",
+    voiceKind: "How to create it",
+    voiceBuiltIn: "Pick a built-in speaker",
+    voiceDesign: "Describe the voice in words",
+    voiceClone: "Build from reference audio",
+    voiceBuiltInHint: "Choose from the shipped speakers. No rights confirmation needed.",
+    voiceDesignHint: "Describe the voice you want and SonicForge steers towards it.",
+    voiceCloneHint: "Match a voice from your own audio. Requires a rights confirmation.",
+    voiceSpeaker: "Speaker",
+    voiceInstruction: "Voice description",
+    voiceReference: "Reference audio",
+    voiceReferenceText: "Reference transcript (optional)",
+    voiceLanguages: "Languages",
+    voiceRights: "I confirm I have the right to use and clone this voice",
+    voiceRightsRequired: "The rights confirmation is required.",
+    name: "Name",
+    nameRequired: "Enter a name.",
+    deleteVoiceTitle: "Delete this voice?",
+    deleteVoiceBody: "Audio already generated with it stays, but the voice can no longer be selected.",
+
+    devicesTitle: "Voice agent devices",
+    devicesHint: "Pair a small device such as an M5 through ControlDeck. Device firmware is out of scope here.",
+    deviceLabel: "Device name",
+    deviceRelay: "Relay",
+    devicePair: "Create a pairing",
+
+    pipelineTitle: "Audio pipeline",
+    pipelineHint: "Chain transcription, the ControlDeck AI, speech, sound effects and music into one run.",
+    pipelinePreset: "Common chains",
+    pipelineInput: "Input",
+    pipelineStages: "Stages",
+    pipelineDelivery: "Delivery",
+    startAt: "Start at",
+    stopAfter: "Stop after",
+    deliveryMode: "Form",
+    validate: "Check the chain",
+    run: "Run",
+    fromLibrary: "Pick from the library",
+    inputText: "Text",
+    inputFile: "Audio file",
+    inputAsset: "Library audio",
+    stageAsr: "Transcribe",
+    stageAi: "ControlDeck AI",
+    stageTts: "Speak",
+    stageSfx: "Sound effect",
+    stageMusic: "Music",
+    stageProcess: "Audio processing",
+    deliveryText: "Text only",
+    deliveryAsset: "Save to library",
+    deliveryProject: "Write to a project",
+    presetDub: "Transcribe → translate → speak",
+    presetTranscribe: "Transcribe only",
+    presetSpeak: "Speak only",
+    presetRewrite: "Transcribe → summarize",
+    pipelineValid: "This chain can run",
+    pipelineOutputText: "You receive text",
+    pipelineOutputAudio: "You receive audio",
+
+    localizationTitle: "Localization Studio",
+    localizationHint: "One row per line: ID | character | Japanese | English. Pasted CSV works too.",
+    batchName: "Batch name",
+    createBatch: "Create batch and render",
+    openBatch: "Open an existing batch",
+    renderPending: "Render pending",
+    renderFailed: "Retry failed",
+    renderChanged: "Render changed",
+    renderAll: "Render all",
+    filenamePattern: "File naming",
+    lineId: "ID",
+    character: "Character",
+    status: "Status",
+    locales: "Languages to render",
+    noLines: "No rows yet. Fill in the text area above.",
+
+    meetingTitle: "Meeting transcription",
+    meetingHint: "Turn microphone audio into text as it happens. Translation and summaries use the ControlDeck AI.",
+    meetingStart: "Start recording",
+    meetingStop: "Stop and finish",
+    meetingRecording: "Recording",
+    meetingTitleField: "Meeting name",
+    meetingTranslate: "Translate",
+    meetingSummarize: "Summarize when finished",
+    meetingTargetLanguage: "Translate into",
+    meetingChunk: "Segment length (seconds)",
+    meetingPast: "Past meetings",
+    meetingNoPast: "No recordings yet.",
+    meetingTranscript: "Open full transcript",
+    meetingMicDenied: "The microphone is not available. Allow microphone access for SonicForge in ControlDeck.",
+    meetingMicUnsupported: "This browser cannot record from the microphone.",
+    meetingSummary: "Summary",
+
+    stateAvailable: "Available",
+    statePreparing: "Preparing",
+    stateSetupRequired: "Setup required",
+    stateUnavailable: "Unavailable",
+    stateFailed: "Failed",
+    stateQueued: "Waiting",
+    stateRunning: "Running",
+    stateSucceeded: "Done",
+    stateCanceled: "Canceled",
+    provenance: "Generation record",
+    audioAsset: "Audio",
+    aiInstruction: "Instruction for the AI",
+    inputLevel: "Input level",
+    itemCount: " items",
+
+    needText: "Enter some text.",
+    needPrompt: "Describe the sound or music you want.",
+    needAudio: "Choose an audio file first.",
+    bridgeOnly: "This action is only available when opened from ControlDeck.",
+    genericError: "That did not work.",
+  },
 };
 
-const state={locale:(navigator.language||'ja').startsWith('en')?'en':'ja',task:'speech',level:'easy',socket:null,reconnectTimer:0,reconnectAttempt:0,bridgePort:null,nonce:'',activeJob:'',audioGrant:'',audioName:'',voiceReferenceGrant:'',voiceReferenceName:'',voices:[],capabilities:null};
-const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)], t=k=>I18N[state.locale][k]||k;
-const frameRoot=location.pathname.startsWith('/addon-frame/')?location.pathname.split('/').slice(0,3).join('').replace(/^$/,''):'';
-// split/join above is intentionally not used for routing: preserve slashes explicitly.
-const proxyRoot=location.pathname.startsWith('/addon-frame/')?'/'+location.pathname.split('/').filter(Boolean).slice(0,2).join('/'):'';
-const API=`${proxyRoot}/addon/v1`;
-const apiUrl=path=>`${API}${path}`;
+const TASKS = ["speech", "transcribe", "sfx", "music", "localization", "meeting"];
+const ADVANCED_TASKS = new Set(["localization", "meeting"]);
+const VIEWS = ["studio", "library", "activity", "pipeline", "settings"];
+const ACTIVE_STATES = new Set(["queued", "running"]);
 
-function applyTheme(theme={}){const root=document.documentElement;for(const key of ['bg','surface','text','border','muted','accent'])if(typeof theme[key]==='string')root.style.setProperty(`--${key}`,theme[key]);if(theme.color_scheme)root.style.colorScheme=theme.color_scheme;if(theme.locale==='ja'||theme.locale==='en'){state.locale=theme.locale;applyLocale();}}
-function callHost(method,params={}){if(!state.bridgePort)return Promise.reject({code:'bridge_unavailable'});return new Promise((resolve,reject)=>{const id=`sonic-forge-host-${Date.now()}-${Math.random().toString(36).slice(2)}`;const listener=e=>{const m=e.data;if(m?.type!=='response'||m.id!==id)return;state.bridgePort.removeEventListener('message',listener);m.ok?resolve(m.result):reject(m.error)};state.bridgePort.addEventListener('message',listener);state.bridgePort.postMessage({id,method,params,session_nonce:state.nonce})})}
-window.addEventListener('message',event=>{let expected=location.origin;try{if(document.referrer)expected=new URL(document.referrer).origin}catch{}if(event.source!==parent||event.origin!==expected||event.data?.type!=='control-deck-host.connected'||!event.ports[0])return;state.bridgePort=event.ports[0];state.nonce=event.data.session_nonce;applyTheme(event.data.theme||{});state.bridgePort.onmessage=e=>{const m=e.data;if(m?.type!=='event')return;if(m.event==='locale.changed'&&(m.data?.locale==='ja'||m.data?.locale==='en')){state.locale=m.data.locale;applyLocale()}if(m.event==='theme.changed')applyTheme(m.data||{});if(m.event==='session.updated'&&typeof m.data?.session_nonce==='string'){state.nonce=m.data.session_nonce;state.socket?.close()}if(m.event==='visibility.changed'&&m.data?.visible){connect();reloadAuthoritative()}};state.bridgePort.start?.();connect();reloadAuthoritative()});
-if(parent!==window)parent.postMessage({type:'control-deck-addon.connect',bridge_version:'1.0'},'*');
+/* 音の種類ごとの既定。descriptor は利用者が書いた説明の言語に合わせて足す。
+   英語のみを受け付けるエンジンには、サーバ側の正規化が日本語を訳して渡す。 */
+const SFX_KINDS = [
+  {id: "ui", label: "sfxUi", task: "audio.sfx.generate", seconds: 1,
+   ja: "短く清潔なユーザーインターフェース操作音", en: "short clean user interface sound"},
+  {id: "impact", label: "sfxImpact", task: "audio.sfx.generate", seconds: 2,
+   ja: "力強い打撃音、立ち上がりが速く余韻が短い", en: "strong impact hit with a fast attack and short tail"},
+  {id: "mechanical", label: "sfxMechanical", task: "audio.sfx.generate", seconds: 3,
+   ja: "機械的な動作音、金属とモーターの質感", en: "mechanical actuation with metal and motor texture"},
+  {id: "magic", label: "sfxMagic", task: "audio.sfx.generate", seconds: 3,
+   ja: "魔法・SF的な効果音、きらめきと唸り", en: "magical sci-fi effect with shimmer and drone"},
+  {id: "foley", label: "sfxFoley", task: "audio.sfx.generate", seconds: 2,
+   ja: "生活音・足音のような現実的なフォーリー", en: "realistic foley such as footsteps and handling"},
+  {id: "ambience", label: "sfxAmbience", task: "audio.ambience.generate", seconds: 10,
+   ja: "途切れず続く環境音、背景として自然に馴染む", en: "continuous background ambience that loops naturally"},
+  {id: "custom", label: "sfxCustom", task: "audio.sfx.generate", seconds: 3, ja: "", en: ""},
+];
 
-async function api(path,options={}){const headers=new Headers(options.headers||{});if(proxyRoot&&state.nonce)headers.set('X-Control-Deck-Bridge-Session',state.nonce);const request={...options,headers};if(proxyRoot)request.credentials='include';const response=await fetch(apiUrl(path),request);const text=await response.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={detail:text}}if(!response.ok)throw data.detail||data.error||{message:`HTTP ${response.status}`};return data}
-function errorText(error){return typeof error==='string'?error:(error?.message||error?.code||JSON.stringify(error||{}))}
+const MUSIC_MOODS = [
+  {id: "auto", label: "moodAuto", ja: "", en: ""},
+  {id: "calm", label: "moodCalm", ja: "静かで落ち着いた雰囲気", en: "calm and quiet mood"},
+  {id: "energetic", label: "moodEnergetic", ja: "明るく元気で前向きな雰囲気", en: "bright energetic upbeat mood"},
+  {id: "tense", label: "moodTense", ja: "緊張感のある張り詰めた雰囲気", en: "tense suspenseful mood"},
+  {id: "epic", label: "moodEpic", ja: "壮大で厚みのある雰囲気", en: "epic cinematic mood"},
+  {id: "retro", label: "moodRetro", ja: "レトロなチップチューン風", en: "retro chiptune style"},
+];
 
-function applyLocale(){document.documentElement.lang=state.locale;$$('[data-i18n]').forEach(e=>e.textContent=t(e.dataset.i18n));renderTask();if(!proxyRoot||state.nonce)loadSetup();renderVoices()}
-$('#localeBtn').onclick=()=>{state.locale=state.locale==='ja'?'en':'ja';applyLocale()};
-function showView(view){const target=$('#'+view);if(!target)return;$$('.view').forEach(item=>item.classList.remove('active'));target.classList.add('active');$$('#topnav button').forEach(button=>button.classList.toggle('active',button.dataset.view===view));const mobileView=['voices','runtime'].includes(view)?'more':view;$$('#mobileNav button').forEach(button=>button.classList.toggle('active',button.dataset.view===mobileView));if(view==='library')loadAssets();if(view==='voices')loadVoices();if(view==='runtime')loadSetup();if(view==='jobs')loadActiveJobs();window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'})}
-$$('#topnav button,#mobileNav button').forEach(button=>button.onclick=()=>showView(button.dataset.view));
-$$('[data-target-view]').forEach(button=>button.onclick=()=>showView(button.dataset.targetView));
-$$('.tabs button').forEach(b=>b.onclick=()=>{$$('.tabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.task=b.dataset.task;renderTask()});
-$$('.level').forEach(b=>b.onclick=()=>{$$('.level').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.level=b.dataset.level;renderTask()});
+const SPEECH_STYLES = [
+  {id: "auto", label: "styleAuto", instruction: ""},
+  {id: "gentle", label: "styleGentle", instruction: "Speak gently and warmly at a calm, unhurried pace."},
+  {id: "bright", label: "styleBright", instruction: "Speak brightly and energetically, with a lively rhythm."},
+  {id: "calm", label: "styleCalm", instruction: "Speak calmly and quietly, with a low and steady tone."},
+  {id: "narration", label: "styleNarration", instruction: "Read as a clear, neutral narration with even pacing."},
+];
 
-function commonAdvanced(){return state.level==='easy'?'':`<details open><summary>${state.level==='expert'?'Expert':'Customize'}</summary><div class="field"><label>Quality</label><select id="quality"><option value="balanced">${t('recommended')}</option><option value="fast">Fast</option><option value="quality">High quality</option></select></div>${state.level==='expert'?'<div class="field"><label>Engine pin</label><input id="engine" placeholder="auto"></div><div class="field"><label>Model pin</label><input id="model" placeholder="auto"></div>':''}</details>`}
-function capability(id){return state.capabilities?.capabilities?.find(x=>x.id===id)||null}
-function setupGate(capabilityId,profile){const cap=capability(capabilityId);if(!cap||cap.state==='available')return'';return `<div class="card"><b>${t('setupRequired')}</b><p class="muted">${cap.reason||cap.reason_code||''}</p><button onclick="openRuntime('${profile}')">${t('install')}</button></div>`}
-function voiceOptions(){return `<option value="">${t('builtIn')}</option>`+state.voices.map(v=>`<option value="${escapeHtml(v.id)}">${escapeHtml(v.name)} · ${(v.languages||[]).join('/')}</option>`).join('')}
-function renderTask(){let html='';if(state.task==='speech')html=`${setupGate('speech.tts.synthesize','speech-essentials')}<div class="card"><div class="field"><label>${t('text')}</label><textarea id="text" placeholder="こんにちは / Hello"></textarea></div><div class="field"><label>${t('voice')}</label><select id="voice">${voiceOptions()}</select></div><div class="field"><label>${t('language')}</label><select id="lang"><option value="auto">Auto</option><option value="ja">日本語</option><option value="en">English</option></select></div>${commonAdvanced()}<div class="row"><button class="primary" onclick="runTask('speech.tts.synthesize')">${t('generate')}</button></div></div>`;else if(state.task==='transcribe')html=`${setupGate('speech.asr.transcribe','speech-essentials')}<div class="card"><div class="field"><label>${t('audio')}</label><div class="row"><button onclick="pickAudio()">${t('selectAudio')}</button><span class="muted" id="audioName">${escapeHtml(state.audioName||'')}</span></div></div><div class="field"><label>${t('language')}</label><select id="lang"><option value="auto">Auto</option><option value="ja">日本語</option><option value="en">English</option></select></div>${commonAdvanced()}<button class="primary" onclick="runTask('speech.asr.transcribe')">${t('transcribe')}</button></div>`;else if(state.task==='sfx')html=`${setupGate('audio.sfx.generate','game-audio')}<div class="card"><div class="field"><label>${t('description')}</label><textarea id="text"></textarea></div><div class="field"><label>${t('length')}</label><input id="duration" type="number" value="3" min="0.1" max="120" step="0.1"></div>${commonAdvanced()}<button class="primary" onclick="runTask('audio.sfx.generate')">${t('generate')}</button></div>`;else if(state.task==='music')html=`${setupGate('music.generate','music')}<div class="card"><p class="muted">${t('musicStatus')}</p><div class="field"><label>${t('description')}</label><textarea id="text"></textarea></div><div class="row"><label>BPM <input id="bpm" type="number" min="30" max="300"></label><label>${t('length')} <input id="duration" type="number" value="30" min="10" max="600"></label></div>${commonAdvanced()}<button class="primary" onclick="runTask('music.generate')">${t('generate')}</button></div>`;else html=`<div class="card"><h3>${t('localizationStudio')}</h3><p class="muted">${t('localizationHint')}</p><textarea id="locRows" rows="10" placeholder="hello|A|こんにちは|Hello\nbye|A|またね|See you"></textarea><div class="field"><label>${t('batchName')}</label><input id="locName" value="Dialogue"></div><button class="primary" onclick="createBatchFromRows()">${t('createBatch')}</button><div id="locResult"></div></div>`;$('#taskPanel').innerHTML=html}
+const LANGUAGES = [
+  {id: "auto", label: "auto"},
+  {id: "ja", label: "japanese"},
+  {id: "en", label: "english"},
+];
 
-async function pickAudio(){try{const grant=await callHost('host.file.pick',{mode:'file',title:t('selectAudio')});if(!grant?.grant_id)return;state.audioGrant=grant.grant_id;state.audioName=grant.name||'audio';renderTask()}catch(error){alert(error?.code==='bridge_unavailable'?t('bridgeOnly'):errorText(error))}}
-async function runTask(kind){try{const text=$('#text')?.value||'';const lang=$('#lang')?.value||'auto';const quality=$('#quality')?.value||'balanced';const engine=$('#engine')?.value||null;const model=$('#model')?.value||null;let input={};if(kind==='speech.tts.synthesize')input={text,voice_id:$('#voice')?.value||undefined};else if(kind==='speech.asr.transcribe'){if(!state.audioGrant){alert(t('noAudio'));return}input={audio_grant:state.audioGrant};}else if(kind==='music.generate')input={prompt:text,duration_sec:Number($('#duration')?.value||30),bpm:$('#bpm')?.value?Number($('#bpm').value):null,instrumental:true};else input={prompt:text,duration_sec:Number($('#duration')?.value||3)};const d=await api('/tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({task:kind,input,profile:'default',quality,content_language:lang,output:{format:'wav',sample_rate:null,channels:null},routing:{engine,model,device:'auto'},seed:null,project_output_grant:null})});state.activeJob=d.job_id;await showJob(d.job_id)}catch(error){alert(errorText(error))}}
-async function showJob(id){try{const j=await api('/jobs/'+encodeURIComponent(id));if(state.activeJob!==id&&['queued','running'].includes(j.state))state.activeJob=id;const html=`<div class="card"><b>${escapeHtml(j.task)}</b> — ${escapeHtml(j.state)}<div class="progress"><i style="width:${Math.round((j.progress||0)*100)}%"></i></div><p class="muted">${escapeHtml(j.error_message||j.result?.message||j.result?.text||'')}</p>${['queued','running'].includes(j.state)?`<button onclick="cancelJob('${escapeHtml(id)}')">Cancel</button>`:''}${j.result?.asset_id?`<p><audio controls src="${apiUrl('/assets/'+encodeURIComponent(j.result.asset_id)+'/content')}"></audio></p>`:''}</div>`;$('#activeJob').innerHTML=html;if($('#jobs').classList.contains('active'))$('#jobList').innerHTML=html;if(['queued','running'].includes(j.state)&&!socketOpen())setTimeout(()=>showJob(id),2000);else if(!['queued','running'].includes(j.state))loadAssets()}catch(error){if(!socketOpen())setTimeout(()=>showJob(id),3000)}}
-async function cancelJob(id){try{await api('/jobs/'+encodeURIComponent(id),{method:'DELETE'});showJob(id)}catch(error){alert(errorText(error))}}
-async function loadActiveJobs(){try{const d=await api('/jobs?limit=30');const jobs=d.jobs||[];const active=jobs.find(j=>['queued','running'].includes(j.state));if(active){state.activeJob=active.id;showJob(active.id)}else if($('#jobs').classList.contains('active'))$('#jobList').innerHTML=jobs.slice(0,20).map(j=>`<button class="card" onclick="showJob('${escapeHtml(j.id)}')"><b>${escapeHtml(j.task)}</b><br><span class="muted">${escapeHtml(j.state)}</span></button>`).join('')||`<p class="muted">${t('noJobs')}</p>`}catch{}}
-async function loadAssets(){try{const d=await api('/assets');$('#assetList').innerHTML=(d.assets||[]).map(a=>`<div class="asset"><b>${escapeHtml(a.id)}</b> · ${a.duration_ms||'-'} ms<br><audio controls src="${apiUrl('/assets/'+encodeURIComponent(a.id)+'/content')}"></audio></div>`).join('')||'<p class="muted">No assets</p>'}catch(error){$('#assetList').textContent=errorText(error)}}
+const QUALITIES = [
+  {id: "fast", label: "qualityFast"},
+  {id: "balanced", label: "qualityBalanced"},
+  {id: "quality", label: "qualityHigh"},
+];
 
-async function loadVoices(){try{const d=await api('/voices');state.voices=d.voices||[];renderVoices();if(state.task==='speech')renderTask()}catch(error){$('#voiceList').textContent=errorText(error)}}
-function renderVoices(){const list=state.voices.map(v=>`<div class="voice"><b>${escapeHtml(v.name)}</b> · ${(v.languages||[]).join('/')} · ${escapeHtml(v.source_type)} <button onclick="deleteVoice('${escapeHtml(v.id)}')">Delete</button></div>`).join('');$('#voiceList').innerHTML=`<div class="card"><h3>Voice profile</h3><div class="field"><label>${t('name')}</label><input id="voiceName"></div><div class="field"><label>Type</label><select id="voiceType" onchange="renderVoiceFields()"><option value="built-in">${t('builtIn')}</option><option value="design">${t('design')}</option><option value="clone">${t('clone')}</option></select></div><div id="voiceFields"></div><button class="primary" onclick="saveVoice()">${t('save')}</button></div>${list||'<p class="muted">No saved voices</p>'}`;renderVoiceFields()}
-function renderVoiceFields(){const type=$('#voiceType')?.value||'built-in';if(!$('#voiceFields'))return;if(type==='built-in')$('#voiceFields').innerHTML='<div class="field"><label>Qwen speaker</label><input id="voiceSpeaker" value="Ryan"></div>';else if(type==='design')$('#voiceFields').innerHTML='<div class="field"><label>Voice design instruction</label><textarea id="voiceInstruction"></textarea></div>';else $('#voiceFields').innerHTML=`<div class="row"><button onclick="pickVoiceReference()">${t('selectAudio')}</button><span class="muted">${escapeHtml(state.voiceReferenceName)}</span></div><div class="field"><label>Reference transcript</label><textarea id="voiceRefText"></textarea></div><label><input id="voiceRights" type="checkbox"> ${t('rights')}</label>`}
-async function pickVoiceReference(){try{const g=await callHost('host.file.pick',{mode:'file',title:t('selectAudio')});if(g?.grant_id){state.voiceReferenceGrant=g.grant_id;state.voiceReferenceName=g.name||'reference';renderVoiceFields()}}catch(error){alert(error?.code==='bridge_unavailable'?t('bridgeOnly'):errorText(error))}}
-async function saveVoice(){try{const type=$('#voiceType').value;const recipe={};let rights=false;if(type==='built-in')recipe.speaker=$('#voiceSpeaker')?.value||'Ryan';if(type==='design')recipe.design_instruction=$('#voiceInstruction')?.value||'';if(type==='clone'){if(!state.voiceReferenceGrant){alert(t('noAudio'));return}recipe.reference_grant=state.voiceReferenceGrant;recipe.reference_text=$('#voiceRefText')?.value||'';rights=$('#voiceRights')?.checked===true;if(!rights){alert(t('rights'));return}}await api('/voices',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:$('#voiceName').value,source_type:type,languages:['ja','en'],engine_id:'tts.qwen3',recipe,rights_confirmed:rights})});state.voiceReferenceGrant='';state.voiceReferenceName='';loadVoices()}catch(error){alert(errorText(error))}}
-async function deleteVoice(id){try{await api('/voices/'+encodeURIComponent(id),{method:'DELETE'});loadVoices()}catch(error){alert(errorText(error))}}
+const SETUP_COMPONENTS = [
+  {id: "core", label: "componentCore", detail: null, profile: null},
+  {id: "speech-essentials", label: "componentSpeech", detail: "componentSpeechDetail", profile: "speech-essentials"},
+  {id: "game-audio", label: "componentGame", detail: "componentGameDetail", profile: "game-audio"},
+  {id: "music", label: "componentMusic", detail: "componentMusicDetail", profile: "music"},
+];
 
-async function loadCapabilities(){try{state.capabilities=await api('/capabilities');renderTask()}catch{}}
-async function loadSetup(){try{const d=await api('/setup/status');$('#serviceState').textContent=d.state;const game=d.components.find(x=>x.id==='game-audio');const music=d.components.find(x=>x.id==='music');const speech=d.components.find(x=>x.id==='speech-essentials');let musicPlan={blockers:[]};try{musicPlan=await api('/setup/plan?profile=music')}catch{}$('#setupPanel').innerHTML=`<div class="card"><h3>Speech Essentials</h3><p>${escapeHtml(speech?.state||'missing')}</p>${speech?.state!=='available'?`<button class="primary" onclick="applySetup('speech-essentials')">${t('setup')}</button>`:''}</div><div class="card"><h3>Game Audio · Stable Audio 3 Small-SFX</h3><p>${escapeHtml(game?.state||'missing')}</p><label><input id="stabilityTerms" type="checkbox"> ${t('terms')}</label><p><button onclick="applySetup('game-audio')">${t('install')}</button></p></div><div class="card"><h3>Music · ACE-Step 1.5</h3><p>${escapeHtml(music?.state||'missing')}</p><p class="muted">${t('musicStatus')} ${(musicPlan.blockers||[]).map(escapeHtml).join(' · ')}</p><button ${musicPlan.blockers?.length?'disabled':''} onclick="applySetup('music')">${t('install')}</button></div>`}catch(error){$('#setupPanel').textContent=errorText(error)}}
-async function applySetup(profile){const accepted=[];if(profile==='game-audio'){if(!$('#stabilityTerms')?.checked){alert(t('terms'));return}accepted.push('stability-ai-community-license')}try{const d=await api('/setup/apply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({profile,components:[],accepted_terms:accepted})});state.activeJob=d.job_id;showJob(d.job_id)}catch(error){alert(errorText(error))}}
-function openRuntime(profile){showView('runtime');loadSetup()}
+const SETUP_PROFILES = [
+  {id: "speech-essentials", label: "profileSpeech"},
+  {id: "game-audio", label: "profileGame"},
+  {id: "music", label: "profileMusic"},
+  {id: "full-studio", label: "profileFull"},
+  {id: "cpu-essentials", label: "profileCpu"},
+];
 
-async function createBatchFromRows(){try{const rows=($('#locRows')?.value||'').split('\n').map(x=>x.trim()).filter(Boolean).map(line=>{const [line_id,character,ja_text,en_text]=line.split('|');return{line_id,character:character||null,ja_text:ja_text||null,en_text:en_text||null,voice_id:null}});const d=await api('/localization/batches',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:$('#locName')?.value||'Dialogue',profile:{filename:'{line_id}_{locale}.wav'},lines:rows})});$('#locResult').textContent=`${d.id}: ${d.lines} lines`}catch(error){alert(errorText(error))}}
+const TASK_CAPABILITY = {
+  speech: "speech.tts.synthesize",
+  transcribe: "speech.asr.transcribe",
+  sfx: "audio.sfx.generate",
+  music: "music.generate",
+  localization: "speech.localization.batch",
+  meeting: "speech.asr.transcribe",
+};
 
-function socketOpen(){return state.socket&&state.socket.readyState===WebSocket.OPEN}
-function scheduleReconnect(){clearTimeout(state.reconnectTimer);if(document.hidden)return;const delay=Math.min(30000,1000*(2**Math.min(state.reconnectAttempt++,5)));state.reconnectTimer=setTimeout(connect,delay)}
-function connect(){if(state.socket&&(state.socket.readyState===WebSocket.OPEN||state.socket.readyState===WebSocket.CONNECTING))return;if(proxyRoot&&!state.nonce)return;clearTimeout(state.reconnectTimer);const proto=location.protocol==='https:'?'wss':'ws';const url=`${proto}://${location.host}${API}/events`;state.socket=proxyRoot?new WebSocket(url,[`control-deck-bridge.${state.nonce}`]):new WebSocket(url);state.socket.onopen=()=>{state.reconnectAttempt=0;reloadAuthoritative()};state.socket.onmessage=e=>{let d;try{d=JSON.parse(e.data)}catch{return}if(d.type==='job'&&d.job_id){if(!state.activeJob||state.activeJob===d.job_id){state.activeJob=d.job_id;showJob(d.job_id)}}if(d.type==='setup'){loadSetup();loadCapabilities()}};state.socket.onerror=()=>{};state.socket.onclose=()=>{state.socket=null;scheduleReconnect()}}
-async function reloadAuthoritative(){const tasks=[loadSetup(),loadCapabilities(),loadVoices(),loadActiveJobs()];if($('#library').classList.contains('active'))tasks.push(loadAssets());await Promise.allSettled(tasks)}
-function reloadWhenReady(){if(!proxyRoot||state.nonce){connect();reloadAuthoritative()}}
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)reloadWhenReady()});window.addEventListener('pageshow',reloadWhenReady);window.addEventListener('online',connect);
-function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+const CAPABILITY_COMPONENT = {
+  "speech.tts.synthesize": "speech-essentials",
+  "speech.asr.transcribe": "speech-essentials",
+  "speech.localization.batch": "speech-essentials",
+  "audio.sfx.generate": "game-audio",
+  "audio.ambience.generate": "game-audio",
+  "music.generate": "music",
+};
 
-renderTask();applyLocale();if(!proxyRoot){connect();reloadAuthoritative()}
+const PIPELINE_STAGE_LABEL = {
+  "speech.asr": "stageAsr",
+  "host.ai.text": "stageAi",
+  "speech.tts": "stageTts",
+  "audio.sfx": "stageSfx",
+  "music.generate": "stageMusic",
+  "audio.process": "stageProcess",
+};
+
+const PIPELINE_PRESETS = [
+  {id: "dub", label: "presetDub", input: "audio_grant", delivery: "asset",
+   stages: [{id: "asr", kind: "speech.asr"}, {id: "translate", kind: "host.ai.text"}, {id: "tts", kind: "speech.tts"}]},
+  {id: "transcribe", label: "presetTranscribe", input: "audio_grant", delivery: "text",
+   stages: [{id: "asr", kind: "speech.asr"}]},
+  {id: "speak", label: "presetSpeak", input: "text", delivery: "asset",
+   stages: [{id: "tts", kind: "speech.tts"}]},
+  {id: "summary", label: "presetRewrite", input: "audio_grant", delivery: "text",
+   stages: [{id: "asr", kind: "speech.asr"}, {id: "summarize", kind: "host.ai.text"}]},
+];
+
+/* ── 状態 ─────────────────────────────────────────────────────────────── */
+
+const state = {
+  locale: (navigator.language || "ja").startsWith("en") ? "en" : "ja",
+  localeFromHost: false,
+  mode: "simple",
+  view: "studio",
+  task: "speech",
+  lastNonSettingsView: "studio",
+  socket: null,
+  reconnectTimer: 0,
+  reconnectAttempt: 0,
+  bridgePort: null,
+  nonce: "",
+  hostBusy: false,
+  sequence: 0,
+  activeJob: "",
+  jobs: [],
+  assets: [],
+  voices: [],
+  capabilities: null,
+  setup: null,
+  plan: null,
+  deliveryProfiles: [],
+  libraryFilter: "all",
+  exportAssetId: "",
+  confirmAction: null,
+  /* 入力の持ち物。再描画で消えないようにここに置く。 */
+  form: {},
+  audioGrant: "",
+  audioName: "",
+  projectGrant: "",
+  voiceReferenceGrant: "",
+  voiceReferenceName: "",
+  voiceKind: "built-in",
+  voiceLanguages: ["ja", "en"],
+  pipeline: null,
+  meeting: null,
+};
+
+const byId = (id) => document.getElementById(id);
+const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const t = (key) => I18N[state.locale][key] ?? I18N.ja[key] ?? key;
+const app = () => byId("app");
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>'"]/g, (c) =>
+    ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"}[c]));
+}
+
+function errorText(error) {
+  if (typeof error === "string") return error;
+  return error?.message || error?.detail || error?.code || t("genericError");
+}
+
+const JAPANESE_RE = /[぀-ヿ㐀-鿿]/;
+function likelyJapanese(value) { return JAPANESE_RE.test(String(value || "")); }
+
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let index = 0;
+  let size = bytes;
+  while (size >= 1024 && index < units.length - 1) { size /= 1024; index += 1; }
+  return `${size >= 10 || index === 0 ? Math.round(size) : size.toFixed(1)} ${units[index]}`;
+}
+
+function formatSeconds(ms) {
+  const total = Math.round(Number(ms || 0) / 1000);
+  if (!Number.isFinite(total) || total <= 0) return "—";
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return minutes > 0 ? `${minutes}:${String(seconds).padStart(2, "0")}` : `${seconds}s`;
+}
+
+function formatClock(ms) {
+  const total = Math.floor(Number(ms || 0) / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/* ── テーマとセーフエリア ─────────────────────────────────────────────── */
+
+function applyTheme(theme = {}) {
+  const root = document.documentElement;
+  for (const name of ["bg", "surface", "text", "border", "muted", "accent"]) {
+    if (typeof theme[name] === "string") root.style.setProperty(`--${name}`, theme[name]);
+  }
+  if (typeof theme.surface === "string") root.style.setProperty("--sunk", theme.bg || theme.surface);
+  if (theme.color_scheme) {
+    root.style.colorScheme = theme.color_scheme;
+    root.style.setProperty("--accent-ink", theme.color_scheme === "dark" ? "#10131f" : "#ffffff");
+  }
+  if (typeof theme.radius_md === "number") root.style.setProperty("--radius", `${theme.radius_md}px`);
+  if (theme.safe_area) applySafeArea(theme.safe_area);
+  if (theme.locale === "ja" || theme.locale === "en") {
+    state.localeFromHost = true;
+    state.locale = theme.locale;
+    applyLocale();
+  }
+}
+
+function applySafeArea(value = {}) {
+  for (const side of ["top", "right", "bottom", "left"]) {
+    if (Number.isFinite(value[side])) {
+      document.documentElement.style.setProperty(`--safe-${side}`, `${value[side]}px`);
+    }
+  }
+}
+
+/* ── ホストブリッジ ───────────────────────────────────────────────────── */
+
+function callHost(method, params = {}) {
+  if (!state.bridgePort) return Promise.reject({code: "bridge_unavailable"});
+  return new Promise((resolve, reject) => {
+    const id = `sonic-forge-host-${++state.sequence}`;
+    const listener = (event) => {
+      const message = event.data;
+      if (message?.type !== "response" || message.id !== id) return;
+      state.bridgePort.removeEventListener("message", listener);
+      message.ok ? resolve(message.result) : reject(message.error);
+    };
+    state.bridgePort.addEventListener("message", listener);
+    state.bridgePort.postMessage({id, method, params, session_nonce: state.nonce});
+  });
+}
+
+/* 実行中の仕事はサーバ側の durable job として残るので、入力しただけでは
+   「未保存」を立てない。失うものがあるのは受付の最中だけである。 */
+function setHostBusy(value) {
+  if (state.hostBusy === value) return;
+  state.hostBusy = value;
+  if (!state.bridgePort) return;
+  void callHost("host.busy.set", {busy: value}).catch(() => { state.hostBusy = !value; });
+}
+
+window.addEventListener("message", (event) => {
+  let expected = location.origin;
+  try { if (document.referrer) expected = new URL(document.referrer).origin; } catch { /* 単体表示 */ }
+  if (event.source !== parent || event.origin !== expected) return;
+  if (event.data?.type !== "control-deck-host.connected" || !event.ports[0]) return;
+  state.bridgePort = event.ports[0];
+  state.nonce = event.data.session_nonce;
+  document.documentElement.dataset.bridge = "ready";
+  app().setAttribute("aria-busy", "false");
+  applyTheme(event.data.theme || {});
+  state.bridgePort.onmessage = (message) => {
+    const value = message.data;
+    if (value?.type !== "event") return;
+    if (value.event === "locale.changed" && (value.data?.locale === "ja" || value.data?.locale === "en")) {
+      state.localeFromHost = true;
+      state.locale = value.data.locale;
+      applyLocale();
+    }
+    if (value.event === "theme.changed") applyTheme(value.data || {});
+    if (value.event === "safe_area.changed") applySafeArea(value.data || {});
+    if (value.event === "session.updated" && typeof value.data?.session_nonce === "string") {
+      state.nonce = value.data.session_nonce;
+      state.socket?.close();
+    }
+    if (value.event === "visibility.changed" && value.data?.visible) {
+      connect();
+      void reloadAuthoritative();
+    }
+  };
+  state.bridgePort.start?.();
+  void callHost("host.title.set", {title: "SonicForge"}).catch(() => {});
+  connect();
+  void reloadAuthoritative();
+});
+
+if (parent !== window) {
+  parent.postMessage({type: "control-deck-addon.connect", bridge_version: "1.0"}, "*");
+} else {
+  document.documentElement.dataset.bridge = "standalone";
+}
+
+/* ── 転送 ─────────────────────────────────────────────────────────────── */
+
+const proxyRoot = location.pathname.startsWith("/addon-frame/")
+  ? "/" + location.pathname.split("/").filter(Boolean).slice(0, 2).join("/")
+  : "";
+const API = `${proxyRoot}/addon/v1`;
+const apiUrl = (path) => `${API}${path}`;
+
+async function api(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (proxyRoot && state.nonce) headers.set("X-Control-Deck-Bridge-Session", state.nonce);
+  const request = {...options, headers};
+  if (proxyRoot) request.credentials = 'include';
+  const response = await fetch(apiUrl(path), request);
+  const text = await response.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch { data = {detail: text}; }
+  if (!response.ok) throw data.detail || data.error || {message: `HTTP ${response.status}`};
+  return data;
+}
+
+const jsonPost = (path, body) => api(path, {
+  method: "POST",
+  headers: {"content-type": "application/json"},
+  body: JSON.stringify(body),
+});
+
+function socketOpen() { return state.socket && state.socket.readyState === WebSocket.OPEN; }
+
+function scheduleReconnect() {
+  clearTimeout(state.reconnectTimer);
+  if (document.hidden) return;
+  const delay = Math.min(30000, 1000 * 2 ** Math.min(state.reconnectAttempt++, 5));
+  state.reconnectTimer = setTimeout(connect, delay);
+}
+
+function connect() {
+  if (state.socket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(state.socket.readyState)) return;
+  if (proxyRoot && !state.nonce) return;
+  clearTimeout(state.reconnectTimer);
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const url = `${proto}://${location.host}${API}/events`;
+  state.socket = proxyRoot ? new WebSocket(url, [`control-deck-bridge.${state.nonce}`]) : new WebSocket(url);
+  state.socket.onopen = () => { state.reconnectAttempt = 0; void reloadAuthoritative(); };
+  state.socket.onmessage = (event) => {
+    let value;
+    try { value = JSON.parse(event.data); } catch { return; }
+    if (value.type === "job" && value.job_id) {
+      if (!state.activeJob || state.activeJob === value.job_id) {
+        state.activeJob = value.job_id;
+        void showJob(value.job_id);
+      } else {
+        void loadActiveJobs();
+      }
+    }
+    if (value.type === "setup") {
+      void loadSetup();
+      void loadCapabilities();
+      if (value.job_id) void showJob(value.job_id);
+    }
+  };
+  state.socket.onerror = () => {};
+  state.socket.onclose = () => { state.socket = null; scheduleReconnect(); };
+}
+
+/* ── ロケール・モード・画面 ───────────────────────────────────────────── */
+
+/* <label>言語<select>…</select></label> のように、見出しの文言と操作が同じ要素に
+   入っていることがある。textContent を丸ごと差し替えると中の select ごと消える
+   （実機でボイス欄が空欄になっていた原因）。文言のところだけ差し替える。 */
+function setLocalizedText(node, value) {
+  if (!node.children.length) { node.textContent = value; return; }
+  const first = node.firstChild;
+  if (first && first.nodeType === Node.TEXT_NODE) { first.nodeValue = value; return; }
+  node.insertBefore(document.createTextNode(value), first);
+}
+
+function applyLocale() {
+  document.documentElement.lang = state.locale;
+  for (const node of $$("[data-i18n]")) setLocalizedText(node, t(node.dataset.i18n));
+  for (const node of $$("[data-i18n-label]")) node.setAttribute("aria-label", t(node.dataset.i18nLabel));
+  for (const node of $$("[data-i18n-title]")) node.setAttribute("title", t(node.dataset.i18nTitle));
+  renderServicePill();
+  renderTaskChips();
+  byId("task-summary").textContent = t(`summary${state.task[0].toUpperCase()}${state.task.slice(1)}`);
+  /* 出しっぱなしの結果カードは、言語を変えても前の言語のまま残っていた。
+     直前のジョブを持っておいて、ここで描き直す。 */
+  if (state.lastJob) renderJobStage(state.lastJob);
+  mountAdvanced();
+  renderStudio();
+  renderLibrary();
+  renderRecent();
+  renderActivity();
+  renderSettings();
+  renderPipeline();
+  window.renderLocalizationStudio?.();
+  renderMeetingPanel();
+}
+
+function setMode(mode, {persist = true} = {}) {
+  state.mode = mode === "advanced" ? "advanced" : "simple";
+  app().dataset.mode = state.mode;
+  byId("mode-simple").setAttribute("aria-pressed", String(state.mode === "simple"));
+  byId("mode-advanced").setAttribute("aria-pressed", String(state.mode === "advanced"));
+  for (const node of $$("[data-advanced-only]")) node.hidden = state.mode !== "advanced";
+  byId("nav-pipeline").hidden = state.mode !== "advanced";
+  /* シンプルへ戻したときに、詳細だけの画面へ取り残されないようにする。 */
+  if (state.mode !== "advanced" && ADVANCED_TASKS.has(state.task)) setTask("speech");
+  if (state.mode !== "advanced" && state.view === "pipeline") activate("studio");
+  mountAdvanced();
+  renderStudio();
+  renderSettings();
+  if (persist) remember("mode", state.mode);
+}
+
+/* 表示の好みだけを覚える。ここが読めない環境（プライベート窓など）でも、
+   既定のシンプルで問題なく使えるようにしておく。 */
+function remember(key, value) {
+  try { localStorage.setItem(`sonicforge.${key}`, value); } catch { /* 保存できなくても操作は続く */ }
+}
+function recall(key) {
+  try { return localStorage.getItem(`sonicforge.${key}`); } catch { return null; }
+}
+
+function activate(name, {sync = true} = {}) {
+  const view = VIEWS.includes(name) ? name : "studio";
+  if (state.view && state.view !== "settings") state.lastNonSettingsView = state.view;
+  state.view = view;
+  app().dataset.view = view;
+  for (const section of $$(".view")) section.hidden = section.dataset.view !== view;
+  for (const button of $$("#shell-nav button")) {
+    button.setAttribute("aria-current", button.dataset.view === view ? "page" : "false");
+  }
+  byId("nav-settings").setAttribute("aria-current", view === "settings" ? "page" : "false");
+  if (view === "library") void loadAssets();
+  if (view === "activity") void loadActiveJobs();
+  if (view === "settings") { void loadSetup(); void loadVoices(); void loadPlan(); }
+  if (view === "pipeline") renderPipeline();
+  if (sync && state.bridgePort) {
+    void callHost("host.route.sync", {path: view === "studio" ? "/" : `/${view}`}).catch(() => {});
+  }
+  window.scrollTo({top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+}
+
+function setTask(task) {
+  state.task = TASKS.includes(task) ? task : "speech";
+  app().dataset.task = state.task;
+  for (const button of $$("#task-switch button")) {
+    button.setAttribute("aria-pressed", String(button.dataset.task === state.task));
+  }
+  byId("task-summary").textContent = t(`summary${state.task[0].toUpperCase()}${state.task.slice(1)}`);
+  byId("localization-panel").hidden = state.task !== "localization";
+  byId("meeting-panel").hidden = state.task !== "meeting";
+  for (const node of $$("[data-task-fields]")) node.hidden = node.dataset.taskFields !== state.task;
+  mountAdvanced();
+  renderStudio();
+  if (state.task === "localization") window.renderLocalizationStudio?.();
+  if (state.task === "meeting") { renderMeetingPanel(); void loadMeetings(); }
+  remember("task", state.task);
+}
+
+/* 詳細モードの断片は hidden にせず DOM から外す。タブ順とスクリーンリーダーを
+   汚さないため、そして「見えているのに効かない欄」を作らないため。 */
+function mountAdvanced() {
+  for (const slot of $$("[data-adv-slot]")) {
+    slot.replaceChildren();
+    if (state.mode !== "advanced") continue;
+    if (ADVANCED_TASKS.has(state.task)) continue;
+    const name = slot.dataset.advSlot === "task" ? `task-${state.task}` : slot.dataset.advSlot;
+    const template = document.querySelector(`[data-adv-template="${name}"]`);
+    if (template) slot.append(template.content.cloneNode(true));
+  }
+  if (state.mode !== "advanced") return;
+  syncAdvanced();
+}
+
+function syncAdvanced() {
+  const quality = byId("advanced-quality");
+  if (quality) {
+    quality.replaceChildren(...QUALITIES.map((item) => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = t(item.label);
+      return option;
+    }));
+    quality.value = state.form.quality || "balanced";
+    quality.onchange = () => { state.form.quality = quality.value; };
+  }
+  bindAdvancedValue("advanced-format", "format", "wav");
+  bindAdvancedValue("advanced-sample-rate", "sampleRate", "");
+  bindAdvancedValue("advanced-channels", "channels", "");
+  bindAdvancedValue("advanced-profile", "profile", "");
+  bindAdvancedValue("advanced-engine", "engine", "");
+  bindAdvancedValue("advanced-model", "model", "");
+  bindAdvancedValue("advanced-device", "device", "auto");
+  bindAdvancedValue("advanced-seed", "seed", "");
+  bindAdvancedValue("advanced-style-instruction", "styleInstruction", "");
+  bindAdvancedValue("advanced-bpm", "bpm", "");
+  const timestamps = byId("advanced-timestamps");
+  if (timestamps) {
+    timestamps.checked = state.form.timestamps !== false;
+    timestamps.onchange = () => { state.form.timestamps = timestamps.checked; };
+  }
+  const duration = byId("advanced-duration");
+  if (duration) {
+    duration.value = String(currentDuration());
+    duration.onchange = () => {
+      state.form[state.task === "music" ? "musicSeconds" : "sfxSeconds"] = Number(duration.value);
+      renderStudio();
+    };
+  }
+  const bpmChips = byId("advanced-bpm-chips");
+  if (bpmChips) {
+    renderChips(bpmChips, [
+      {id: "", label: "bpmNone"}, {id: "80", label: "bpmSlow"},
+      {id: "110", label: "bpmMedium"}, {id: "140", label: "bpmFast"},
+    ], String(state.form.bpm ?? ""), (value) => {
+      state.form.bpm = value;
+      const input = byId("advanced-bpm");
+      if (input) input.value = value;
+      syncAdvanced();
+    });
+  }
+  const projectPick = byId("advanced-project-pick");
+  if (projectPick) {
+    projectPick.classList.toggle("filled", Boolean(state.projectGrant));
+    projectPick.textContent = state.projectGrant ? t("projectOutputSelected") : t("chooseProjectOutput");
+    projectPick.onclick = pickProjectOutput;
+    const clear = byId("advanced-project-clear");
+    if (clear) {
+      clear.hidden = !state.projectGrant;
+      clear.onclick = () => { state.projectGrant = ""; syncAdvanced(); };
+    }
+  }
+}
+
+function bindAdvancedValue(id, key, fallback) {
+  const node = byId(id);
+  if (!node) return;
+  node.value = state.form[key] ?? fallback;
+  const handler = () => { state.form[key] = node.value; };
+  node.onchange = handler;
+  node.oninput = handler;
+}
+
+/* ── 選択肢の描画 ─────────────────────────────────────────────────────── */
+
+function renderChips(container, items, selected, onSelect, {multi = false} = {}) {
+  if (!container) return;
+  container.replaceChildren(...items.map((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chip";
+    button.textContent = item.text ?? t(item.label);
+    const active = multi ? selected.includes(item.id) : selected === item.id;
+    button.setAttribute(multi ? "aria-pressed" : "aria-checked", String(active));
+    if (!multi) button.setAttribute("role", "radio");
+    if (item.disabled) button.disabled = true;
+    button.onclick = () => onSelect(item.id, item);
+    return button;
+  }));
+}
+
+function renderTaskChips() {
+  for (const button of $$("#task-switch button")) {
+    const key = `task${button.dataset.task[0].toUpperCase()}${button.dataset.task.slice(1)}`;
+    button.textContent = t(key);
+    if (button.hasAttribute("data-advanced-only")) button.hidden = state.mode !== "advanced";
+  }
+}
+
+function currentSfxKind() {
+  return SFX_KINDS.find((item) => item.id === (state.form.sfxKind || "custom")) || SFX_KINDS[6];
+}
+
+function currentDuration() {
+  if (state.task === "music") return Number(state.form.musicSeconds ?? 30);
+  return Number(state.form.sfxSeconds ?? currentSfxKind().seconds);
+}
+
+/* 種類・雰囲気の指定は、利用者が書いた説明と同じ言語で足す。訳しながら足すと
+   サーバ側の正規化が二重にかかって、意図が薄まる。 */
+function composedPrompt() {
+  const base = state.task === "music"
+    ? String(byId("music-prompt")?.value || "").trim()
+    : String(byId("sfx-prompt")?.value || "").trim();
+  const source = state.task === "music"
+    ? MUSIC_MOODS.find((item) => item.id === (state.form.musicMood || "auto"))
+    : currentSfxKind();
+  const descriptor = likelyJapanese(base) ? source?.ja : source?.en;
+  if (!base || !descriptor) return base;
+  return likelyJapanese(base) ? `${base}。${descriptor}` : `${base}, ${descriptor}`;
+}
+
+function renderStudio() {
+  if (ADVANCED_TASKS.has(state.task)) {
+    byId("studio-submit").hidden = true;
+    return;
+  }
+  byId("studio-submit").hidden = false;
+  renderChips(byId("speech-style-chips"), SPEECH_STYLES, state.form.speechStyle || "auto", (value) => {
+    state.form.speechStyle = value;
+    renderStudio();
+  });
+  renderChips(byId("speech-language-chips"), LANGUAGES, state.form.speechLanguage || "auto", (value) => {
+    state.form.speechLanguage = value;
+    renderStudio();
+  });
+  renderChips(byId("transcribe-language-chips"), LANGUAGES, state.form.transcribeLanguage || "auto", (value) => {
+    state.form.transcribeLanguage = value;
+    renderStudio();
+  });
+  renderChips(byId("sfx-kind-chips"), SFX_KINDS, state.form.sfxKind || "custom", (value, item) => {
+    state.form.sfxKind = value;
+    state.form.sfxSeconds = item.seconds;
+    renderStudio();
+    syncAdvanced();
+  });
+  renderChips(byId("sfx-length-chips"), [1, 2, 3, 5, 10].map((s) => ({id: s, text: `${s}s`})),
+    Number(state.form.sfxSeconds ?? currentSfxKind().seconds), (value) => {
+      state.form.sfxSeconds = value;
+      renderStudio();
+      syncAdvanced();
+    });
+  renderChips(byId("music-mood-chips"), MUSIC_MOODS, state.form.musicMood || "auto", (value) => {
+    state.form.musicMood = value;
+    renderStudio();
+  });
+  renderChips(byId("music-length-chips"), [15, 30, 60, 120].map((s) => ({id: s, text: `${s}s`})),
+    Number(state.form.musicSeconds ?? 30), (value) => {
+      state.form.musicSeconds = value;
+      renderStudio();
+      syncAdvanced();
+    });
+
+  const voice = byId("speech-voice");
+  const selected = voice.value || state.form.voiceId || "";
+  voice.replaceChildren(...[{id: "", name: t("builtInVoice")}, ...state.voices.map((item) => ({
+    id: item.id,
+    name: `${item.name} · ${(item.languages || []).join("/")}`,
+  }))].map((item) => {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.name;
+    return option;
+  }));
+  voice.value = selected;
+  voice.onchange = () => { state.form.voiceId = voice.value; };
+
+  const pick = byId("transcribe-pick");
+  pick.classList.toggle("filled", Boolean(state.audioGrant));
+  pick.textContent = state.audioName || t("chooseAudio");
+  byId("transcribe-clear").hidden = !state.audioGrant;
+  byId("transcribe-file-note").textContent = state.bridgePort ? "" : t("bridgeOnly");
+
+  const submit = byId("studio-submit");
+  submit.textContent = state.task === "transcribe" ? t("transcribeAction") : t("create");
+  const gated = renderCapabilityGate();
+  submit.dataset.unavailable = String(gated);
+  submit.disabled = gated;
+
+  /* 種類・雰囲気を足した結果は、隠さずに書いた欄のすぐ下へ出す。 */
+  for (const [id, task] of [["sfx-prompt-preview", "sfx"], ["music-prompt-preview", "music"]]) {
+    const node = byId(id);
+    if (!node) continue;
+    const preview = state.task === task ? composedPrompt() : "";
+    const base = String(byId(`${task}-prompt`)?.value || "").trim();
+    node.textContent = preview && preview !== base ? `${t("promptPreview")}: ${preview}` : "";
+  }
+}
+
+function capability(id) {
+  return state.capabilities?.capabilities?.find((item) => item.id === id) || null;
+}
+
+function renderServicePill() {
+  const pill = byId("service-pill");
+  const required = (state.setup?.state || state.capabilities?.service?.state) === "setup_required";
+  pill.textContent = serviceStateLabel();
+  pill.classList.toggle("warn", required);
+  /* 携帯ではヘッダの pill を畳んでいる。準備が要ることは、設定の入口の印で伝える。 */
+  byId("nav-settings").dataset.attention = String(required);
+}
+
+function serviceStateLabel() {
+  const value = state.setup?.state || state.capabilities?.service?.state;
+  if (value === "available") return t("localOnly");
+  if (value === "setup_required") return t("stateSetupRequired");
+  return t("localOnly");
+}
+
+function renderCapabilityGate() {
+  const gate = byId("capability-gate");
+  const id = state.task === "sfx" ? currentSfxKind().task : TASK_CAPABILITY[state.task];
+  const value = capability(id);
+  const blocked = Boolean(value) && value.state !== "available";
+  gate.hidden = !blocked;
+  if (!blocked) return false;
+  const component = CAPABILITY_COMPONENT[id];
+  const label = SETUP_COMPONENTS.find((item) => item.id === component);
+  byId("capability-gate-title").textContent = t("setupRequired");
+  byId("capability-gate-reason").textContent = label
+    ? `${t(label.label)} — ${t(label.detail)}`
+    : (value.reason || value.reason_code || "");
+  byId("capability-gate-action").onclick = () => activate("settings");
+  return true;
+}
+
+/* ── ファイル選択 ─────────────────────────────────────────────────────── */
+
+async function pickAudio(onPicked) {
+  try {
+    const grant = await callHost("host.file.pick", {mode: "file", title: t("chooseAudio")});
+    if (!grant?.grant_id) return;
+    onPicked(grant.grant_id, grant.name || "audio");
+  } catch (error) {
+    showError("studio-error", error?.code === "bridge_unavailable" ? t("bridgeOnly") : errorText(error));
+  }
+}
+
+async function pickProjectOutput() {
+  try {
+    const grant = await callHost("host.files.export", {suggested_name: ""});
+    const id = grant?.grant_id || grant?.export_grant_id;
+    if (!id) return;
+    state.projectGrant = id;
+    syncAdvanced();
+  } catch (error) {
+    showError("studio-error", error?.code === "bridge_unavailable" ? t("bridgeOnly") : errorText(error));
+  }
+}
+
+function showError(id, message) {
+  const node = byId(id);
+  if (!node) return;
+  node.hidden = !message;
+  node.textContent = message || "";
+}
+
+/* ── 生成の受付 ───────────────────────────────────────────────────────── */
+
+function commonRequestParts() {
+  const form = state.form;
+  const sampleRate = form.sampleRate ? Number(form.sampleRate) : null;
+  const channels = form.channels ? Number(form.channels) : null;
+  const seed = form.seed !== undefined && form.seed !== "" ? Number(form.seed) : null;
+  return {
+    profile: (form.profile || "").trim() || "default",
+    quality: form.quality || "balanced",
+    output: {
+      format: form.format || "wav",
+      sample_rate: Number.isFinite(sampleRate) ? sampleRate : null,
+      channels: Number.isFinite(channels) ? channels : null,
+    },
+    routing: {
+      engine: (form.engine || "").trim() || null,
+      model: (form.model || "").trim() || null,
+      device: form.device || "auto",
+    },
+    seed: Number.isFinite(seed) ? seed : null,
+    project_output_grant: state.projectGrant || null,
+  };
+}
+
+function buildRequest() {
+  const shared = commonRequestParts();
+  if (state.task === "speech") {
+    const text = String(byId("speech-text").value || "").trim();
+    if (!text) throw new Error(t("needText"));
+    const preset = SPEECH_STYLES.find((item) => item.id === (state.form.speechStyle || "auto"));
+    const instruction = String(state.form.styleInstruction || "").trim() || preset?.instruction || "";
+    const input = {text};
+    if (state.form.voiceId) input.voice_id = state.form.voiceId;
+    if (instruction) input.style = {preset: preset?.id || "auto", instruction};
+    return {...shared, task: "speech.tts.synthesize", input,
+      content_language: state.form.speechLanguage || "auto"};
+  }
+  if (state.task === "transcribe") {
+    if (!state.audioGrant) throw new Error(t("needAudio"));
+    return {...shared, task: "speech.asr.transcribe",
+      input: {audio_grant: state.audioGrant},
+      content_language: state.form.transcribeLanguage || "auto"};
+  }
+  if (state.task === "sfx") {
+    const prompt = composedPrompt();
+    if (!prompt) throw new Error(t("needPrompt"));
+    return {...shared, task: currentSfxKind().task,
+      input: {prompt, duration_sec: currentDuration()},
+      content_language: "auto"};
+  }
+  const prompt = composedPrompt();
+  if (!prompt) throw new Error(t("needPrompt"));
+  const bpm = state.form.bpm ? Number(state.form.bpm) : null;
+  return {...shared, task: "music.generate",
+    input: {
+      prompt,
+      duration_sec: currentDuration(),
+      bpm: Number.isFinite(bpm) && bpm ? bpm : null,
+      instrumental: byId("music-instrumental").checked,
+    },
+    content_language: "auto"};
+}
+
+byId("studio-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  showError("studio-error", "");
+  let request;
+  try { request = buildRequest(); } catch (error) { showError("studio-error", errorText(error)); return; }
+  const submit = byId("studio-submit");
+  submit.disabled = true;
+  setHostBusy(true);
+  try {
+    const created = await jsonPost("/tasks", request);
+    state.activeJob = created.job_id;
+    await showJob(created.job_id);
+  } catch (error) {
+    showError("studio-error", errorText(error));
+  } finally {
+    setHostBusy(false);
+    submit.disabled = false;
+  }
+});
+
+byId("studio-reset").addEventListener("click", () => {
+  state.form = {};
+  state.projectGrant = "";
+  byId("speech-text").value = "";
+  byId("sfx-prompt").value = "";
+  byId("music-prompt").value = "";
+  showError("studio-error", "");
+  mountAdvanced();
+  renderStudio();
+});
+
+for (const id of ["sfx-prompt", "music-prompt"]) {
+  byId(id).addEventListener("input", () => renderStudio());
+}
+
+byId("transcribe-pick").addEventListener("click", () => pickAudio((grant, name) => {
+  state.audioGrant = grant;
+  state.audioName = name;
+  renderStudio();
+}));
+byId("transcribe-clear").addEventListener("click", () => {
+  state.audioGrant = "";
+  state.audioName = "";
+  renderStudio();
+});
+
+/* ── ジョブの追跡 ─────────────────────────────────────────────────────── */
+
+function jobStateLabel(value) {
+  return {
+    queued: t("stateQueued"), running: t("stateRunning"), succeeded: t("stateSucceeded"),
+    failed: t("stateFailed"), canceled: t("stateCanceled"),
+  }[value] || value;
+}
+
+function jobTaskLabel(task) {
+  return {
+    "speech.tts.synthesize": t("taskSpeech"),
+    "speech.asr.transcribe": t("taskTranscribe"),
+    "speech.localization.batch": t("taskLocalization"),
+    "audio.sfx.generate": t("taskSfx"),
+    "audio.ambience.generate": t("sfxAmbience"),
+    "music.generate": t("taskMusic"),
+    "audio.export": t("exportAsset"),
+    "audio.process": t("stageProcess"),
+    "pipeline.execute": t("pipelineTitle"),
+    "system.setup": t("setUp"),
+  }[task] || task;
+}
+
+async function showJob(id) {
+  let job;
+  try { job = await api(`/jobs/${encodeURIComponent(id)}`); }
+  catch { if (!socketOpen()) setTimeout(() => showJob(id), 3000); return; }
+  if (ACTIVE_STATES.has(job.state)) state.activeJob = id;
+  renderJobStage(job);
+  renderMiniProgress(job);
+  if (ACTIVE_STATES.has(job.state)) {
+    if (!socketOpen()) setTimeout(() => showJob(id), 2000);
+    return;
+  }
+  if (state.activeJob === id) state.activeJob = "";
+  /* 資産の見出しはジョブの task から引く。順番を逆にすると、できたばかりの
+     ものだけが生の asset ID で並ぶ。 */
+  await loadActiveJobs();
+  await loadAssets();
+  notifyFinished(job);
+}
+
+function notifyFinished(job) {
+  if (!state.bridgePort || job.state === "canceled") return;
+  void callHost("host.notification.show", {
+    title: "SonicForge",
+    message: job.state === "succeeded" ? t("done") : (job.error_message || t("failed")),
+    level: job.state === "succeeded" ? "success" : "error",
+    dedupe_key: job.id,
+  }).catch(() => {});
+}
+
+function renderJobStage(job) {
+  state.lastJob = job;
+  const progress = byId("stage-progress");
+  const result = byId("stage-result");
+  const active = ACTIVE_STATES.has(job.state);
+  progress.hidden = !active;
+  if (active) {
+    byId("progress-phase").textContent = job.state === "queued" ? t("queued") : t("running");
+    const bar = byId("progress-bar");
+    const fraction = Number(job.progress || 0);
+    bar.classList.toggle("indeterminate", fraction <= 0);
+    bar.style.width = fraction > 0 ? `${Math.round(fraction * 100)}%` : "";
+    byId("progress-detail").textContent = job.result?.message || jobTaskLabel(job.task);
+    byId("progress-cancel").onclick = () => cancelJob(job.id);
+    result.hidden = true;
+    return;
+  }
+  if (job.state !== "succeeded") {
+    result.hidden = true;
+    showError("studio-error", job.error_message || t("failed"));
+    return;
+  }
+  showError("studio-error", "");
+  const assetId = job.result?.asset_id;
+  const text = job.result?.text;
+  result.hidden = false;
+  byId("result-title").textContent = `${jobTaskLabel(job.task)} — ${t("done")}`;
+  const audio = byId("result-audio");
+  audio.hidden = !assetId;
+  if (assetId) audio.src = apiUrl(`/assets/${encodeURIComponent(assetId)}/content`);
+  const transcript = byId("result-text");
+  transcript.hidden = !text;
+  if (text) transcript.textContent = transcriptText(job.result);
+  byId("result-meta").textContent = job.result?.language ? `${t("contentLanguage")}: ${job.result.language}` : "";
+  byId("result-export").hidden = !assetId;
+  byId("result-export").onclick = () => openExport(assetId);
+  byId("result-detail").hidden = !assetId;
+  byId("result-detail").onclick = () => openAssetDetail(assetId);
+  byId("result-again").onclick = () => byId("studio-form").requestSubmit();
+}
+
+/* 区切りごとの時刻は、返ってきたときだけ添える。無い経路で嘘の時刻は出さない。 */
+function transcriptText(result) {
+  const segments = Array.isArray(result?.segments) ? result.segments : [];
+  if (!segments.length || state.form.timestamps === false) return String(result?.text || "");
+  return segments.map((segment) => {
+    const start = Number(segment.start ?? segment.start_ms / 1000 ?? 0);
+    const end = Number(segment.end ?? segment.end_ms / 1000 ?? 0);
+    return `[${start.toFixed(1)}-${end.toFixed(1)}] ${String(segment.text || "").trim()}`;
+  }).join("\n");
+}
+
+function renderMiniProgress(job) {
+  const bar = byId("mini-progress");
+  const active = ACTIVE_STATES.has(job.state);
+  bar.hidden = !active;
+  if (!active) return;
+  byId("mini-phase").textContent = `${jobTaskLabel(job.task)} — ${jobStateLabel(job.state)}`;
+  const fraction = Number(job.progress || 0);
+  const inner = byId("mini-bar");
+  inner.classList.toggle("indeterminate", fraction <= 0);
+  inner.style.width = fraction > 0 ? `${Math.round(fraction * 100)}%` : "";
+  byId("mini-cancel").onclick = () => cancelJob(job.id);
+}
+
+async function cancelJob(id) {
+  try { await api(`/jobs/${encodeURIComponent(id)}`, {method: "DELETE"}); }
+  catch (error) { showError("studio-error", errorText(error)); return; }
+  await showJob(id);
+}
+
+async function loadActiveJobs() {
+  try {
+    const data = await api("/jobs?limit=100");
+    state.jobs = data.jobs || [];
+  } catch { return; }
+  const active = state.jobs.filter((job) => ACTIVE_STATES.has(job.state));
+  const badge = byId("activity-badge");
+  badge.hidden = active.length === 0;
+  badge.textContent = String(active.length);
+  if (active.length && !state.activeJob) {
+    state.activeJob = active[0].id;
+    await showJob(active[0].id);
+  } else if (!active.length) {
+    byId("mini-progress").hidden = true;
+  }
+  renderActivity();
+  renderLibrary();
+  renderRecent();
+}
+
+function renderActivity() {
+  const rows = byId("activity-rows");
+  if (!rows) return;
+  byId("activity-count").textContent = state.jobs.length ? `${state.jobs.length}${t("itemCount")}` : "";
+  byId("activity-empty").hidden = state.jobs.length > 0;
+  rows.replaceChildren(...state.jobs.map((job) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.dataset.status = job.state;
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "t";
+    title.textContent = jobTaskLabel(job.task);
+    const sub = document.createElement("div");
+    sub.className = "s";
+    sub.textContent = job.error_message || job.result?.text?.slice(0, 120) || job.id;
+    left.append(title, sub);
+    const side = document.createElement("div");
+    side.className = "row-side";
+    const badge = document.createElement("span");
+    badge.className = "state";
+    badge.dataset.tone = job.state === "failed" ? "bad" : (ACTIVE_STATES.has(job.state) ? "warn" : "muted");
+    badge.textContent = jobStateLabel(job.state);
+    side.append(badge);
+    if (ACTIVE_STATES.has(job.state)) {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.textContent = t("cancel");
+      cancel.onclick = () => cancelJob(job.id);
+      side.append(cancel);
+    } else if (job.result?.asset_id) {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.textContent = t("details");
+      open.onclick = () => openAssetDetail(job.result.asset_id);
+      side.append(open);
+    }
+    row.append(left, side);
+    return row;
+  }));
+}
+
+/* ── ライブラリ ───────────────────────────────────────────────────────── */
+
+const LIBRARY_FILTERS = [
+  {id: "all", label: "filter"},
+  {id: "speech.tts.synthesize", label: "taskSpeech"},
+  {id: "audio.sfx.generate", label: "taskSfx"},
+  {id: "music.generate", label: "taskMusic"},
+];
+
+async function loadAssets() {
+  try {
+    const data = await api("/assets?limit=200");
+    state.assets = data.assets || [];
+    showError("library-error", "");
+  } catch (error) {
+    showError("library-error", errorText(error));
+    return;
+  }
+  renderLibrary();
+  renderRecent();
+}
+
+function assetTask(asset) {
+  const job = state.jobs.find((item) => item.id === asset.job_id);
+  return job?.task || "";
+}
+
+function renderLibrary() {
+  const grid = byId("library-grid");
+  if (!grid) return;
+  renderChips(byId("library-filter"), LIBRARY_FILTERS.map((item) => ({
+    id: item.id,
+    text: item.id === "all" ? (state.locale === "ja" ? "すべて" : "All") : t(item.label),
+  })), state.libraryFilter, (value) => { state.libraryFilter = value; renderLibrary(); });
+
+  const items = state.assets.filter((asset) => {
+    if (state.libraryFilter === "all") return true;
+    const task = assetTask(asset);
+    if (state.libraryFilter === "audio.sfx.generate") return task.startsWith("audio.");
+    return task === state.libraryFilter;
+  });
+  byId("library-count").textContent = `${items.length}${t("itemCount")}`;
+  byId("library-empty").hidden = items.length > 0;
+  grid.replaceChildren(...items.map((asset) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    const heading = document.createElement("h3");
+    heading.textContent = jobTaskLabel(assetTask(asset)) || t("audioAsset");
+    const tags = document.createElement("div");
+    tags.className = "tags";
+    for (const value of [formatSeconds(asset.duration_ms),
+      asset.sample_rate ? `${asset.sample_rate} Hz` : null,
+      asset.channels === 2 ? "stereo" : "mono",
+      formatBytes(asset.size_bytes)]) {
+      if (!value || value === "—") continue;
+      const tag = document.createElement("span");
+      tag.textContent = value;
+      tags.append(tag);
+    }
+    const player = document.createElement("audio");
+    player.controls = true;
+    player.preload = "none";
+    player.src = apiUrl(`/assets/${encodeURIComponent(asset.id)}/content`);
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = asset.created_at ? new Date(asset.created_at).toLocaleString() : "";
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const exportButton = document.createElement("button");
+    exportButton.type = "button";
+    exportButton.textContent = t("exportAsset");
+    exportButton.onclick = () => openExport(asset.id);
+    const detailButton = document.createElement("button");
+    detailButton.type = "button";
+    detailButton.textContent = t("details");
+    detailButton.onclick = () => openAssetDetail(asset.id);
+    actions.append(exportButton, detailButton);
+    card.append(heading, tags, player, meta, actions);
+    return card;
+  }));
+}
+
+function renderRecent() {
+  const strip = byId("recent-strip");
+  if (!strip) return;
+  const items = state.assets.slice(0, 5);
+  byId("recent-empty").hidden = items.length > 0;
+  strip.replaceChildren(...items.map((asset) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "strip-item";
+    const title = document.createElement("span");
+    title.className = "t";
+    title.textContent = jobTaskLabel(assetTask(asset)) || t("audioAsset");
+    const sub = document.createElement("span");
+    sub.className = "s";
+    sub.textContent = formatSeconds(asset.duration_ms);
+    button.append(title, sub);
+    button.onclick = () => openAssetDetail(asset.id);
+    return button;
+  }));
+}
+
+/* ── 書き出し ─────────────────────────────────────────────────────────── */
+
+async function loadDeliveryProfiles() {
+  if (state.deliveryProfiles.length) return;
+  try {
+    const data = await api("/delivery/audio/profiles");
+    state.deliveryProfiles = data.profiles || [];
+  } catch { state.deliveryProfiles = []; }
+}
+
+async function openExport(assetId) {
+  if (!assetId) return;
+  state.exportAssetId = assetId;
+  await loadDeliveryProfiles();
+  const select = byId("export-profile");
+  select.replaceChildren(...state.deliveryProfiles.map((profile) => {
+    const option = document.createElement("option");
+    option.value = profile.id;
+    option.textContent = profile.label;
+    return option;
+  }));
+  const describe = () => {
+    const profile = state.deliveryProfiles.find((item) => item.id === select.value);
+    byId("export-purpose").textContent = profile?.purpose || "";
+    byId("export-filename").placeholder = `${assetId.split(":").pop()}${profile?.extension || ""}`;
+  };
+  select.onchange = describe;
+  describe();
+  byId("export-summary").textContent = assetId;
+  showError("export-error", "");
+  byId("export-dialog").showModal();
+}
+
+byId("export-cancel").addEventListener("click", () => byId("export-dialog").close());
+byId("export-confirm").addEventListener("click", async () => {
+  const body = {profile: byId("export-profile").value};
+  const filename = String(byId("export-filename").value || "").trim();
+  if (filename) body.filename = filename;
+  if (byId("export-to-project").checked) {
+    try {
+      const grant = await callHost("host.files.export", {suggested_name: filename || ""});
+      const id = grant?.grant_id || grant?.export_grant_id;
+      if (!id) return;
+      body.project_output_grant = id;
+    } catch (error) {
+      showError("export-error", error?.code === "bridge_unavailable" ? t("bridgeOnly") : errorText(error));
+      return;
+    }
+  }
+  try {
+    const created = await jsonPost(`/assets/${encodeURIComponent(state.exportAssetId)}/export`, body);
+    byId("export-dialog").close();
+    state.activeJob = created.job_id;
+    await showJob(created.job_id);
+  } catch (error) {
+    showError("export-error", errorText(error));
+  }
+});
+
+async function openAssetDetail(assetId) {
+  let asset;
+  try { asset = await api(`/assets/${encodeURIComponent(assetId)}`); }
+  catch (error) { showError("library-error", errorText(error)); return; }
+  const facts = [
+    [t("length"), formatSeconds(asset.duration_ms)],
+    [t("sampleRate"), asset.sample_rate ? `${asset.sample_rate} Hz` : "—"],
+    [t("channels"), asset.channels === 2 ? "stereo" : "mono"],
+    ["SHA-256", String(asset.sha256 || "").slice(0, 16)],
+    [t("engine"), asset.provenance?.engine_id || "—"],
+    [t("model"), asset.provenance?.model_id || "—"],
+    [t("quality"), asset.provenance?.parameters?.quality || "—"],
+    [t("seed"), asset.provenance?.parameters?.seed ?? "—"],
+  ];
+  byId("detail-facts").replaceChildren(...facts.map(([key, value]) => {
+    const wrap = document.createElement("div");
+    const dt = document.createElement("dt");
+    dt.textContent = key;
+    const dd = document.createElement("dd");
+    dd.textContent = String(value);
+    wrap.append(dt, dd);
+    return wrap;
+  }));
+  byId("detail-raw").textContent = JSON.stringify(asset.provenance || asset.metadata || {}, null, 2);
+  byId("detail-dialog").showModal();
+}
+byId("detail-close").addEventListener("click", () => byId("detail-dialog").close());
+
+/* ── 設定：ランタイム ─────────────────────────────────────────────────── */
+
+async function loadCapabilities() {
+  try { state.capabilities = await api("/capabilities"); } catch { return; }
+  renderServicePill();
+  renderStudio();
+  renderSettings();
+}
+
+async function loadSetup() {
+  try {
+    state.setup = await api("/setup/status");
+    showError("setup-error", "");
+  } catch (error) {
+    showError("setup-error", errorText(error));
+    return;
+  }
+  renderServicePill();
+  renderSettings();
+}
+
+function componentState(id) {
+  return state.setup?.components?.find((item) => item.id === id)?.state || "missing";
+}
+
+function stateLabel(value) {
+  return {
+    available: t("stateAvailable"), preparing: t("statePreparing"),
+    setup_required: t("stateSetupRequired"), missing: t("stateSetupRequired"),
+    failed: t("stateFailed"), unavailable: t("stateUnavailable"),
+  }[value] || value;
+}
+
+function renderSettings() {
+  const rows = byId("setup-rows");
+  if (!rows) return;
+  rows.replaceChildren(...SETUP_COMPONENTS.map((component) => {
+    const value = componentState(component.id);
+    const row = document.createElement("div");
+    row.className = "row";
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "t";
+    title.textContent = t(component.label);
+    left.append(title);
+    if (component.detail) {
+      const sub = document.createElement("div");
+      sub.className = "s";
+      sub.textContent = t(component.detail);
+      left.append(sub);
+    }
+    if (component.id === "game-audio" && value !== "available") {
+      const terms = document.createElement("label");
+      terms.className = "check";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.id = "stability-terms";
+      const text = document.createElement("span");
+      text.textContent = t("termsStability");
+      terms.append(input, text);
+      left.append(terms);
+    }
+    const side = document.createElement("div");
+    side.className = "row-side";
+    const badge = document.createElement("span");
+    badge.className = "state";
+    badge.dataset.tone = value === "available" ? "ok" : (value === "failed" ? "bad" : "warn");
+    badge.textContent = stateLabel(value);
+    side.append(badge);
+    if (component.profile) {
+      if (value !== "available") {
+        const setup = document.createElement("button");
+        setup.type = "button";
+        setup.className = "cta-secondary";
+        setup.textContent = t("setUp");
+        setup.onclick = () => applySetup(component.profile, "apply");
+        side.append(setup);
+      } else if (state.mode === "advanced") {
+        for (const [key, endpoint] of [["repair", "repair"], ["update", "update"]]) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = t(key);
+          button.onclick = () => applySetup(component.profile, endpoint);
+          side.append(button);
+        }
+      }
+    }
+    row.append(left, side);
+    return row;
+  }));
+
+  const profileSelect = byId("setup-profile");
+  if (profileSelect && !profileSelect.dataset.ready) {
+    profileSelect.dataset.ready = "1";
+    profileSelect.onchange = () => void loadPlan();
+  }
+  if (profileSelect) {
+    const current = profileSelect.value || "speech-essentials";
+    profileSelect.replaceChildren(...SETUP_PROFILES.map((item) => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = t(item.label);
+      return option;
+    }));
+    profileSelect.value = current;
+  }
+  renderPlan();
+  renderCapabilityRows();
+  renderVoices();
+}
+
+async function loadPlan() {
+  const profile = byId("setup-profile")?.value || "speech-essentials";
+  try { state.plan = await api(`/setup/plan?profile=${encodeURIComponent(profile)}`); }
+  catch (error) { showError("setup-error", errorText(error)); return; }
+  renderPlan();
+}
+
+function renderPlan() {
+  const facts = byId("setup-plan-facts");
+  if (!facts) return;
+  const plan = state.plan;
+  const items = plan ? [
+    [t("backend"), plan.backend],
+    [t("platform"), plan.platform],
+    [t("freeSpace"), formatBytes(plan.free_bytes)],
+    [t("requiredSpace"), formatBytes(plan.required_bytes_estimate)],
+  ] : [];
+  facts.replaceChildren(...items.map(([key, value]) => {
+    const wrap = document.createElement("div");
+    const dt = document.createElement("dt");
+    dt.textContent = key;
+    const dd = document.createElement("dd");
+    dd.textContent = String(value ?? "—");
+    wrap.append(dt, dd);
+    return wrap;
+  }));
+  const warn = byId("setup-plan-warn");
+  const notes = [...(plan?.warnings || []), ...(plan?.blockers || [])];
+  warn.hidden = notes.length === 0;
+  warn.textContent = notes.join(" · ");
+  const apply = byId("setup-plan-apply");
+  apply.disabled = Boolean(plan?.blockers?.length);
+  apply.onclick = () => applySetup(byId("setup-profile").value, "apply");
+}
+
+async function applySetup(profile, endpoint) {
+  const accepted = [];
+  if (["game-audio", "full-studio"].includes(profile)) {
+    if (!byId("stability-terms")?.checked && componentState("game-audio") !== "available") {
+      showError("setup-error", t("termsRequired"));
+      return;
+    }
+    accepted.push("stability-ai-community-license");
+  }
+  try {
+    const created = await jsonPost(`/setup/${endpoint}`, {profile, components: [], accepted_terms: accepted});
+    showError("setup-error", "");
+    state.activeJob = created.job_id;
+    await showJob(created.job_id);
+  } catch (error) {
+    showError("setup-error", errorText(error));
+  }
+}
+
+function renderCapabilityRows() {
+  const rows = byId("capability-rows");
+  if (!rows) return;
+  const items = state.capabilities?.capabilities || [];
+  rows.replaceChildren(...items.map((item) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "t";
+    title.textContent = jobTaskLabel(item.id);
+    const sub = document.createElement("div");
+    sub.className = "s";
+    sub.textContent = `${item.id} · ${Object.keys(item.features || {}).join(", ")}`;
+    left.append(title, sub);
+    const badge = document.createElement("span");
+    badge.className = "state";
+    badge.dataset.tone = item.state === "available" ? "ok" : "warn";
+    badge.textContent = stateLabel(item.state);
+    row.append(left, badge);
+    return row;
+  }));
+  const facts = byId("diagnostics-facts");
+  if (!facts) return;
+  const service = state.capabilities?.service || {};
+  const items2 = [
+    ["service", `${service.id || "sonic-forge"} ${service.version || ""}`],
+    ["api_version", state.capabilities?.api_version || "—"],
+    [t("backend"), state.plan?.backend || "—"],
+  ];
+  facts.replaceChildren(...items2.map(([key, value]) => {
+    const wrap = document.createElement("div");
+    const dt = document.createElement("dt");
+    dt.textContent = key;
+    const dd = document.createElement("dd");
+    dd.textContent = String(value);
+    wrap.append(dt, dd);
+    return wrap;
+  }));
+}
+
+/* ── 設定：ボイス ─────────────────────────────────────────────────────── */
+
+const VOICE_KINDS = [
+  {id: "built-in", label: "voiceBuiltIn", hint: "voiceBuiltInHint"},
+  {id: "design", label: "voiceDesign", hint: "voiceDesignHint"},
+  {id: "clone", label: "voiceClone", hint: "voiceCloneHint"},
+];
+
+async function loadVoices() {
+  try {
+    const data = await api("/voices");
+    state.voices = data.voices || [];
+    showError("voice-error", "");
+  } catch (error) {
+    showError("voice-error", errorText(error));
+    return;
+  }
+  renderVoices();
+  renderStudio();
+}
+
+function renderVoices() {
+  const rows = byId("voice-rows");
+  if (!rows) return;
+  byId("voice-empty").hidden = state.voices.length > 0;
+  rows.replaceChildren(...state.voices.map((voice) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "t";
+    title.textContent = voice.name;
+    const sub = document.createElement("div");
+    sub.className = "s";
+    const kind = VOICE_KINDS.find((item) => item.id === voice.source_type);
+    sub.textContent = `${kind ? t(kind.label) : voice.source_type} · ${(voice.languages || []).join("/")}`;
+    left.append(title, sub);
+    const side = document.createElement("div");
+    side.className = "row-side";
+    if (voice.rights_confirmed) {
+      const badge = document.createElement("span");
+      badge.className = "state";
+      badge.textContent = "✓";
+      side.append(badge);
+    }
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = t("delete");
+    remove.onclick = () => confirmAction(t("deleteVoiceTitle"), t("deleteVoiceBody"), async () => {
+      await api(`/voices/${encodeURIComponent(voice.id)}`, {method: "DELETE"});
+      await loadVoices();
+    });
+    side.append(remove);
+    row.append(left, side);
+    return row;
+  }));
+}
+
+byId("voice-add").addEventListener("click", () => {
+  state.voiceKind = "built-in";
+  state.voiceLanguages = ["ja", "en"];
+  state.voiceReferenceGrant = "";
+  state.voiceReferenceName = "";
+  byId("voice-name").value = "";
+  showError("voice-dialog-error", "");
+  renderVoiceDialog();
+  byId("voice-dialog").showModal();
+});
+byId("voice-cancel").addEventListener("click", () => byId("voice-dialog").close());
+
+function renderVoiceDialog() {
+  renderChips(byId("voice-kind-chips"), VOICE_KINDS, state.voiceKind, (value) => {
+    state.voiceKind = value;
+    renderVoiceDialog();
+  });
+  const kind = VOICE_KINDS.find((item) => item.id === state.voiceKind);
+  byId("voice-kind-hint").textContent = t(kind.hint);
+  renderChips(byId("voice-language-chips"), LANGUAGES.slice(1), state.voiceLanguages, (value) => {
+    const next = new Set(state.voiceLanguages);
+    next.has(value) ? next.delete(value) : next.add(value);
+    state.voiceLanguages = [...next];
+    if (!state.voiceLanguages.length) state.voiceLanguages = [value];
+    renderVoiceDialog();
+  }, {multi: true});
+
+  const fields = byId("voice-fields");
+  fields.replaceChildren();
+  if (state.voiceKind === "built-in") {
+    fields.append(labelled(t("voiceSpeaker"), selectNode("voice-speaker", [
+      {value: "Ryan", text: "Ryan (EN)"},
+      {value: "Ono_Anna", text: "Ono Anna (JA)"},
+    ])));
+    return;
+  }
+  if (state.voiceKind === "design") {
+    const area = document.createElement("textarea");
+    area.id = "voice-instruction";
+    area.maxLength = 600;
+    area.rows = 3;
+    area.placeholder = state.locale === "ja"
+      ? "落ち着いた低めの女性の声、少しかすれた響き"
+      : "A calm, low female voice with a slightly husky tone";
+    fields.append(labelled(t("voiceInstruction"), area));
+    return;
+  }
+  const row = document.createElement("div");
+  row.className = "file-row";
+  const pick = document.createElement("button");
+  pick.type = "button";
+  pick.className = "dropzone";
+  pick.classList.toggle("filled", Boolean(state.voiceReferenceGrant));
+  pick.textContent = state.voiceReferenceName || t("chooseAudio");
+  pick.onclick = () => pickAudio((grant, name) => {
+    state.voiceReferenceGrant = grant;
+    state.voiceReferenceName = name;
+    renderVoiceDialog();
+  });
+  row.append(pick);
+  const transcript = document.createElement("textarea");
+  transcript.id = "voice-reference-text";
+  transcript.rows = 2;
+  transcript.maxLength = 2000;
+  const rights = document.createElement("label");
+  rights.className = "check";
+  const check = document.createElement("input");
+  check.type = "checkbox";
+  check.id = "voice-rights";
+  const rightsText = document.createElement("span");
+  rightsText.textContent = t("voiceRights");
+  rights.append(check, rightsText);
+  fields.append(labelled(t("voiceReference"), row), labelled(t("voiceReferenceText"), transcript), rights);
+}
+
+function labelled(text, node) {
+  const label = document.createElement("label");
+  label.append(document.createTextNode(text), node);
+  return label;
+}
+
+function selectNode(id, options) {
+  const select = document.createElement("select");
+  select.id = id;
+  select.replaceChildren(...options.map((item) => {
+    const option = document.createElement("option");
+    option.value = item.value;
+    option.textContent = item.text;
+    return option;
+  }));
+  return select;
+}
+
+byId("voice-save").addEventListener("click", async () => {
+  const name = String(byId("voice-name").value || "").trim();
+  if (!name) { showError("voice-dialog-error", t("nameRequired")); return; }
+  const recipe = {};
+  let rights = false;
+  if (state.voiceKind === "built-in") recipe.speaker = byId("voice-speaker")?.value || "Ryan";
+  if (state.voiceKind === "design") recipe.design_instruction = byId("voice-instruction")?.value || "";
+  if (state.voiceKind === "clone") {
+    if (!state.voiceReferenceGrant) { showError("voice-dialog-error", t("needAudio")); return; }
+    if (!byId("voice-rights")?.checked) { showError("voice-dialog-error", t("voiceRightsRequired")); return; }
+    recipe.reference_grant = state.voiceReferenceGrant;
+    recipe.reference_text = byId("voice-reference-text")?.value || "";
+    rights = true;
+  }
+  try {
+    await jsonPost("/voices", {
+      name,
+      source_type: state.voiceKind,
+      languages: state.voiceLanguages,
+      engine_id: "tts.qwen3",
+      recipe,
+      rights_confirmed: rights,
+    });
+    byId("voice-dialog").close();
+    state.voiceReferenceGrant = "";
+    state.voiceReferenceName = "";
+    await loadVoices();
+  } catch (error) {
+    showError("voice-dialog-error", errorText(error));
+  }
+});
+
+/* ── 設定：端末 ───────────────────────────────────────────────────────── */
+
+byId("device-pair").addEventListener("click", async () => {
+  const body = {relay_id: byId("device-relay").value || "voice"};
+  const label = String(byId("device-label").value || "").trim();
+  if (label) body.device_label = label;
+  try {
+    const created = await jsonPost("/devices/pairings", body);
+    showError("device-error", "");
+    const result = byId("device-result");
+    result.hidden = false;
+    result.textContent = JSON.stringify(created, null, 2);
+  } catch (error) {
+    byId("device-result").hidden = true;
+    showError("device-error", error?.code === "control_deck_required" ? t("bridgeOnly") : errorText(error));
+  }
+});
+
+/* ── 確認ダイアログ ───────────────────────────────────────────────────── */
+
+function confirmAction(title, body, action) {
+  byId("confirm-title").textContent = title;
+  byId("confirm-body").textContent = body;
+  state.confirmAction = action;
+  byId("confirm-dialog").showModal();
+}
+byId("confirm-cancel").addEventListener("click", () => byId("confirm-dialog").close());
+byId("confirm-ok").addEventListener("click", async () => {
+  const action = state.confirmAction;
+  byId("confirm-dialog").close();
+  state.confirmAction = null;
+  if (action) await action();
+});
+
+/* ── パイプライン ─────────────────────────────────────────────────────── */
+
+function defaultPipeline() {
+  const preset = PIPELINE_PRESETS[0];
+  return {
+    preset: preset.id,
+    inputKind: preset.input,
+    stages: preset.stages.map((stage) => ({...stage, language: "auto", quality: "balanced", voice_id: ""})),
+    startAt: "",
+    stopAfter: "",
+    delivery: preset.delivery,
+    filename: "",
+    projectGrant: "",
+    grantId: "",
+    grantName: "",
+    assetId: "",
+  };
+}
+
+function renderPipeline() {
+  const container = byId("pipeline-stages");
+  if (!container) return;
+  if (!state.pipeline) state.pipeline = defaultPipeline();
+  const value = state.pipeline;
+
+  renderChips(byId("pipeline-presets"), PIPELINE_PRESETS, value.preset, (id) => {
+    const preset = PIPELINE_PRESETS.find((item) => item.id === id);
+    state.pipeline = {
+      ...defaultPipeline(),
+      preset: preset.id,
+      inputKind: preset.input,
+      stages: preset.stages.map((stage) => ({...stage, language: "auto", quality: "balanced", voice_id: ""})),
+      delivery: preset.delivery,
+      grantId: value.grantId,
+      grantName: value.grantName,
+      assetId: value.assetId,
+    };
+    renderPipeline();
+  });
+
+  renderChips(byId("pipeline-input-kinds"), [
+    {id: "text", label: "inputText"},
+    {id: "audio_grant", label: "inputFile"},
+    {id: "audio_asset", label: "inputAsset"},
+  ], value.inputKind, (id) => { value.inputKind = id; renderPipeline(); });
+
+  byId("pipeline-input-text").hidden = value.inputKind !== "text";
+  byId("pipeline-input-file").hidden = value.inputKind !== "audio_grant";
+  byId("pipeline-input-asset").hidden = value.inputKind !== "audio_asset";
+  const pick = byId("pipeline-pick");
+  pick.classList.toggle("filled", Boolean(value.grantId));
+  pick.textContent = value.grantName || t("chooseAudio");
+  pick.onclick = () => pickAudio((grant, name) => {
+    value.grantId = grant;
+    value.grantName = name;
+    renderPipeline();
+  });
+  byId("pipeline-clear").hidden = !value.grantId;
+  byId("pipeline-clear").onclick = () => { value.grantId = ""; value.grantName = ""; renderPipeline(); };
+
+  const assetSelect = byId("pipeline-asset");
+  assetSelect.replaceChildren(...state.assets.map((asset) => {
+    const option = document.createElement("option");
+    option.value = asset.id;
+    option.textContent = `${jobTaskLabel(assetTask(asset)) || t("audioAsset")} · ${formatSeconds(asset.duration_ms)}`;
+    return option;
+  }));
+  assetSelect.value = value.assetId || assetSelect.value;
+  assetSelect.onchange = () => { value.assetId = assetSelect.value; };
+
+  const flow = byId("pipeline-flow");
+  const ids = value.stages.map((stage) => stage.id);
+  const startIndex = Math.max(0, ids.indexOf(value.startAt));
+  const stopIndex = value.stopAfter ? ids.indexOf(value.stopAfter) : value.stages.length - 1;
+  flow.replaceChildren(...value.stages.flatMap((stage, index) => {
+    const step = document.createElement("span");
+    step.className = "step";
+    step.dataset.active = String(index >= startIndex && index <= stopIndex);
+    step.textContent = t(PIPELINE_STAGE_LABEL[stage.kind] || stage.kind);
+    return index === 0 ? [step] : [Object.assign(document.createElement("span"), {textContent: "→"}), step];
+  }));
+
+  container.replaceChildren(...value.stages.map((stage, index) => {
+    const card = document.createElement("div");
+    card.className = "stage-card";
+    card.dataset.active = String(index >= startIndex && index <= stopIndex);
+    const head = document.createElement("div");
+    head.className = "stage-head";
+    const badge = document.createElement("span");
+    badge.className = "stage-index";
+    badge.textContent = String(index + 1);
+    const title = document.createElement("b");
+    title.textContent = t(PIPELINE_STAGE_LABEL[stage.kind] || stage.kind);
+    const left = document.createElement("div");
+    left.style.display = "flex";
+    left.style.alignItems = "center";
+    left.style.gap = "8px";
+    left.append(badge, title);
+    head.append(left);
+    card.append(head);
+
+    const row = document.createElement("div");
+    row.className = "form-row";
+    const language = selectNode(`pipeline-stage-language-${index}`, LANGUAGES.map((item) => ({
+      value: item.id, text: t(item.label),
+    })));
+    language.value = stage.language;
+    language.onchange = () => { stage.language = language.value; };
+    row.append(labelled(t("contentLanguage"), language));
+    const quality = selectNode(`pipeline-stage-quality-${index}`, QUALITIES.map((item) => ({
+      value: item.id, text: t(item.label),
+    })));
+    quality.value = stage.quality;
+    quality.onchange = () => { stage.quality = quality.value; };
+    row.append(labelled(t("quality"), quality));
+    card.append(row);
+
+    if (stage.kind === "speech.tts") {
+      const voice = selectNode(`pipeline-stage-voice-${index}`, [
+        {value: "", text: t("builtInVoice")},
+        ...state.voices.map((item) => ({value: item.id, text: item.name})),
+      ]);
+      voice.value = stage.voice_id || "";
+      voice.onchange = () => { stage.voice_id = voice.value; };
+      card.append(labelled(t("voice"), voice));
+    }
+    if (stage.kind === "host.ai.text") {
+      const instruction = document.createElement("textarea");
+      instruction.rows = 2;
+      instruction.maxLength = 2000;
+      instruction.value = stage.instruction || "";
+      instruction.placeholder = state.locale === "ja"
+        ? "この文章を英語に訳してください。訳文だけを返してください。"
+        : "Translate this into Japanese. Return only the translation.";
+      instruction.oninput = () => { stage.instruction = instruction.value; };
+      card.append(labelled(t("aiInstruction"), instruction));
+    }
+    return card;
+  }));
+
+  for (const [id, key] of [["pipeline-start", "startAt"], ["pipeline-stop", "stopAfter"]]) {
+    const select = byId(id);
+    select.replaceChildren(...[{value: "", text: t("auto")}, ...value.stages.map((stage) => ({
+      value: stage.id, text: t(PIPELINE_STAGE_LABEL[stage.kind] || stage.kind),
+    }))].map((item) => {
+      const option = document.createElement("option");
+      option.value = item.value;
+      option.textContent = item.text;
+      return option;
+    }));
+    select.value = value[key] || "";
+    select.onchange = () => { value[key] = select.value; renderPipeline(); };
+  }
+
+  const delivery = byId("pipeline-delivery");
+  delivery.replaceChildren(...[
+    {value: "text", text: t("deliveryText")},
+    {value: "asset", text: t("deliveryAsset")},
+    {value: "project", text: t("deliveryProject")},
+  ].map((item) => {
+    const option = document.createElement("option");
+    option.value = item.value;
+    option.textContent = item.text;
+    return option;
+  }));
+  delivery.value = value.delivery;
+  delivery.onchange = () => { value.delivery = delivery.value; renderPipeline(); };
+  byId("pipeline-project-row").hidden = value.delivery !== "project";
+  byId("pipeline-project-pick").classList.toggle("filled", Boolean(value.projectGrant));
+  byId("pipeline-project-pick").textContent = value.projectGrant
+    ? t("projectOutputSelected") : t("chooseProjectOutput");
+  byId("pipeline-project-pick").onclick = async () => {
+    try {
+      const grant = await callHost("host.files.export", {suggested_name: value.filename || ""});
+      value.projectGrant = grant?.grant_id || grant?.export_grant_id || "";
+      renderPipeline();
+    } catch (error) {
+      showError("pipeline-error", error?.code === "bridge_unavailable" ? t("bridgeOnly") : errorText(error));
+    }
+  };
+  const filename = byId("pipeline-filename");
+  filename.value = value.filename;
+  filename.oninput = () => { value.filename = filename.value; };
+}
+
+function pipelineBody() {
+  const value = state.pipeline;
+  const input = {kind: value.inputKind};
+  if (value.inputKind === "text") input.text = String(byId("pipeline-text").value || "").trim();
+  if (value.inputKind === "audio_grant") input.grant_id = value.grantId;
+  if (value.inputKind === "audio_asset") input.asset_id = value.assetId || byId("pipeline-asset").value;
+  const body = {
+    pipeline: value.preset,
+    input,
+    stages: value.stages.map((stage) => {
+      const item = {
+        id: stage.id,
+        kind: stage.kind,
+        language: stage.language,
+        quality: stage.quality,
+        routing: {engine: null, model: null, device: "auto"},
+        parameters: {},
+      };
+      if (stage.kind === "speech.tts" && stage.voice_id) item.voice_id = stage.voice_id;
+      if (stage.kind === "host.ai.text" && stage.instruction) item.parameters.instruction = stage.instruction;
+      return item;
+    }),
+    delivery: {mode: value.delivery, profile: "default"},
+  };
+  if (value.startAt) body.start_at = value.startAt;
+  if (value.stopAfter) body.stop_after = value.stopAfter;
+  if (value.filename.trim()) body.delivery.filename = value.filename.trim();
+  if (value.delivery === "project") body.delivery.project_output_grant = value.projectGrant || null;
+  return body;
+}
+
+byId("pipeline-validate").addEventListener("click", async () => {
+  showError("pipeline-error", "");
+  try {
+    const result = await jsonPost("/pipelines/compile", pipelineBody());
+    byId("pipeline-note").textContent =
+      `${t("pipelineValid")} · ${result.output_type === "text" ? t("pipelineOutputText") : t("pipelineOutputAudio")}`;
+  } catch (error) {
+    byId("pipeline-note").textContent = "";
+    showError("pipeline-error", errorText(error));
+  }
+});
+
+byId("pipeline-run").addEventListener("click", async () => {
+  showError("pipeline-error", "");
+  try {
+    const created = await jsonPost("/pipelines", pipelineBody());
+    state.activeJob = created.job_id;
+    activate("studio");
+    await showJob(created.job_id);
+  } catch (error) {
+    showError("pipeline-error", errorText(error));
+  }
+});
+
+/* ── 会議 ─────────────────────────────────────────────────────────────── */
+/* マイクの取得と PCM の送出はここで完結させる。edge_protocol の 18 byte
+   ヘッダに合わせて 20ms ずつ送る。取れない環境では読み取り専用に落とす。 */
+
+const MEETING_RATE = 16000;
+const MEETING_FRAME_SAMPLES = 320;
+const FRAME_HEADER_BYTES = 18;
+
+function defaultMeeting() {
+  return {
+    title: state.locale === "ja" ? "打ち合わせ" : "Meeting",
+    sourceLanguage: "auto",
+    translate: false,
+    targetLanguage: "en",
+    summarize: false,
+    chunkSeconds: 20,
+    recording: false,
+    socket: null,
+    audio: null,
+    stream: null,
+    processor: null,
+    sequence: 0,
+    clock: 0,
+    level: 0,
+    segments: [],
+    summary: "",
+    meetingId: "",
+    past: [],
+    error: "",
+  };
+}
+
+function renderMeetingPanel() {
+  const panel = byId("meeting-panel");
+  if (!panel || state.task !== "meeting") return;
+  if (!state.meeting) state.meeting = defaultMeeting();
+  const value = state.meeting;
+
+  panel.replaceChildren();
+  const card = document.createElement("div");
+  card.className = "panel";
+
+  const head = document.createElement("div");
+  head.className = "live-head";
+  const title = document.createElement("p");
+  title.className = "field-label";
+  title.textContent = t("meetingTitle");
+  head.append(title);
+  if (value.recording) {
+    const dot = document.createElement("span");
+    dot.className = "dot-live";
+    const label = document.createElement("span");
+    label.className = "hint";
+    label.textContent = t("meetingRecording");
+    head.append(dot, label);
+  }
+  card.append(head);
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = t("meetingHint");
+  card.append(hint);
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.maxLength = 200;
+  nameInput.value = value.title;
+  nameInput.disabled = value.recording;
+  nameInput.oninput = () => { value.title = nameInput.value; };
+  card.append(labelled(t("meetingTitleField"), nameInput));
+
+  const row = document.createElement("div");
+  row.className = "form-row";
+  const source = selectNode("meeting-source", LANGUAGES.map((item) => ({value: item.id, text: t(item.label)})));
+  source.value = value.sourceLanguage;
+  source.disabled = value.recording;
+  source.onchange = () => { value.sourceLanguage = source.value; };
+  row.append(labelled(t("contentLanguage"), source));
+  const chunk = document.createElement("input");
+  chunk.type = "number";
+  chunk.min = "5";
+  chunk.max = "60";
+  chunk.value = String(value.chunkSeconds);
+  chunk.disabled = value.recording;
+  chunk.onchange = () => { value.chunkSeconds = Math.min(60, Math.max(5, Number(chunk.value) || 20)); };
+  row.append(labelled(t("meetingChunk"), chunk));
+  card.append(row);
+
+  const translate = document.createElement("label");
+  translate.className = "check";
+  const translateInput = document.createElement("input");
+  translateInput.type = "checkbox";
+  translateInput.checked = value.translate;
+  translateInput.disabled = value.recording;
+  translateInput.onchange = () => { value.translate = translateInput.checked; renderMeetingPanel(); };
+  const translateText = document.createElement("span");
+  translateText.textContent = t("meetingTranslate");
+  translate.append(translateInput, translateText);
+  card.append(translate);
+
+  if (value.translate) {
+    const target = selectNode("meeting-target", [
+      {value: "ja", text: t("japanese")}, {value: "en", text: t("english")},
+    ]);
+    target.value = value.targetLanguage;
+    target.disabled = value.recording;
+    target.onchange = () => { value.targetLanguage = target.value; };
+    card.append(labelled(t("meetingTargetLanguage"), target));
+  }
+
+  const summarize = document.createElement("label");
+  summarize.className = "check";
+  const summarizeInput = document.createElement("input");
+  summarizeInput.type = "checkbox";
+  summarizeInput.checked = value.summarize;
+  summarizeInput.disabled = value.recording;
+  summarizeInput.onchange = () => { value.summarize = summarizeInput.checked; };
+  const summarizeText = document.createElement("span");
+  summarizeText.textContent = t("meetingSummarize");
+  summarize.append(summarizeInput, summarizeText);
+  card.append(summarize);
+
+  if (value.recording) {
+    const meterLabel = document.createElement("p");
+    meterLabel.className = "section-label";
+    meterLabel.textContent = t("inputLevel");
+    const meter = document.createElement("div");
+    meter.className = "meter";
+    const meterBar = document.createElement("i");
+    meterBar.id = "meeting-level";
+    meterBar.style.width = `${Math.round(value.level * 100)}%`;
+    meter.append(meterBar);
+    card.append(meterLabel, meter);
+  }
+
+  if (value.error) {
+    const error = document.createElement("p");
+    error.className = "error";
+    error.textContent = value.error;
+    card.append(error);
+  }
+
+  const action = document.createElement("button");
+  action.type = "button";
+  action.className = "primary";
+  action.textContent = value.recording ? t("meetingStop") : t("meetingStart");
+  action.onclick = () => (value.recording ? stopMeeting() : startMeeting());
+  card.append(action);
+  panel.append(card);
+
+  if (value.segments.length || value.summary) {
+    const live = document.createElement("div");
+    live.className = "panel";
+    const heading = document.createElement("p");
+    heading.className = "section-label";
+    heading.textContent = t("meetingTitle");
+    live.append(heading);
+    const list = document.createElement("div");
+    list.className = "segments";
+    list.append(...value.segments.map(renderSegment));
+    live.append(list);
+    if (value.summary) {
+      const summaryLabel = document.createElement("p");
+      summaryLabel.className = "section-label";
+      summaryLabel.textContent = t("meetingSummary");
+      const summaryBody = document.createElement("pre");
+      summaryBody.className = "transcript";
+      summaryBody.textContent = value.summary;
+      live.append(summaryLabel, summaryBody);
+    }
+    panel.append(live);
+  }
+
+  const past = document.createElement("div");
+  past.className = "panel";
+  const pastLabel = document.createElement("p");
+  pastLabel.className = "section-label";
+  pastLabel.textContent = t("meetingPast");
+  past.append(pastLabel);
+  if (!value.past.length) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent = t("meetingNoPast");
+    past.append(empty);
+  } else {
+    const rows = document.createElement("div");
+    rows.className = "rows";
+    rows.append(...value.past.map((meeting) => {
+      const item = document.createElement("div");
+      item.className = "row";
+      const left = document.createElement("div");
+      const name = document.createElement("div");
+      name.className = "t";
+      name.textContent = meeting.title;
+      const sub = document.createElement("div");
+      sub.className = "s";
+      sub.textContent = `${meeting.state} · ${meeting.created_at ? new Date(meeting.created_at).toLocaleString() : ""}`;
+      left.append(name, sub);
+      const open = document.createElement("button");
+      open.type = "button";
+      open.textContent = t("meetingTranscript");
+      open.onclick = () => openMeetingTranscript(meeting.id);
+      item.append(left, open);
+      return item;
+    }));
+    past.append(rows);
+  }
+  panel.append(past);
+}
+
+function renderSegment(segment) {
+  const node = document.createElement("div");
+  node.className = "segment";
+  node.dataset.state = segment.state || "final";
+  const time = document.createElement("div");
+  time.className = "time";
+  time.textContent = `${formatClock(segment.start_ms)} – ${formatClock(segment.end_ms)}`;
+  const source = document.createElement("div");
+  source.className = "src";
+  source.textContent = segment.source_text || segment.message || "";
+  node.append(time, source);
+  if (segment.translated_text) {
+    const target = document.createElement("div");
+    target.className = "dst";
+    target.textContent = segment.translated_text;
+    node.append(target);
+  }
+  return node;
+}
+
+async function loadMeetings() {
+  if (!state.meeting) state.meeting = defaultMeeting();
+  try {
+    const data = await api("/meetings");
+    state.meeting.past = data.meetings || [];
+  } catch { state.meeting.past = []; }
+  renderMeetingPanel();
+}
+
+async function openMeetingTranscript(id) {
+  try {
+    const response = await fetch(apiUrl(`/meetings/${encodeURIComponent(id)}/transcript.txt`), {
+      headers: proxyRoot && state.nonce ? {"X-Control-Deck-Bridge-Session": state.nonce} : {},
+      credentials: proxyRoot ? "include" : "same-origin",
+    });
+    const text = await response.text();
+    byId("detail-facts").replaceChildren();
+    byId("detail-raw").textContent = text || "";
+    byId("detail-dialog").showModal();
+  } catch (error) {
+    state.meeting.error = errorText(error);
+    renderMeetingPanel();
+  }
+}
+
+function encodeAudioFrame(sequence, clock, samples) {
+  const buffer = new ArrayBuffer(FRAME_HEADER_BYTES + samples.byteLength);
+  const view = new DataView(buffer);
+  const magic = "SFA1";
+  for (let index = 0; index < 4; index += 1) view.setUint8(index, magic.charCodeAt(index));
+  view.setUint8(4, 1);
+  view.setUint8(5, 1);
+  view.setUint8(6, 0);
+  view.setUint8(7, 0);
+  view.setUint32(8, sequence >>> 0, false);
+  view.setUint32(12, clock >>> 0, false);
+  view.setUint16(16, samples.byteLength, false);
+  new Uint8Array(buffer, FRAME_HEADER_BYTES).set(new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength));
+  return buffer;
+}
+
+async function startMeeting() {
+  const value = state.meeting;
+  value.error = "";
+  value.segments = [];
+  value.summary = "";
+  if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext) {
+    value.error = t("meetingMicUnsupported");
+    renderMeetingPanel();
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true},
+    });
+  } catch {
+    value.error = t("meetingMicDenied");
+    renderMeetingPanel();
+    return;
+  }
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const url = `${proto}://${location.host}${API}/meetings/ws`;
+  const socket = proxyRoot ? new WebSocket(url, [`control-deck-bridge.${state.nonce}`]) : new WebSocket(url);
+  socket.binaryType = "arraybuffer";
+  value.socket = socket;
+  value.stream = stream;
+  value.sequence = 0;
+  value.clock = 0;
+
+  socket.onopen = () => {
+    socket.send(JSON.stringify({
+      type: "hello",
+      meeting: {
+        title: value.title || "Meeting",
+        source_language: value.sourceLanguage,
+        target_language: value.translate ? value.targetLanguage : null,
+        translate: value.translate,
+        summarize: value.summarize,
+        chunk_seconds: value.chunkSeconds,
+        audio: {codec: "pcm_s16le", rate: MEETING_RATE, channels: 1, frame_ms: 20},
+      },
+    }));
+  };
+  socket.onmessage = (event) => {
+    let message;
+    try { message = JSON.parse(event.data); } catch { return; }
+    if (message.type === "ready") {
+      value.meetingId = message.meeting_id;
+      value.recording = true;
+      startMeetingCapture(stream);
+      renderMeetingPanel();
+    }
+    if (message.type === "meeting.segment.final" || message.type === "meeting.segment.error") {
+      value.segments = [...value.segments, {
+        start_ms: message.start_ms, end_ms: message.end_ms,
+        source_text: message.source_text, translated_text: message.translated_text,
+        message: message.message, state: message.type.endsWith("error") ? "failed" : "final",
+      }];
+      renderMeetingPanel();
+    }
+    if (message.type === "meeting.finished" || message.type === "summary") {
+      if (typeof message.summary === "string") value.summary = message.summary;
+      renderMeetingPanel();
+    }
+    if (message.type === "error") {
+      value.error = message.message || t("genericError");
+      renderMeetingPanel();
+    }
+  };
+  socket.onerror = () => { value.error = t("genericError"); renderMeetingPanel(); };
+  socket.onclose = () => { teardownMeetingCapture(); void loadMeetings(); };
+}
+
+function startMeetingCapture(stream) {
+  const value = state.meeting;
+  const context = new AudioContext({sampleRate: MEETING_RATE});
+  value.audio = context;
+  const source = context.createMediaStreamSource(stream);
+  /* AudioWorklet は blob URL のモジュールを要求する。opaque origin の
+     iframe では読み込めないことがあるので、どこでも動く方を選ぶ。 */
+  const processor = context.createScriptProcessor(4096, 1, 1);
+  value.processor = processor;
+  let pending = new Float32Array(0);
+  processor.onaudioprocess = (event) => {
+    if (!value.recording || value.socket?.readyState !== WebSocket.OPEN) return;
+    const input = event.inputBuffer.getChannelData(0);
+    const merged = new Float32Array(pending.length + input.length);
+    merged.set(pending, 0);
+    merged.set(input, pending.length);
+    let peak = 0;
+    for (let index = 0; index < input.length; index += 1) peak = Math.max(peak, Math.abs(input[index]));
+    value.level = peak;
+    const meter = byId("meeting-level");
+    if (meter) meter.style.width = `${Math.round(Math.min(1, peak * 1.6) * 100)}%`;
+    let offset = 0;
+    while (merged.length - offset >= MEETING_FRAME_SAMPLES) {
+      const samples = new Int16Array(MEETING_FRAME_SAMPLES);
+      for (let index = 0; index < MEETING_FRAME_SAMPLES; index += 1) {
+        const clamped = Math.max(-1, Math.min(1, merged[offset + index]));
+        samples[index] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+      }
+      value.socket.send(encodeAudioFrame(value.sequence, value.clock, samples));
+      value.sequence = (value.sequence + 1) >>> 0;
+      value.clock = (value.clock + MEETING_FRAME_SAMPLES) >>> 0;
+      offset += MEETING_FRAME_SAMPLES;
+    }
+    pending = merged.slice(offset);
+  };
+  source.connect(processor);
+  /* ScriptProcessor は出力へ繋がないと呼ばれない実装がある。無音を出す。 */
+  const silence = context.createGain();
+  silence.gain.value = 0;
+  processor.connect(silence);
+  silence.connect(context.destination);
+}
+
+function teardownMeetingCapture() {
+  const value = state.meeting;
+  if (!value) return;
+  value.recording = false;
+  value.level = 0;
+  try { value.processor?.disconnect(); } catch { /* すでに切れている */ }
+  try { value.audio?.close(); } catch { /* すでに閉じている */ }
+  for (const track of value.stream?.getTracks() || []) track.stop();
+  value.processor = null;
+  value.audio = null;
+  value.stream = null;
+  renderMeetingPanel();
+}
+
+function stopMeeting() {
+  const value = state.meeting;
+  if (value.socket?.readyState === WebSocket.OPEN) value.socket.send(JSON.stringify({type: "stop"}));
+  teardownMeetingCapture();
+}
+
+/* ── 起動 ─────────────────────────────────────────────────────────────── */
+
+for (const button of $$("#shell-nav button")) {
+  button.addEventListener("click", () => activate(button.dataset.view));
+}
+byId("nav-settings").addEventListener("click", () => {
+  activate(state.view === "settings" ? state.lastNonSettingsView : "settings");
+});
+for (const button of $$("#task-switch button")) {
+  button.addEventListener("click", () => setTask(button.dataset.task));
+}
+byId("mode-simple").addEventListener("click", () => setMode("simple"));
+byId("mode-advanced").addEventListener("click", () => setMode("advanced"));
+byId("locale-toggle").addEventListener("click", () => {
+  state.locale = state.locale === "ja" ? "en" : "ja";
+  state.localeFromHost = false;
+  remember("locale", state.locale);
+  applyLocale();
+});
+for (const button of $$("[data-refresh]")) {
+  button.addEventListener("click", () => void reloadAuthoritative());
+}
+byId("setup-plan-refresh").addEventListener("click", () => void loadPlan());
+
+async function reloadAuthoritative() {
+  const work = [loadSetup(), loadCapabilities(), loadVoices(), loadActiveJobs(), loadAssets()];
+  if (state.task === "meeting") work.push(loadMeetings());
+  await Promise.allSettled(work);
+}
+
+function reloadWhenReady() {
+  if (!proxyRoot || state.nonce) { connect(); void reloadAuthoritative(); }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) reloadWhenReady(); });
+window.addEventListener("pageshow", reloadWhenReady);
+window.addEventListener("online", connect);
+
+function boot() {
+  const savedLocale = recall("locale");
+  if (!state.localeFromHost && (savedLocale === "ja" || savedLocale === "en")) state.locale = savedLocale;
+  setMode(recall("mode") === "advanced" ? "advanced" : "simple", {persist: false});
+  const savedTask = recall("task");
+  setTask(savedTask && TASKS.includes(savedTask) ? savedTask : "speech");
+  applyLocale();
+  activate(app().dataset.startView || "studio", {sync: false});
+  if (!proxyRoot) {
+    document.documentElement.dataset.bridge = "standalone";
+    app().setAttribute("aria-busy", "false");
+    connect();
+    void reloadAuthoritative();
+  }
+}
+
+/* localization.js はこの後に読み込まれる。初期描画をひと呼吸遅らせて、
+   ローカライズスタジオが定義済みの状態で最初の描画に入れるようにする。 */
+setTimeout(boot, 0);
+
+Object.assign(window, {
+  api, apiUrl, jsonPost, callHost, t, state, byId, $$, escapeHtml, errorText,
+  showJob, showError, labelled, selectNode, renderChips, formatSeconds, LANGUAGES,
+});

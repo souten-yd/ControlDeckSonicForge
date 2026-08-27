@@ -49,7 +49,7 @@ When a desired SonicForge contract is ahead of current ControlDeck support (for 
 6. Never share a Python venv/database/runtime registry with ControlDeck or MediaForge.
 7. SonicForge owns its core env, runtime packs, state DB, models, voices, assets and work dirs.
 8. Cross-boundary files use Host `asset:` / `grant:` identifiers; never raw Host project paths.
-9. Public APIs route by capability/task/language. Model/engine IDs are optional Expert hints only.
+9. Public APIs route by capability/task/language. Model/engine IDs are optional Advanced-mode hints only.
 10. GPU work under ControlDeck acquires/renews/releases Host Resource Broker leases.
 11. Optional Game Audio/Music absence must not degrade a healthy Speech Essentials service.
 12. Significant preparation/generation is server-owned durable work before expensive compute is spent; browser state is not the sole owner.
@@ -134,14 +134,17 @@ Do not create combinatorial language capabilities such as `speech.asr.ja_en`; la
 Use the current baseline:
 
 ```text
-Top level: Studio / Voices / Library / Runtime
-Studio: Speech / Transcribe / SFX / Music / Localization
-Settings: Easy / Customize / Expert
+Top level: Studio / Library / Activity ( + Pipeline in Advanced )
+Settings entry: Runtime setup / Voices / Devices / Diagnostics
+Studio: Speech / Transcribe / SFX / Music ( + Localization / Meeting in Advanced )
+Settings: シンプル / 詳細 (Simple / Advanced), the same switch MediaForge uses
 ```
 
 Rules:
 
-- ordinary tasks work entirely in Easy/Customize;
+- ordinary tasks work entirely in Simple;
+- Advanced must reach every public capability, but through named choices (chips, selects,
+  presets) rather than raw engine knobs;
 - no always-visible model picker;
 - show a control only when relevant and supported;
 - recommended quality is the default; model choice is routing policy;

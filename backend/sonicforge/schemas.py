@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -15,6 +16,7 @@ TaskName = Literal[
     "music.generate",
 ]
 GRANT_PATTERN = r"^grant:[A-Za-z0-9._:-]{1,256}$"
+UPLOAD_PATTERN = r"^upload:[0-9a-f]{32}$"
 
 
 class OutputSpec(BaseModel):
@@ -57,6 +59,15 @@ class TaskRequest(BaseModel):
                 not isinstance(grant, str) or not grant.startswith("grant:")
             ):
                 raise ValueError("ASR input must use a scoped grant ID")
+            # Audio recorded or picked in the browser never becomes a ControlDeck
+            # grant; it is uploaded to SonicForge and referenced by upload ID.
+            upload = self.input.get("upload_id")
+            if upload is not None and (
+                not isinstance(upload, str)
+                or re.fullmatch(UPLOAD_PATTERN, upload) is None
+            ):
+                raise ValueError("ASR upload reference is invalid")
+
         if self.task == "speech.localization.batch":
             batch_id = self.input.get("batch_id")
             if not isinstance(batch_id, str) or not batch_id.startswith("loc:"):
@@ -114,6 +125,18 @@ class SetupApplyRequest(BaseModel):
     accepted_terms: list[str] = Field(default_factory=list, max_length=16)
 
 
+class SetupCredentials(BaseModel):
+    """Provisioning credentials the operator supplies.
+
+    A Hugging Face access token is required for gated repositories such as
+    Stable Audio 3 Small-SFX. Send an empty string to clear it. The value is
+    stored write-only and is never returned.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    huggingface_token: str | None = Field(default=None, max_length=400)
+
+
 class VoiceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
@@ -143,6 +166,13 @@ class VoiceCreate(BaseModel):
                 not isinstance(grant, str) or not grant.startswith("grant:")
             ):
                 raise ValueError("reference_grant must be a scoped grant ID")
+            upload = self.recipe.get("reference_upload")
+            if upload is not None and (
+                not isinstance(upload, str)
+                or re.fullmatch(UPLOAD_PATTERN, upload) is None
+            ):
+                raise ValueError("reference_upload must be an upload reference")
+
         return self
 
 

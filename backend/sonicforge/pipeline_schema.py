@@ -5,11 +5,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .schemas import GRANT_PATTERN, Language, Quality, RoutingSpec
+from .schemas import GRANT_PATTERN, UPLOAD_PATTERN, Language, Quality, RoutingSpec
 
 ASSET_PATTERN = r"^asset:[A-Za-z0-9._:-]{1,256}$"
 
-PipelineInputKind = Literal["text", "audio_grant", "audio_asset", "audio_stream"]
+PipelineInputKind = Literal[
+    "text", "audio_grant", "audio_upload", "audio_asset", "audio_stream"
+]
 PipelineStageKind = Literal[
     "speech.asr",
     "host.ai.text",
@@ -34,6 +36,7 @@ _STAGE_TYPES: dict[str, tuple[MediaType, MediaType]] = {
 _INPUT_TYPES: dict[str, MediaType] = {
     "text": "text",
     "audio_grant": "audio",
+    "audio_upload": "audio",
     "audio_asset": "audio",
     "audio_stream": "audio",
 }
@@ -44,6 +47,7 @@ class PipelineInput(BaseModel):
     kind: PipelineInputKind
     text: str | None = Field(default=None, max_length=100_000)
     grant_id: str | None = Field(default=None, pattern=GRANT_PATTERN)
+    upload_id: str | None = Field(default=None, pattern=UPLOAD_PATTERN)
     asset_id: str | None = Field(default=None, pattern=ASSET_PATTERN)
     stream_id: str | None = Field(default=None, min_length=1, max_length=128)
 
@@ -52,12 +56,14 @@ class PipelineInput(BaseModel):
         fields = {
             "text": self.text,
             "grant_id": self.grant_id,
+            "upload_id": self.upload_id,
             "asset_id": self.asset_id,
             "stream_id": self.stream_id,
         }
         expected = {
             "text": "text",
             "audio_grant": "grant_id",
+            "audio_upload": "upload_id",
             "audio_asset": "asset_id",
             "audio_stream": "stream_id",
         }[self.kind]

@@ -282,6 +282,35 @@ const I18N = {
     aiInstruction: "AIへの指示",
     inputLevel: "入力レベル",
     itemCount: "件",
+    audioSource: "元の音声",
+    recordStart: "録音する",
+    recordStop: "録音を止める",
+    recording: "録音中",
+    chooseFile: "ファイルを選ぶ",
+    uploading: "取り込んでいます…",
+    audioReady: "取り込みました",
+    removeAudio: "取り消す",
+    recordUnsupported: "このブラウザでは録音できません。ファイルを選んでください。",
+    micDenied: "マイクを使えませんでした。ブラウザとControlDeckでマイクの利用を許可してください。",
+    speakerLabel: "組み込みの話者",
+    speakerAuto: "言語にあわせる",
+    voiceNoteBuiltIn: "保存したボイスを選ぶと、その声で読み上げます。クローンやデザインした声もここに並びます。",
+    autoTranscribing: "参照音声を文字起こししています…",
+    autoTranscribed: "参照音声を文字起こししました。必要なら直してください。",
+    autoTranscribeFailed: "自動の文字起こしはできませんでした。手で入力してください。",
+    meetingMinutes: "議事録",
+    meetingMakeMinutes: "終わったらLLMで議事録を作る",
+    meetingLiveTranslate: "日英の同時翻訳",
+    meetingTranslateOn: "同時翻訳: 入",
+    meetingTranslateOff: "同時翻訳: 切",
+    meetingMinutesPending: "議事録を作っています…",
+    playBlocked: "再生するには一度タップしてください",
+    hfTokenLabel: "Hugging Face アクセストークン",
+    hfTokenHint: "この配布物はHugging Faceの承認が要ります。先にモデルページでライセンスに同意し、同じアカウントのトークンを貼ってください。",
+    hfTokenSet: "登録済み",
+    hfTokenSave: "保存",
+    hfTokenClear: "消す",
+    openModelPage: "モデルページを開く",
 
     needText: "文章を入力してください。",
     needPrompt: "どんな音・曲かを書いてください。",
@@ -567,6 +596,35 @@ const I18N = {
     aiInstruction: "Instruction for the AI",
     inputLevel: "Input level",
     itemCount: " items",
+    audioSource: "Source audio",
+    recordStart: "Record",
+    recordStop: "Stop recording",
+    recording: "Recording",
+    chooseFile: "Choose a file",
+    uploading: "Uploading…",
+    audioReady: "Ready",
+    removeAudio: "Remove",
+    recordUnsupported: "This browser cannot record. Choose a file instead.",
+    micDenied: "The microphone is not available. Allow microphone access in the browser and in ControlDeck.",
+    speakerLabel: "Built-in speaker",
+    speakerAuto: "Match the language",
+    voiceNoteBuiltIn: "Pick a saved voice to read with it. Cloned and designed voices appear here too.",
+    autoTranscribing: "Transcribing the reference audio…",
+    autoTranscribed: "Transcribed the reference audio. Correct it if needed.",
+    autoTranscribeFailed: "Could not transcribe automatically. Please type it in.",
+    meetingMinutes: "Minutes",
+    meetingMakeMinutes: "Write minutes with the LLM when finished",
+    meetingLiveTranslate: "Live JA/EN translation",
+    meetingTranslateOn: "Translation: on",
+    meetingTranslateOff: "Translation: off",
+    meetingMinutesPending: "Writing the minutes…",
+    playBlocked: "Tap once to allow playback",
+    hfTokenLabel: "Hugging Face access token",
+    hfTokenHint: "This model is gated on Hugging Face. Accept its license on the model page first, then paste an access token from that same account.",
+    hfTokenSet: "Saved",
+    hfTokenSave: "Save",
+    hfTokenClear: "Clear",
+    openModelPage: "Open the model page",
 
     needText: "Enter some text.",
     needPrompt: "Describe the sound or music you want.",
@@ -671,13 +729,13 @@ const PIPELINE_STAGE_LABEL = {
 };
 
 const PIPELINE_PRESETS = [
-  {id: "dub", label: "presetDub", input: "audio_grant", delivery: "asset",
+  {id: "dub", label: "presetDub", input: "audio_upload", delivery: "asset",
    stages: [{id: "asr", kind: "speech.asr"}, {id: "translate", kind: "host.ai.text"}, {id: "tts", kind: "speech.tts"}]},
-  {id: "transcribe", label: "presetTranscribe", input: "audio_grant", delivery: "text",
+  {id: "transcribe", label: "presetTranscribe", input: "audio_upload", delivery: "text",
    stages: [{id: "asr", kind: "speech.asr"}]},
   {id: "speak", label: "presetSpeak", input: "text", delivery: "asset",
    stages: [{id: "tts", kind: "speech.tts"}]},
-  {id: "summary", label: "presetRewrite", input: "audio_grant", delivery: "text",
+  {id: "summary", label: "presetRewrite", input: "audio_upload", delivery: "text",
    stages: [{id: "asr", kind: "speech.asr"}, {id: "summarize", kind: "host.ai.text"}]},
 ];
 
@@ -705,16 +763,16 @@ const state = {
   setup: null,
   plan: null,
   deliveryProfiles: [],
+  credentials: null,
   libraryFilter: "all",
   exportAssetId: "",
   confirmAction: null,
   /* 入力の持ち物。再描画で消えないようにここに置く。 */
   form: {},
-  audioGrant: "",
-  audioName: "",
+  /* 文字起こしとクローン参照音声の入れ物。録音とファイル選択の両方がここに入る。 */
+  transcribeAudio: null,
+  voiceReference: null,
   projectGrant: "",
-  voiceReferenceGrant: "",
-  voiceReferenceName: "",
   voiceKind: "built-in",
   voiceLanguages: ["ja", "en"],
   pipeline: null,
@@ -941,7 +999,7 @@ function applyLocale() {
   for (const node of $$("[data-i18n-label]")) node.setAttribute("aria-label", t(node.dataset.i18nLabel));
   for (const node of $$("[data-i18n-title]")) node.setAttribute("title", t(node.dataset.i18nTitle));
   renderServicePill();
-  renderTaskChips();
+  renderTaskChoices();
   byId("task-summary").textContent = t(`summary${state.task[0].toUpperCase()}${state.task.slice(1)}`);
   /* 出しっぱなしの結果カードは、言語を変えても前の言語のまま残っていた。
      直前のジョブを持っておいて、ここで描き直す。 */
@@ -967,6 +1025,9 @@ function setMode(mode, {persist = true} = {}) {
   /* シンプルへ戻したときに、詳細だけの画面へ取り残されないようにする。 */
   if (state.mode !== "advanced" && ADVANCED_TASKS.has(state.task)) setTask("speech");
   if (state.mode !== "advanced" && state.view === "pipeline") activate("studio");
+  /* 詳細だけの作るもの（ローカライズ・会議）は、モードを変えた時点で
+     選択肢に出入りする。ここで描き直さないと、詳細にしても選べない。 */
+  renderTaskChoices();
   mountAdvanced();
   renderStudio();
   renderSettings();
@@ -994,7 +1055,7 @@ function activate(name, {sync = true} = {}) {
   byId("nav-settings").setAttribute("aria-current", view === "settings" ? "page" : "false");
   if (view === "library") void loadAssets();
   if (view === "activity") void loadActiveJobs();
-  if (view === "settings") { void loadSetup(); void loadVoices(); void loadPlan(); }
+  if (view === "settings") { void loadSetup(); void loadVoices(); void loadPlan(); void loadCredentials(); }
   if (view === "pipeline") renderPipeline();
   if (sync && state.bridgePort) {
     void callHost("host.route.sync", {path: view === "studio" ? "/" : `/${view}`}).catch(() => {});
@@ -1005,9 +1066,7 @@ function activate(name, {sync = true} = {}) {
 function setTask(task) {
   state.task = TASKS.includes(task) ? task : "speech";
   app().dataset.task = state.task;
-  for (const button of $$("#task-switch button")) {
-    button.setAttribute("aria-pressed", String(button.dataset.task === state.task));
-  }
+  renderTaskChoices();
   byId("task-summary").textContent = t(`summary${state.task[0].toUpperCase()}${state.task.slice(1)}`);
   byId("localization-panel").hidden = state.task !== "localization";
   byId("meeting-panel").hidden = state.task !== "meeting";
@@ -1055,6 +1114,7 @@ function syncAdvanced() {
   bindAdvancedValue("advanced-device", "device", "auto");
   bindAdvancedValue("advanced-seed", "seed", "");
   bindAdvancedValue("advanced-style-instruction", "styleInstruction", "");
+  bindAdvancedValue("advanced-speaker", "speaker", "");
   bindAdvancedValue("advanced-bpm", "bpm", "");
   const timestamps = byId("advanced-timestamps");
   if (timestamps) {
@@ -1121,12 +1181,25 @@ function renderChips(container, items, selected, onSelect, {multi = false} = {})
   }));
 }
 
-function renderTaskChips() {
-  for (const button of $$("#task-switch button")) {
-    const key = `task${button.dataset.task[0].toUpperCase()}${button.dataset.task.slice(1)}`;
-    button.textContent = t(key);
-    if (button.hasAttribute("data-advanced-only")) button.hidden = state.mode !== "advanced";
-  }
+/* 作るものの一覧は、モードによって数が変わる。帯にすると幅が伸び縮みして
+   ヘッダの他の操作を押し出すので、幅の変わらない 1 つのつまみに畳んでいる。 */
+function taskChoices() {
+  return TASKS.filter((task) => state.mode === "advanced" || !ADVANCED_TASKS.has(task));
+}
+
+function taskLabel(task) {
+  return t(`task${task[0].toUpperCase()}${task.slice(1)}`);
+}
+
+function renderTaskChoices() {
+  const select = byId("task-select");
+  select.replaceChildren(...taskChoices().map((task) => {
+    const option = document.createElement("option");
+    option.value = task;
+    option.textContent = taskLabel(task);
+    return option;
+  }));
+  select.value = state.task;
 }
 
 function currentSfxKind() {
@@ -1207,11 +1280,14 @@ function renderStudio() {
   voice.value = selected;
   voice.onchange = () => { state.form.voiceId = voice.value; };
 
-  const pick = byId("transcribe-pick");
-  pick.classList.toggle("filled", Boolean(state.audioGrant));
-  pick.textContent = state.audioName || t("chooseAudio");
-  byId("transcribe-clear").hidden = !state.audioGrant;
-  byId("transcribe-file-note").textContent = state.bridgePort ? "" : t("bridgeOnly");
+  state.transcribeAudio = audioSlot(state.transcribeAudio);
+  renderAudioInput(byId("transcribe-audio"), state.transcribeAudio, {rerender: renderStudio});
+
+  /* 保存したボイスを使うと、その素性（組み込み/デザイン/クローン）で読み上げる。
+     組み込みのままなら、詳細モードで話者だけを選べる。 */
+  byId("speech-voice-note").textContent = t("voiceNoteBuiltIn");
+  const speaker = byId("advanced-speaker");
+  if (speaker) speaker.disabled = Boolean(state.form.voiceId);
 
   const submit = byId("studio-submit");
   submit.textContent = state.task === "transcribe" ? t("transcribeAction") : t("create");
@@ -1266,16 +1342,148 @@ function renderCapabilityGate() {
   return true;
 }
 
-/* ── ファイル選択 ─────────────────────────────────────────────────────── */
+/* ── 音声の取り込み ───────────────────────────────────────────────────── */
+/* 元の音声は、ブラウザのマイクか、端末のファイル選択から取る。ControlDeck の
+   ピッカーはプロジェクト内の素材には正しいが、まだどこにも保存されていない
+   録音には届かず、携帯では利用者の期待するピッカーでもない。
+   受け取った音は SonicForge 側で WAV に整えるので、端末ごとの録音形式の違い
+   （iOS は webm を吐かず mp4 を吐く）はここで吸収できる。 */
 
-async function pickAudio(onPicked) {
-  try {
-    const grant = await callHost("host.file.pick", {mode: "file", title: t("chooseAudio")});
-    if (!grant?.grant_id) return;
-    onPicked(grant.grant_id, grant.name || "audio");
-  } catch (error) {
-    showError("studio-error", error?.code === "bridge_unavailable" ? t("bridgeOnly") : errorText(error));
+function audioSlot(value) {
+  return value || {uploadId: "", name: "", busy: false, recording: false, error: "", note: ""};
+}
+
+function isRecordingSupported() {
+  return Boolean(navigator.mediaDevices?.getUserMedia) && typeof MediaRecorder !== "undefined";
+}
+
+function recorderMimeType() {
+  for (const candidate of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]) {
+    if (MediaRecorder.isTypeSupported?.(candidate)) return candidate;
   }
+  return "";
+}
+
+async function uploadAudioBlob(blob, filename) {
+  const form = new FormData();
+  form.append("file", blob, filename);
+  /* content-type は境界文字列を含むのでブラウザに決めさせる。 */
+  return api("/uploads", {method: "POST", body: form});
+}
+
+function renderAudioInput(container, slot, {rerender, onUploaded}) {
+  if (!container) return;
+  container.replaceChildren();
+  const row = document.createElement("div");
+  row.className = "audio-input-row";
+
+  const record = document.createElement("button");
+  record.type = "button";
+  record.className = slot.recording ? "cta-secondary recording" : "cta-secondary";
+  record.textContent = slot.recording ? t("recordStop") : `\u{1F3A4} ${t("recordStart")}`;
+  record.disabled = slot.busy || !isRecordingSupported();
+  record.onclick = () => (slot.recording ? stopRecording(slot, rerender) : startRecording(slot, {rerender, onUploaded}));
+
+  const choose = document.createElement("label");
+  choose.className = "dropzone";
+  choose.textContent = slot.name || `\u{1F4C1} ${t("chooseFile")}`;
+  if (slot.uploadId) choose.classList.add("filled");
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "audio/*,video/mp4,.m4a,.wav,.mp3,.ogg,.webm,.flac";
+  input.hidden = true;
+  input.onchange = () => {
+    const file = input.files?.[0];
+    if (file) void acceptAudioFile(slot, file, {rerender, onUploaded});
+  };
+  choose.append(input);
+
+  row.append(record, choose);
+  container.append(row);
+
+  if (slot.uploadId) {
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.textContent = t("removeAudio");
+    clear.onclick = () => {
+      Object.assign(slot, audioSlot(null));
+      rerender();
+    };
+    row.append(clear);
+  }
+
+  const status = document.createElement("p");
+  status.className = slot.error ? "error" : "hint";
+  status.setAttribute("role", "status");
+  status.textContent = slot.error
+    || slot.note
+    || (slot.busy ? t("uploading") : "")
+    || (slot.recording ? t("recording") : "")
+    || (slot.uploadId ? t("audioReady") : "")
+    || (isRecordingSupported() ? "" : t("recordUnsupported"));
+  if (status.textContent) container.append(status);
+}
+
+async function acceptAudioFile(slot, file, {rerender, onUploaded}) {
+  slot.busy = true;
+  slot.error = "";
+  slot.note = "";
+  rerender();
+  try {
+    const created = await uploadAudioBlob(file, file.name || "audio");
+    slot.uploadId = created.upload_id;
+    slot.name = created.filename;
+    if (onUploaded) await onUploaded(slot);
+  } catch (error) {
+    slot.uploadId = "";
+    slot.name = "";
+    slot.error = errorText(error);
+  } finally {
+    slot.busy = false;
+    rerender();
+  }
+}
+
+async function startRecording(slot, handlers) {
+  slot.error = "";
+  slot.note = "";
+  if (!isRecordingSupported()) {
+    slot.error = t("recordUnsupported");
+    handlers.rerender();
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio: true});
+  } catch {
+    slot.error = t("micDenied");
+    handlers.rerender();
+    return;
+  }
+  const mimeType = recorderMimeType();
+  const recorder = new MediaRecorder(stream, mimeType ? {mimeType} : undefined);
+  const chunks = [];
+  recorder.ondataavailable = (event) => { if (event.data?.size) chunks.push(event.data); };
+  recorder.onstop = async () => {
+    for (const track of stream.getTracks()) track.stop();
+    slot.recording = false;
+    slot.recorder = null;
+    const type = recorder.mimeType || mimeType || "audio/webm";
+    const extension = type.includes("mp4") ? "m4a" : "webm";
+    const blob = new Blob(chunks, {type});
+    if (!blob.size) { handlers.rerender(); return; }
+    await acceptAudioFile(slot, new File([blob], `recording.${extension}`, {type}), handlers);
+  };
+  slot.recorder = recorder;
+  slot.recording = true;
+  recorder.start();
+  handlers.rerender();
+}
+
+function stopRecording(slot, rerender) {
+  try { slot.recorder?.stop(); } catch { /* すでに止まっている */ }
+  slot.recording = false;
+  rerender();
 }
 
 async function pickProjectOutput() {
@@ -1286,8 +1494,16 @@ async function pickProjectOutput() {
     state.projectGrant = id;
     syncAdvanced();
   } catch (error) {
+    /* 選ぶのをやめただけなら、それは失敗ではない。機械語のコードを出さない。 */
+    if (isPickerDismissal(error)) return;
     showError("studio-error", error?.code === "bridge_unavailable" ? t("bridgeOnly") : errorText(error));
   }
+}
+
+/* ピッカーを閉じただけの合図。ホストの実装差を 1 か所に閉じ込める。 */
+function isPickerDismissal(error) {
+  const code = String(error?.code || error?.message || error || "");
+  return /cancel|dismiss|abort/i.test(code);
 }
 
 function showError(id, message) {
@@ -1331,14 +1547,18 @@ function buildRequest() {
     const instruction = String(state.form.styleInstruction || "").trim() || preset?.instruction || "";
     const input = {text};
     if (state.form.voiceId) input.voice_id = state.form.voiceId;
+    /* 保存したボイスを選んでいないときだけ、組み込みの話者を直接指定できる。
+       保存したボイスは自分の素性と話者を持っているので上書きしない。 */
+    if (!state.form.voiceId && state.form.speaker) input.speaker = state.form.speaker;
     if (instruction) input.style = {preset: preset?.id || "auto", instruction};
     return {...shared, task: "speech.tts.synthesize", input,
       content_language: state.form.speechLanguage || "auto"};
   }
   if (state.task === "transcribe") {
-    if (!state.audioGrant) throw new Error(t("needAudio"));
+    const slot = audioSlot(state.transcribeAudio);
+    if (!slot.uploadId) throw new Error(t("needAudio"));
     return {...shared, task: "speech.asr.transcribe",
-      input: {audio_grant: state.audioGrant},
+      input: {upload_id: slot.uploadId},
       content_language: state.form.transcribeLanguage || "auto"};
   }
   if (state.task === "sfx") {
@@ -1384,6 +1604,7 @@ byId("studio-form").addEventListener("submit", async (event) => {
 byId("studio-reset").addEventListener("click", () => {
   state.form = {};
   state.projectGrant = "";
+  state.transcribeAudio = null;
   byId("speech-text").value = "";
   byId("sfx-prompt").value = "";
   byId("music-prompt").value = "";
@@ -1396,16 +1617,7 @@ for (const id of ["sfx-prompt", "music-prompt"]) {
   byId(id).addEventListener("input", () => renderStudio());
 }
 
-byId("transcribe-pick").addEventListener("click", () => pickAudio((grant, name) => {
-  state.audioGrant = grant;
-  state.audioName = name;
-  renderStudio();
-}));
-byId("transcribe-clear").addEventListener("click", () => {
-  state.audioGrant = "";
-  state.audioName = "";
-  renderStudio();
-});
+byId("speech-voice-add").addEventListener("click", () => openVoiceDialog());
 
 /* ── ジョブの追跡 ─────────────────────────────────────────────────────── */
 
@@ -1835,6 +2047,7 @@ function renderSettings() {
       left.append(sub);
     }
     if (component.id === "game-audio" && value !== "available") {
+      left.append(gatedCredentialBlock(component.id));
       const terms = document.createElement("label");
       terms.className = "check";
       const input = document.createElement("input");
@@ -1892,6 +2105,73 @@ function renderSettings() {
   renderPlan();
   renderCapabilityRows();
   renderVoices();
+}
+
+/* Hugging Face が gate している配布物は、ライセンス同意だけでは降りてこない。
+   同意したアカウントのトークンが要る、という事実をここで初めて出す。 */
+function gatedCredentialBlock(componentId) {
+  const block = document.createElement("div");
+  block.className = "gate";
+  const gated = (state.credentials?.gated_models || []).filter((item) => item.component === componentId);
+  if (!gated.length) return block;
+  const title = document.createElement("b");
+  title.textContent = t("hfTokenLabel");
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = t("hfTokenHint");
+  block.append(title, hint);
+
+  for (const model of gated) {
+    const link = document.createElement("a");
+    link.href = model.url;
+    link.target = "_blank";
+    link.rel = "noreferrer noopener";
+    link.textContent = `${t("openModelPage")}: ${model.repo}`;
+    link.className = "hint";
+    block.append(link);
+  }
+
+  const row = document.createElement("div");
+  row.className = "audio-input-row";
+  const input = document.createElement("input");
+  input.type = "password";
+  input.autocomplete = "off";
+  input.id = "hf-token";
+  input.placeholder = state.credentials?.huggingface_token_set ? t("hfTokenSet") : "hf_…";
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "cta-secondary";
+  save.textContent = t("hfTokenSave");
+  save.onclick = () => void saveHuggingFaceToken(input.value);
+  row.append(input, save);
+  if (state.credentials?.huggingface_token_set) {
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.textContent = t("hfTokenClear");
+    clear.onclick = () => void saveHuggingFaceToken("");
+    row.append(clear);
+  }
+  block.append(row);
+  return block;
+}
+
+async function saveHuggingFaceToken(token) {
+  try {
+    state.credentials = await api("/setup/credentials", {
+      method: "PUT",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({huggingface_token: token}),
+    });
+    showError("setup-error", "");
+  } catch (error) {
+    showError("setup-error", errorText(error));
+  }
+  renderSettings();
+}
+
+async function loadCredentials() {
+  try { state.credentials = await api("/setup/credentials"); } catch { return; }
+  renderSettings();
 }
 
 async function loadPlan() {
@@ -2047,16 +2327,16 @@ function renderVoices() {
   }));
 }
 
-byId("voice-add").addEventListener("click", () => {
+function openVoiceDialog() {
   state.voiceKind = "built-in";
   state.voiceLanguages = ["ja", "en"];
-  state.voiceReferenceGrant = "";
-  state.voiceReferenceName = "";
+  state.voiceReference = null;
   byId("voice-name").value = "";
   showError("voice-dialog-error", "");
   renderVoiceDialog();
   byId("voice-dialog").showModal();
-});
+}
+byId("voice-add").addEventListener("click", () => openVoiceDialog());
 byId("voice-cancel").addEventListener("click", () => byId("voice-dialog").close());
 
 function renderVoiceDialog() {
@@ -2095,22 +2375,18 @@ function renderVoiceDialog() {
     return;
   }
   const row = document.createElement("div");
-  row.className = "file-row";
-  const pick = document.createElement("button");
-  pick.type = "button";
-  pick.className = "dropzone";
-  pick.classList.toggle("filled", Boolean(state.voiceReferenceGrant));
-  pick.textContent = state.voiceReferenceName || t("chooseAudio");
-  pick.onclick = () => pickAudio((grant, name) => {
-    state.voiceReferenceGrant = grant;
-    state.voiceReferenceName = name;
-    renderVoiceDialog();
+  row.className = "audio-input";
+  state.voiceReference = audioSlot(state.voiceReference);
+  renderAudioInput(row, state.voiceReference, {
+    rerender: renderVoiceDialog,
+    onUploaded: transcribeVoiceReference,
   });
-  row.append(pick);
   const transcript = document.createElement("textarea");
   transcript.id = "voice-reference-text";
   transcript.rows = 2;
   transcript.maxLength = 2000;
+  transcript.value = state.voiceReference.transcript || "";
+  transcript.oninput = () => { state.voiceReference.transcript = transcript.value; };
   const rights = document.createElement("label");
   rights.className = "check";
   const check = document.createElement("input");
@@ -2120,6 +2396,47 @@ function renderVoiceDialog() {
   rightsText.textContent = t("voiceRights");
   rights.append(check, rightsText);
   fields.append(labelled(t("voiceReference"), row), labelled(t("voiceReferenceText"), transcript), rights);
+}
+
+/* クローンは参照音声の書き起こしを要求する（無いと x_vector_only_mode が要る）。
+   利用者に打ち直させる理由はないので、取り込んだ音声をそのまま ASR に回す。 */
+async function transcribeVoiceReference(slot) {
+  slot.note = t("autoTranscribing");
+  renderVoiceDialog();
+  try {
+    const created = await jsonPost("/tasks", {
+      task: "speech.asr.transcribe",
+      input: {upload_id: slot.uploadId},
+      profile: "voice-reference",
+      quality: "fast",
+      content_language: "auto",
+      output: {format: "wav", sample_rate: null, channels: null},
+      routing: {engine: null, model: null, device: "auto"},
+      seed: null,
+      project_output_grant: null,
+    });
+    const text = await waitForTranscript(created.job_id);
+    if (text) {
+      slot.transcript = text;
+      slot.note = t("autoTranscribed");
+    } else {
+      slot.note = t("autoTranscribeFailed");
+    }
+  } catch {
+    slot.note = t("autoTranscribeFailed");
+  }
+  renderVoiceDialog();
+}
+
+async function waitForTranscript(jobId) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const job = await api(`/jobs/${encodeURIComponent(jobId)}`);
+    if (!ACTIVE_STATES.has(job.state)) {
+      return job.state === "succeeded" ? String(job.result?.text || "").trim() : "";
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  return "";
 }
 
 function labelled(text, node) {
@@ -2148,9 +2465,10 @@ byId("voice-save").addEventListener("click", async () => {
   if (state.voiceKind === "built-in") recipe.speaker = byId("voice-speaker")?.value || "Ryan";
   if (state.voiceKind === "design") recipe.design_instruction = byId("voice-instruction")?.value || "";
   if (state.voiceKind === "clone") {
-    if (!state.voiceReferenceGrant) { showError("voice-dialog-error", t("needAudio")); return; }
+    const slot = audioSlot(state.voiceReference);
+    if (!slot.uploadId) { showError("voice-dialog-error", t("needAudio")); return; }
     if (!byId("voice-rights")?.checked) { showError("voice-dialog-error", t("voiceRightsRequired")); return; }
-    recipe.reference_grant = state.voiceReferenceGrant;
+    recipe.reference_upload = slot.uploadId;
     recipe.reference_text = byId("voice-reference-text")?.value || "";
     rights = true;
   }
@@ -2164,9 +2482,16 @@ byId("voice-save").addEventListener("click", async () => {
       rights_confirmed: rights,
     });
     byId("voice-dialog").close();
-    state.voiceReferenceGrant = "";
-    state.voiceReferenceName = "";
+    state.voiceReference = null;
     await loadVoices();
+    /* 作った直後にスタジオへ戻って選び直させない。作った声を選んだ状態にする。 */
+    const created = state.voices.find((voice) => voice.name === name);
+    if (created) {
+      state.form.voiceId = created.id;
+      const select = byId("speech-voice");
+      if (select) select.value = created.id;
+      renderStudio();
+    }
   } catch (error) {
     showError("voice-dialog-error", errorText(error));
   }
@@ -2219,8 +2544,7 @@ function defaultPipeline() {
     delivery: preset.delivery,
     filename: "",
     projectGrant: "",
-    grantId: "",
-    grantName: "",
+    audio: null,
     assetId: "",
   };
 }
@@ -2239,8 +2563,7 @@ function renderPipeline() {
       inputKind: preset.input,
       stages: preset.stages.map((stage) => ({...stage, language: "auto", quality: "balanced", voice_id: ""})),
       delivery: preset.delivery,
-      grantId: value.grantId,
-      grantName: value.grantName,
+      audio: value.audio,
       assetId: value.assetId,
     };
     renderPipeline();
@@ -2248,23 +2571,15 @@ function renderPipeline() {
 
   renderChips(byId("pipeline-input-kinds"), [
     {id: "text", label: "inputText"},
-    {id: "audio_grant", label: "inputFile"},
+    {id: "audio_upload", label: "inputFile"},
     {id: "audio_asset", label: "inputAsset"},
   ], value.inputKind, (id) => { value.inputKind = id; renderPipeline(); });
 
   byId("pipeline-input-text").hidden = value.inputKind !== "text";
-  byId("pipeline-input-file").hidden = value.inputKind !== "audio_grant";
+  byId("pipeline-input-file").hidden = value.inputKind !== "audio_upload";
   byId("pipeline-input-asset").hidden = value.inputKind !== "audio_asset";
-  const pick = byId("pipeline-pick");
-  pick.classList.toggle("filled", Boolean(value.grantId));
-  pick.textContent = value.grantName || t("chooseAudio");
-  pick.onclick = () => pickAudio((grant, name) => {
-    value.grantId = grant;
-    value.grantName = name;
-    renderPipeline();
-  });
-  byId("pipeline-clear").hidden = !value.grantId;
-  byId("pipeline-clear").onclick = () => { value.grantId = ""; value.grantName = ""; renderPipeline(); };
+  value.audio = audioSlot(value.audio);
+  renderAudioInput(byId("pipeline-input-file"), value.audio, {rerender: renderPipeline});
 
   const assetSelect = byId("pipeline-asset");
   assetSelect.replaceChildren(...state.assets.map((asset) => {
@@ -2395,7 +2710,7 @@ function pipelineBody() {
   const value = state.pipeline;
   const input = {kind: value.inputKind};
   if (value.inputKind === "text") input.text = String(byId("pipeline-text").value || "").trim();
-  if (value.inputKind === "audio_grant") input.grant_id = value.grantId;
+  if (value.inputKind === "audio_upload") input.upload_id = audioSlot(value.audio).uploadId;
   if (value.inputKind === "audio_asset") input.asset_id = value.assetId || byId("pipeline-asset").value;
   const body = {
     pipeline: value.preset,
@@ -2460,7 +2775,9 @@ function defaultMeeting() {
     sourceLanguage: "auto",
     translate: false,
     targetLanguage: "en",
-    summarize: false,
+    /* 会議は「録りながら文字にして、終わりに議事録をもらう」ための画面なので、
+       議事録は既定で作る。要らない人だけ外せばよい。 */
+    summarize: true,
     chunkSeconds: 20,
     recording: false,
     socket: null,
@@ -2534,27 +2851,34 @@ function renderMeetingPanel() {
   row.append(labelled(t("meetingChunk"), chunk));
   card.append(row);
 
-  const translate = document.createElement("label");
-  translate.className = "check";
-  const translateInput = document.createElement("input");
-  translateInput.type = "checkbox";
-  translateInput.checked = value.translate;
-  translateInput.disabled = value.recording;
-  translateInput.onchange = () => { value.translate = translateInput.checked; renderMeetingPanel(); };
-  const translateText = document.createElement("span");
-  translateText.textContent = t("meetingTranslate");
-  translate.append(translateInput, translateText);
-  card.append(translate);
-
+  /* 同時翻訳は会議中に一番触る操作なので、埋もれるチェックボックスではなく
+     状態がそのまま読める切り替えにする。録音中は構成を変えられない。 */
+  const translateLabel = document.createElement("p");
+  translateLabel.className = "section-label";
+  translateLabel.textContent = t("meetingLiveTranslate");
+  const translateToggle = document.createElement("button");
+  translateToggle.type = "button";
+  translateToggle.className = "chip";
+  translateToggle.setAttribute("aria-pressed", String(value.translate));
+  translateToggle.textContent = value.translate ? t("meetingTranslateOn") : t("meetingTranslateOff");
+  translateToggle.disabled = value.recording;
+  translateToggle.onclick = () => { value.translate = !value.translate; renderMeetingPanel(); };
+  const translateRow = document.createElement("div");
+  translateRow.className = "chips";
+  translateRow.append(translateToggle);
   if (value.translate) {
-    const target = selectNode("meeting-target", [
-      {value: "ja", text: t("japanese")}, {value: "en", text: t("english")},
-    ]);
-    target.value = value.targetLanguage;
-    target.disabled = value.recording;
-    target.onchange = () => { value.targetLanguage = target.value; };
-    card.append(labelled(t("meetingTargetLanguage"), target));
+    for (const [id, key] of [["ja", "japanese"], ["en", "english"]]) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.setAttribute("aria-checked", String(value.targetLanguage === id));
+      chip.textContent = `→ ${t(key)}`;
+      chip.disabled = value.recording;
+      chip.onclick = () => { value.targetLanguage = id; renderMeetingPanel(); };
+      translateRow.append(chip);
+    }
   }
+  card.append(translateLabel, translateRow);
 
   const summarize = document.createElement("label");
   summarize.className = "check";
@@ -2564,7 +2888,7 @@ function renderMeetingPanel() {
   summarizeInput.disabled = value.recording;
   summarizeInput.onchange = () => { value.summarize = summarizeInput.checked; };
   const summarizeText = document.createElement("span");
-  summarizeText.textContent = t("meetingSummarize");
+  summarizeText.textContent = t("meetingMakeMinutes");
   summarize.append(summarizeInput, summarizeText);
   card.append(summarize);
 
@@ -2596,6 +2920,14 @@ function renderMeetingPanel() {
   card.append(action);
   panel.append(card);
 
+  if (value.pendingMinutes && !value.summary) {
+    const pending = document.createElement("p");
+    pending.className = "notice";
+    pending.setAttribute("role", "status");
+    pending.textContent = t("meetingMinutesPending");
+    panel.append(pending);
+  }
+
   if (value.segments.length || value.summary) {
     const live = document.createElement("div");
     live.className = "panel";
@@ -2610,7 +2942,7 @@ function renderMeetingPanel() {
     if (value.summary) {
       const summaryLabel = document.createElement("p");
       summaryLabel.className = "section-label";
-      summaryLabel.textContent = t("meetingSummary");
+      summaryLabel.textContent = t("meetingMinutes");
       const summaryBody = document.createElement("pre");
       summaryBody.className = "transcript";
       summaryBody.textContent = value.summary;
@@ -2644,11 +2976,25 @@ function renderMeetingPanel() {
       sub.className = "s";
       sub.textContent = `${meeting.state} · ${meeting.created_at ? new Date(meeting.created_at).toLocaleString() : ""}`;
       left.append(name, sub);
+      const actions = document.createElement("div");
+      actions.className = "row-side";
       const open = document.createElement("button");
       open.type = "button";
       open.textContent = t("meetingTranscript");
       open.onclick = () => openMeetingTranscript(meeting.id);
-      item.append(left, open);
+      actions.append(open);
+      if (meeting.summary?.markdown) {
+        const minutes = document.createElement("button");
+        minutes.type = "button";
+        minutes.textContent = t("meetingMinutes");
+        minutes.onclick = () => {
+          byId("detail-facts").replaceChildren();
+          byId("detail-raw").textContent = meeting.summary.markdown;
+          byId("detail-dialog").showModal();
+        };
+        actions.append(minutes);
+      }
+      item.append(left, actions);
       return item;
     }));
     past.append(rows);
@@ -2777,8 +3123,11 @@ async function startMeeting() {
       }];
       renderMeetingPanel();
     }
-    if (message.type === "meeting.finished" || message.type === "summary") {
-      if (typeof message.summary === "string") value.summary = message.summary;
+    /* サーバは meeting.complete で終わりを告げ、議事録は summary.markdown に
+       入っている。以前は meeting.finished を待っていたので受け取れていなかった。 */
+    if (message.type === "meeting.complete") {
+      value.summary = String(message.summary?.markdown || "");
+      value.pendingMinutes = false;
       renderMeetingPanel();
     }
     if (message.type === "error") {
@@ -2850,6 +3199,9 @@ function teardownMeetingCapture() {
 function stopMeeting() {
   const value = state.meeting;
   if (value.socket?.readyState === WebSocket.OPEN) value.socket.send(JSON.stringify({type: "stop"}));
+  /* 停止しても、まだ最後の区切りの文字起こしと議事録づくりが残っている。
+     socket は meeting.complete を送ってから閉じるので、ここでは閉じない。 */
+  value.pendingMinutes = value.summarize;
   teardownMeetingCapture();
 }
 
@@ -2861,9 +3213,7 @@ for (const button of $$("#shell-nav button")) {
 byId("nav-settings").addEventListener("click", () => {
   activate(state.view === "settings" ? state.lastNonSettingsView : "settings");
 });
-for (const button of $$("#task-switch button")) {
-  button.addEventListener("click", () => setTask(button.dataset.task));
-}
+byId("task-select").addEventListener("change", (event) => setTask(event.target.value));
 byId("mode-simple").addEventListener("click", () => setMode("simple"));
 byId("mode-advanced").addEventListener("click", () => setMode("advanced"));
 byId("locale-toggle").addEventListener("click", () => {

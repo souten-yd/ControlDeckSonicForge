@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .audio_process import process_audio
+from . import uploads
 from .db import Asset, Job, Provenance
 from .host.client import ControlDeckHostClient, HostApiError
 from .host.files import commit_file, read_grant
@@ -101,6 +102,17 @@ class PipelineRuntime:
                 target = (self.settings.data_dir / asset.relative_path).resolve()
             if not target.is_relative_to(self.settings.data_dir.resolve()) or not target.is_file():
                 raise WorkerError("pipeline audio asset content is missing")
+            return PipelineValue(kind="audio", audio_path=target)
+        if source.kind == "audio_upload":
+            # Recorded or picked in the browser; already normalised to WAV and
+            # already on this machine, so no Host round trip is involved.
+            try:
+                stored = uploads.resolve(self.settings, str(source.upload_id))
+            except uploads.UploadError as exc:
+                raise WorkerError(str(exc)) from exc
+            target = work_dir / "input.wav"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(stored, target)
             return PipelineValue(kind="audio", audio_path=target)
         if source.kind == "audio_grant":
             if execution is None:

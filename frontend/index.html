@@ -21,6 +21,14 @@
         <h1>SonicForge</h1>
         <span class="pill" id="service-pill" data-i18n-title="localOnlyHint">ローカルのみ</span>
         <span class="grow"></span>
+        <!-- 何を作るかの切り替え。段を 1 つ使う帯ではなく、作る対象の数が変わっても
+             幅の変わらない 1 つのつまみにして、表示モードの左に置く。 -->
+        <label class="function-switch" id="task-switch" data-i18n-label="whatToMake" aria-label="作るもの">
+          <select id="task-select"></select>
+          <svg class="function-switch-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="m8 10.5 4 4 4-4"/>
+          </svg>
+        </label>
         <div class="modeswitch" role="group" data-i18n-label="displayMode" aria-label="表示モード">
           <button type="button" id="mode-simple" aria-pressed="true" data-i18n="modeSimple">シンプル</button>
           <button type="button" id="mode-advanced" aria-pressed="false" data-i18n="modeAdvanced">詳細</button>
@@ -80,14 +88,6 @@
         <!-- ── スタジオ ─────────────────────────────────────────── -->
         <section id="view-studio" class="view" data-view="studio">
           <div id="studio-task-picker">
-            <div id="task-switch" class="task-switch" role="group" data-i18n-label="whatToMake" aria-label="作るもの">
-              <button type="button" data-task="speech" aria-pressed="true" data-i18n="taskSpeech">音声</button>
-              <button type="button" data-task="transcribe" data-i18n="taskTranscribe">文字起こし</button>
-              <button type="button" data-task="sfx" data-i18n="taskSfx">効果音</button>
-              <button type="button" data-task="music" data-i18n="taskMusic">音楽</button>
-              <button type="button" data-task="localization" data-advanced-only hidden data-i18n="taskLocalization">ローカライズ</button>
-              <button type="button" data-task="meeting" data-advanced-only hidden data-i18n="taskMeeting">会議</button>
-            </div>
             <p id="task-summary" class="hint"></p>
           </div>
 
@@ -111,9 +111,12 @@
                 </button>
               </div>
               <textarea id="speech-text" maxlength="8000" rows="5" placeholder="こんにちは。今日はいい天気ですね。"></textarea>
-              <label data-i18n="voice">ボイス
-                <select id="speech-voice"></select>
-              </label>
+              <div class="field-head">
+                <span class="field-label" data-i18n="voice">ボイス</span>
+                <button type="button" id="speech-voice-add" class="cta-secondary" data-i18n="voiceAdd">＋ ボイスを作る</button>
+              </div>
+              <select id="speech-voice"></select>
+              <p id="speech-voice-note" class="hint"></p>
               <p class="section-label" data-i18n="speechStyle">話し方</p>
               <div id="speech-style-chips" class="chips" role="radiogroup" data-i18n-label="speechStyle" aria-label="話し方"></div>
               <p class="section-label" data-i18n="speechLanguageLabel">読み上げる言語</p>
@@ -122,12 +125,8 @@
 
             <!-- 文字起こし -->
             <div data-task-fields="transcribe" class="panel-fields" hidden>
-              <p class="field-label" data-i18n="audioFile">音声ファイル</p>
-              <div class="file-row">
-                <button type="button" id="transcribe-pick" class="dropzone" data-i18n="chooseAudio">＋ 音声ファイルを選ぶ</button>
-                <button type="button" id="transcribe-clear" hidden data-i18n="clearFile">使わない</button>
-              </div>
-              <p id="transcribe-file-note" class="hint"></p>
+              <p class="field-label" data-i18n="audioSource">元の音声</p>
+              <div id="transcribe-audio" class="audio-input"></div>
               <p class="section-label" data-i18n="transcribeLanguageLabel">話されている言語</p>
               <div id="transcribe-language-chips" class="chips" role="radiogroup" data-i18n-label="contentLanguage" aria-label="話されている言語"></div>
             </div>
@@ -243,10 +242,7 @@
             <div id="pipeline-input-text" class="panel-fields">
               <textarea id="pipeline-text" maxlength="20000" rows="4" placeholder="読み上げたい文章、または各段に渡す文章"></textarea>
             </div>
-            <div id="pipeline-input-file" class="file-row" hidden>
-              <button type="button" id="pipeline-pick" class="dropzone" data-i18n="chooseAudio">＋ 音声ファイルを選ぶ</button>
-              <button type="button" id="pipeline-clear" hidden data-i18n="clearFile">使わない</button>
-            </div>
+            <div id="pipeline-input-file" class="audio-input" hidden></div>
             <label id="pipeline-input-asset" hidden data-i18n="fromLibrary">ライブラリから選ぶ
               <select id="pipeline-asset"></select>
             </label>
@@ -488,6 +484,13 @@
           <textarea id="advanced-style-instruction" maxlength="600" rows="3" placeholder="落ち着いた低めの声で、ゆっくり丁寧に読む"></textarea>
         </label>
         <p class="hint" data-i18n="styleInstructionHint">上の「話し方」プリセットより優先されます。空欄ならプリセットを使います。</p>
+        <label data-i18n="speakerLabel">組み込みの話者
+          <select id="advanced-speaker">
+            <option value="" data-i18n="speakerAuto">言語にあわせる</option>
+            <option value="Ono_Anna">Ono Anna（日本語）</option>
+            <option value="Ryan">Ryan（English）</option>
+          </select>
+        </label>
       </div>
     </template>
 

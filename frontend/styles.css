@@ -108,7 +108,27 @@ html[data-bridge="waiting"] #mini-progress { visibility: hidden; }
   padding: 0 16px;
   border-bottom: 1px solid var(--border);
 }
-#shell-header h1 { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; }
+#shell-header h1 {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* ControlDeck のフレームが既に "SonicForge" を出している。同じ題名を 2 段
+   重ねない。単体で開いたときだけ見せたいので、要素は残して視覚的に畳む。 */
+html:not([data-bridge="standalone"]) #shell-header h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .grow { flex: 1; }
 
 .pill {
@@ -131,8 +151,10 @@ html[data-bridge="waiting"] #mini-progress { visibility: hidden; }
   border-radius: 999px;
   background: var(--surface);
 }
+.modeswitch { flex: none; }
 .modeswitch button {
   border: 0;
+  white-space: nowrap;
   background: none;
   color: var(--muted);
   font-size: .78rem;
@@ -144,6 +166,7 @@ html[data-bridge="waiting"] #mini-progress { visibility: hidden; }
 .modeswitch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 
 button.icon {
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -248,33 +271,40 @@ main { flex: 1; min-height: 0; padding: 16px; }
 #view-studio { display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 18px; align-items: start; }
 #studio-task-picker { grid-column: 1 / -1; display: grid; gap: 6px; }
 
-/* 作るものの切り替え。MediaForge の media-switch と同じ役割だが、SonicForge は
-   6 つまで並ぶので、狭いときは横送りにする。縦に折ると入力欄が押し下がる。 */
-.task-switch {
-  display: flex;
-  width: min(760px, 100%);
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--surface);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.task-switch::-webkit-scrollbar { display: none; }
-.task-switch button {
-  flex: 1 1 auto;
+/* 作るものの切り替え。作る対象が 4 つでも 6 つでも幅が変わらないよう、帯では
+   なく 1 つのつまみにして表示モードの左へ置く。狭い画面でヘッダの他の操作を
+   押し出さないことと、携帯で機種標準のピッカーが出ることの両方を取る。 */
+.function-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   min-width: 0;
-  min-height: 44px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-  font-weight: 700;
-  white-space: nowrap;
+  flex: 0 1 auto;
 }
-.task-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.function-switch select {
+  width: auto;
+  max-width: min(40vw, 200px);
+  min-height: 34px;
+  padding: 0 30px 0 13px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: .8rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.function-switch-caret {
+  position: absolute;
+  inset-inline-end: 9px;
+  width: 1rem;
+  height: 1rem;
+  color: var(--accent);
+  pointer-events: none;
+}
+
 .switch-badge {
   margin-left: 6px;
   padding: 1px 6px;
@@ -365,6 +395,21 @@ label { display: grid; gap: 5px; font-size: .8rem; font-weight: 600; min-width: 
 .file-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .file-row .dropzone { flex: 1; }
 
+/* 元の音声の取り込み。録音とファイル選択を同じ重さで並べる。どちらか一方しか
+   使えない端末があるので、片方を副次的に見せない。 */
+.audio-input { display: grid; gap: 8px; min-width: 0; }
+.audio-input-row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; min-width: 0; }
+.audio-input-row > * { flex: 1 1 140px; min-width: 0; }
+.audio-input-row .dropzone { display: grid; place-items: center; margin: 0; overflow-wrap: anywhere; }
+.audio-input-row .recording {
+  border-color: var(--danger-line) !important;
+  color: var(--danger) !important;
+  background: var(--danger-bg) !important;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .audio-input-row .recording { animation: pulse 1.4s ease-in-out infinite; }
+}
+
 .primary {
   border: 0;
   border-radius: 10px;
@@ -381,7 +426,7 @@ label { display: grid; gap: 5px; font-size: .8rem; font-weight: 600; min-width: 
   cursor: not-allowed;
 }
 
-button:not(.primary):not(.chip):not(.icon):not(.modeswitch button):not(.task-switch button):not(#shell-nav button) {
+button:not(.primary):not(.chip):not(.icon):not(.modeswitch button):not(#shell-nav button) {
   border: 1px solid var(--border);
   background: var(--surface);
   border-radius: 10px;
@@ -655,12 +700,27 @@ dialog::backdrop { background: rgba(10, 13, 24, .68); }
   #view-studio { grid-template-columns: minmax(0, 1fr); }
   main { padding: 12px 12px calc(var(--tabbar) + var(--safe-bottom) + 12px); }
   .grid { grid-template-columns: minmax(0, 1fr); }
+  .row { grid-template-columns: minmax(0, 1fr); }
+  .row-side { justify-content: flex-start; }
+  .row-side > button { flex: 1 1 auto; }
 
+  /* 作るものの切り替えがヘッダに入った。スクロールで流れると行き先を
+     見失うので、携帯では上に貼り付ける。 */
+  #shell-header {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: var(--bg);
+    gap: 8px;
+    padding: 0 12px;
+  }
   #shell-header .pill { display: none; }
+  /* 携帯では自分の題名を出さない。ホストのフレームが既に出しているうえ、
+     出すと作るものの切り替えと表示モードが入りきらない。 */
+  #shell-header h1 { display: none; }
   .settings-label { display: none; }
   button.icon.settings-entry { width: 38px; padding: 0; }
-  #studio-task-picker { position: sticky; top: 0; z-index: 2; background: var(--bg); padding-bottom: 2px; }
-  .task-switch button { flex: 0 0 auto; }
+
 
   #shell-nav {
     position: fixed;

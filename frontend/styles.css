@@ -775,6 +775,9 @@ dialog::backdrop { background: rgba(10, 13, 24, .68); }
   #shell-header .grow { display: none; }
   /* 地球のアイコンは設定の「表示言語」に移した。ここでは幅を作るものに譲る。 */
   #locale-toggle { display: none; }
+  /* 作るものと表示モードは左に固めて押しやすくし、設定だけを右端へ逃がす。
+     いつも同じ隅にあるほうが、探さずに指が届く。 */
+  #nav-settings { margin-inline-start: auto; }
   .function-switch::before { width: 54px; height: 34px; }
   .function-switch-icon { inset-inline-start: 9px; width: 1.1rem; height: 1.1rem; }
   .function-switch-caret { inset-inline-end: 6px; }

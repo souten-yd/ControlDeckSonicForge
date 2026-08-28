@@ -32,7 +32,8 @@ class MeetingConfig(BaseModel):
     target_language: Literal["ja", "en"] | None = None
     translate: bool = False
     summarize: bool = False
-    chunk_seconds: int = Field(default=20, ge=5, le=60)
+    # 話してから文字が出るまでの待ちは、ほぼこの長さで決まる。
+    chunk_seconds: int = Field(default=6, ge=3, le=60)
     audio: AudioFormat = Field(
         default_factory=lambda: AudioFormat(
             codec="pcm_s16le", rate=16000, channels=1, frame_ms=20
@@ -256,8 +257,12 @@ def create_meeting_router(base) -> APIRouter:
                         f"{meeting_id.replace(':', '_')}-segment-{sequence:06d}",
                     )
                     try:
-                        if config.translate:
-                            await host_session.release_llm_hold(stop_runtime=True)
+                        # 以前はここで毎回 LLM のランタイムを止め、ASR が終わると
+                        # ASR を捨てていた。区切りごとに両方を読み込み直すので、
+                        # 翻訳を入れた会議は文字が出るまでが目に見えて遅かった。
+                        # 同居できるかは Broker が握っており、無理なときは
+                        # LiveWorkerPool が要求時に相手を降ろす。ここで先回りして
+                        # 降ろす必要はないので、載る機材では両方載せたままにする。
                         _pcm_file_to_wav(raw_path, wav_path, config.audio)
                         request = {
                             "task": "speech.asr.transcribe",
@@ -294,8 +299,6 @@ def create_meeting_router(base) -> APIRouter:
                         source_text = result.payload.get("text")
                         if not isinstance(source_text, str):
                             raise WorkerError("meeting ASR returned no text")
-                        if config.translate:
-                            await worker_pool.evict("asr")
                         translated_text, translation_meta = await translate_text(source_text)
                         with base.session_factory() as db:
                             db.add(

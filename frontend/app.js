@@ -24,12 +24,14 @@ const I18N = {
     taskMusic: "音楽",
     taskLocalization: "ローカライズ",
     taskMeeting: "会議",
+    taskChat: "会話",
     summarySpeech: "書いた文章を、選んだ声で読み上げます。",
     summaryTranscribe: "音声ファイルから文字を起こします。",
     summarySfx: "説明した音を、短い効果音として作ります。",
     summaryMusic: "説明した雰囲気のBGMを作ります。",
     summaryLocalization: "日本語と英語のセリフをまとめて生成します。",
     summaryMeeting: "話している内容をその場で文字にして残します。",
+    summaryChat: "話しかけると、AIが声で答えます。",
 
     speechTextLabel: "読み上げるテキスト",
     speechStyle: "話し方",
@@ -318,6 +320,22 @@ const I18N = {
     meetingTranslateOn: "同時翻訳: 入",
     meetingTranslateOff: "同時翻訳: 切",
     meetingMinutesPending: "議事録を作っています…",
+    chatTitle: "音声で会話する",
+    chatHint: "話しかけると、その場で文字にしてControlDeckのAIが答え、声で返します。文字起こしと読み上げのモデルは会話の間ずっと読み込んだままなので、毎回の待ちがありません。",
+    chatStart: "会話をはじめる",
+    chatStop: "終わる",
+    chatTalk: "押している間、話す",
+    chatTalking: "聞いています…",
+    chatConnecting: "つないでいます…",
+    chatReady: "どうぞ話してください。",
+    chatYou: "あなた",
+    chatReply: "AIの返事",
+    chatEmpty: "まだ何もありません。",
+    chatNeedsHost: "会話はControlDeckのAIを使います。ControlDeckの中から開いてください。",
+    chatVoice: "返事の声",
+    chatPersona: "AIへの指示",
+    chatPersonaDefault: "あなたは話し相手です。相手の話し言葉に、話し言葉で短く答えてください。読み上げるので、箇条書きや記号は使わず、2〜3文にまとめてください。",
+    chatPlaybackBlocked: "返事の音を鳴らせませんでした。画面を一度タップしてから、もう一度話しかけてください。",
     segmentWaiting: "聞き取っています…",
     segmentQueued: "順番待ち",
     segmentProgress: "書き起こし中",
@@ -356,12 +374,14 @@ const I18N = {
     taskMusic: "Music",
     taskLocalization: "Localization",
     taskMeeting: "Meeting",
+    taskChat: "Conversation",
     summarySpeech: "Read your text aloud with the voice you choose.",
     summaryTranscribe: "Turn an audio file into text.",
     summarySfx: "Create a short sound effect from a description.",
     summaryMusic: "Create background music from a description.",
     summaryLocalization: "Render Japanese and English dialogue lines together.",
     summaryMeeting: "Capture what is being said as text, as it happens.",
+    summaryChat: "Speak, and the AI answers out loud.",
 
     speechTextLabel: "Text to read",
     speechStyle: "Delivery",
@@ -650,6 +670,22 @@ const I18N = {
     meetingTranslateOn: "Translation: on",
     meetingTranslateOff: "Translation: off",
     meetingMinutesPending: "Writing the minutes…",
+    chatTitle: "Talk with the AI",
+    chatHint: "Speak, and ControlDeck's AI answers out loud. Transcription and speech stay loaded for the whole conversation, so there is no wait between turns.",
+    chatStart: "Start talking",
+    chatStop: "End",
+    chatTalk: "Hold to talk",
+    chatTalking: "Listening…",
+    chatConnecting: "Connecting…",
+    chatReady: "Go ahead.",
+    chatYou: "You",
+    chatReply: "Reply",
+    chatEmpty: "Nothing yet.",
+    chatNeedsHost: "Conversation uses ControlDeck's AI. Open this from inside ControlDeck.",
+    chatVoice: "Reply voice",
+    chatPersona: "Instruction for the AI",
+    chatPersonaDefault: "You are a conversation partner. Answer spoken language with spoken language, briefly. It will be read aloud, so no bullets or symbols -- two or three sentences.",
+    chatPlaybackBlocked: "The reply could not be played. Tap the screen once, then speak again.",
     segmentWaiting: "Listening…",
     segmentQueued: "Queued",
     segmentProgress: "Transcribing",
@@ -670,7 +706,7 @@ const I18N = {
   },
 };
 
-const TASKS = ["speech", "transcribe", "sfx", "music", "localization", "meeting"];
+const TASKS = ["speech", "transcribe", "sfx", "music", "localization", "meeting", "chat"];
 const ADVANCED_TASKS = new Set(["localization"]);
 const VIEWS = ["studio", "library", "activity", "pipeline", "settings"];
 const ACTIVE_STATES = new Set(["queued", "running"]);
@@ -753,6 +789,7 @@ const TASK_CAPABILITY = {
   music: "music.generate",
   localization: "speech.localization.batch",
   meeting: "speech.asr.transcribe",
+  chat: "speech.asr.transcribe",
 };
 
 const CAPABILITY_COMPONENT = {
@@ -1134,6 +1171,8 @@ function setTask(task) {
   byId("task-summary").textContent = t(`summary${state.task[0].toUpperCase()}${state.task.slice(1)}`);
   byId("localization-panel").hidden = state.task !== "localization";
   byId("meeting-panel").hidden = state.task !== "meeting";
+  byId("chat-panel").hidden = state.task !== "chat";
+  if (state.task === "chat") renderChatPanel();
   for (const node of $$("[data-task-fields]")) node.hidden = node.dataset.taskFields !== state.task;
   mountAdvanced();
   renderStudio();
@@ -1309,6 +1348,7 @@ const TASK_ICONS = {
   music: ["M9.4 17.6V5.6l9.2-1.8v12", "M9.4 17.6a2.6 2.6 0 1 1-5.2 0 2.6 2.6 0 0 1 5.2 0Z", "M18.6 15.8a2.6 2.6 0 1 1-5.2 0 2.6 2.6 0 0 1 5.2 0Z"],
   localization: ["M12 3.6a8.4 8.4 0 1 0 0 16.8 8.4 8.4 0 0 0 0-16.8Z", "M3.6 12h16.8", "M12 3.6c2.2 2.4 3.3 5.3 3.3 8.4S14.2 18 12 20.4c-2.2-2.4-3.3-5.3-3.3-8.4S9.8 6 12 3.6Z"],
   meeting: ["M9 10.4a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2Z", "M3.6 19.4c0-3 2.4-5.4 5.4-5.4s5.4 2.4 5.4 5.4", "M16.2 6.2a2.4 2.4 0 0 1 0 4.6", "M17.4 14.4c1.8.7 3 2.4 3 4.4"],
+  chat: ["M4.2 5.6h11.2v7.6H8.6l-4.4 3.4z", "M10.6 9.4h.01", "M13 9.4h.01", "M8.2 9.4h.01", "M19.8 9.2v9.6l-3-2.4h-4.6"],
 };
 
 function renderTaskChoices() {
@@ -3032,6 +3072,293 @@ const MEETING_RATE = 16000;
 const MEETING_FRAME_SAMPLES = 320;
 const FRAME_HEADER_BYTES = 18;
 
+/* ── 会話 ─────────────────────────────────────────────────────────────── */
+
+/* パイプラインを毎ターン叩くと、そのたびに文字起こしと読み上げのモデルを
+   読み込んで捨てる。sonic-live/2 はワーカーを会話の間ずっと常駐させたまま
+   話し続けられるので、ここはそちらへ繋ぐ。 */
+function defaultChat() {
+  return {
+    connected: false,
+    connecting: false,
+    talking: false,
+    error: "",
+    socket: null,
+    turns: [],
+    persona: "",
+    voiceId: "",
+    hostCapture: false,
+    sequence: 0,
+    clock: 0,
+    level: 0,
+  };
+}
+
+function chatState() {
+  if (!state.chat) state.chat = defaultChat();
+  return state.chat;
+}
+
+async function startChat() {
+  const value = chatState();
+  if (value.connected || value.connecting) return;
+  if (!proxyRoot) { value.error = t("chatNeedsHost"); renderChatPanel(); return; }
+  value.error = "";
+  value.connecting = true;
+  value.turns = [];
+  renderChatPanel();
+
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const url = `${proto}://${location.host}${proxyRoot}/addon/v2/live/ws`;
+  const socket = new WebSocket(url, [`control-deck-bridge.${state.nonce}`]);
+  socket.binaryType = "arraybuffer";
+  value.socket = socket;
+
+  socket.onopen = () => {
+    socket.send(JSON.stringify({
+      type: "hello",
+      session: {
+        preset: "voice-chat",
+        source_language: "auto",
+        response_language: "auto",
+        tts_enabled: true,
+        voice_id: value.voiceId || null,
+        system_prompt: (value.persona || "").trim() || t("chatPersonaDefault"),
+      },
+    }));
+  };
+  socket.onmessage = (event) => handleChatMessage(value, event);
+  socket.onerror = () => { value.error = t("genericError"); renderChatPanel(); };
+  socket.onclose = () => {
+    value.connected = false;
+    value.connecting = false;
+    value.talking = false;
+    value.socket = null;
+    if (value.hostCapture) { value.hostCapture = false; void stopHostCapture(); }
+    renderChatPanel();
+  };
+}
+
+function handleChatMessage(value, event) {
+  if (typeof event.data !== "string") { collectChatAudio(value, event.data); return; }
+  let message;
+  try { message = JSON.parse(event.data); } catch { return; }
+  if (message.type === "tts.chunk.ready") {
+    value.audioChunk = {rate: message.format?.rate || 24000, parts: []};
+    return;
+  }
+  if (message.type === "tts.chunk.end") {
+    const chunk = value.audioChunk;
+    value.audioChunk = null;
+    if (chunk?.parts.length) playChatAudio(pcmToWav(chunk.parts, chunk.rate));
+    return;
+  }
+  if (message.type === "ready") {
+    value.connected = true;
+    value.connecting = false;
+  } else if (message.type === "asr.final") {
+    value.turns = [...value.turns, {role: "you", text: message.text || "", state: "final"}];
+  } else if (message.type === "llm.chunk" || message.type === "reply.chunk") {
+    const last = value.turns[value.turns.length - 1];
+    if (last && last.role === "ai" && last.state !== "final") {
+      last.text += message.text || "";
+    } else {
+      value.turns = [...value.turns, {role: "ai", text: message.text || "", state: "progress"}];
+    }
+  } else if (message.type === "llm.final" || message.type === "reply.final") {
+    const last = value.turns[value.turns.length - 1];
+    if (last && last.role === "ai") { last.text = message.text || last.text; last.state = "final"; }
+    else value.turns = [...value.turns, {role: "ai", text: message.text || "", state: "final"}];
+  } else if (message.type === "turn.error" || message.type === "error") {
+    value.error = message.message || t("failed");
+  }
+  renderChatPanel();
+}
+
+/* 音は WAV ではなく AudioFrame に包まれた生 PCM で届く。ヘッダを外して
+   ためておき、chunk の切れ目で 1 つの WAV にしてから鳴らす。 */
+function collectChatAudio(value, buffer) {
+  const chunk = value.audioChunk;
+  if (!chunk || !buffer || buffer.byteLength <= FRAME_HEADER_BYTES) return;
+  const body = buffer.slice(FRAME_HEADER_BYTES);
+  chunk.parts.push(new Int16Array(body, 0, body.byteLength >> 1));
+}
+
+/* 返事は生成しながら細切れで届く。届いた順に鳴らさないと言葉が前後するので、
+   1 本の待ち行列につないで、前が鳴り終わってから次を出す。 */
+let chatPlayQueue = Promise.resolve();
+
+function playChatAudio(blob) {
+  if (!blob || blob.size <= 44) return;
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  chatPlayQueue = chatPlayQueue
+    .then(() => audio.play())
+    .then(() => new Promise((resolve) => { audio.onended = resolve; audio.onerror = resolve; }))
+    .catch(() => {
+      /* 携帯は利用者の操作なしに音を出さないことがある。会話は「話す」を
+         押した流れの中なので普通は通るが、断られたときは黙らせない。 */
+      const value = chatState();
+      value.error = t("chatPlaybackBlocked");
+      renderChatPanel();
+    })
+    .finally(() => URL.revokeObjectURL(url));
+}
+
+async function startChatTalking() {
+  const value = chatState();
+  if (!value.connected || value.talking) return;
+  value.sequence = 0;
+  value.clock = 0;
+  try {
+    await startHostCapture((samples, peak) => {
+      if (!value.talking || value.socket?.readyState !== WebSocket.OPEN) return;
+      value.level = peak;
+      value.socket.send(encodeAudioFrame(value.sequence, value.clock, samples));
+      value.sequence = (value.sequence + 1) >>> 0;
+      value.clock = (value.clock + samples.length) >>> 0;
+    });
+    value.hostCapture = true;
+  } catch (error) {
+    value.error = error?.message || t("micDenied");
+    renderChatPanel();
+    return;
+  }
+  value.socket.send(JSON.stringify({type: "input.start"}));
+  value.talking = true;
+  renderChatPanel();
+}
+
+function stopChatTalking() {
+  const value = chatState();
+  if (!value.talking) return;
+  value.talking = false;
+  if (value.hostCapture) { value.hostCapture = false; void stopHostCapture(); }
+  if (value.socket?.readyState === WebSocket.OPEN) {
+    value.socket.send(JSON.stringify({type: "input.commit"}));
+  }
+  renderChatPanel();
+}
+
+function stopChat() {
+  const value = chatState();
+  stopChatTalking();
+  try { value.socket?.send(JSON.stringify({type: "close"})); } catch { /* すでに閉じている */ }
+  try { value.socket?.close(); } catch { /* すでに閉じている */ }
+  value.connected = false;
+  value.socket = null;
+  renderChatPanel();
+}
+
+function renderChatPanel() {
+  const panel = byId("chat-panel");
+  if (!panel || state.task !== "chat") return;
+  const value = chatState();
+  panel.replaceChildren();
+
+  const card = document.createElement("div");
+  card.className = "panel";
+  const heading = document.createElement("p");
+  heading.className = "field-label";
+  heading.textContent = t("chatTitle");
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = t("chatHint");
+  card.append(heading, hint);
+
+  if (!value.connected) {
+    const voice = selectNode("chat-voice", [
+      {value: "", text: t("builtInVoice")},
+      ...state.voices.map((item) => ({value: item.id, text: item.name})),
+    ]);
+    voice.value = value.voiceId;
+    voice.onchange = () => { value.voiceId = voice.value; };
+    card.append(labelled(t("chatVoice"), voice));
+
+    const persona = document.createElement("textarea");
+    persona.rows = 2;
+    persona.maxLength = 2000;
+    persona.value = value.persona;
+    persona.placeholder = t("chatPersonaDefault");
+    persona.oninput = () => { value.persona = persona.value; };
+    card.append(labelled(t("chatPersona"), persona));
+  }
+
+  const action = document.createElement("button");
+  action.type = "button";
+  action.className = "primary";
+  if (value.connecting) {
+    action.textContent = t("chatConnecting");
+    action.disabled = true;
+  } else if (value.connected) {
+    action.textContent = t("chatStop");
+    action.classList.remove("primary");
+    action.onclick = stopChat;
+  } else {
+    action.textContent = t("chatStart");
+    action.onclick = () => void startChat();
+  }
+  card.append(action);
+
+  if (value.connected) {
+    /* 押している間だけ話す。声が途切れた瞬間を機械に当てさせるより、
+       利用者が離した時点で区切るほうが確実に早い。 */
+    const talk = document.createElement("button");
+    talk.type = "button";
+    talk.id = "chat-talk";
+    talk.className = value.talking ? "cta-secondary recording" : "cta-secondary";
+    talk.textContent = value.talking ? t("chatTalking") : `\u{1F3A4} ${t("chatTalk")}`;
+    talk.onpointerdown = () => void startChatTalking();
+    for (const name of ["onpointerup", "onpointercancel", "onpointerleave"]) talk[name] = stopChatTalking;
+    card.append(talk);
+  }
+
+  if (value.error) {
+    const error = document.createElement("p");
+    error.className = "error";
+    error.setAttribute("role", "alert");
+    error.textContent = value.error;
+    card.append(error);
+  }
+  panel.append(card);
+
+  const log = document.createElement("div");
+  log.className = "panel";
+  const logLabel = document.createElement("p");
+  logLabel.className = "section-label";
+  logLabel.textContent = t("chatTitle");
+  log.append(logLabel);
+  if (!value.turns.length) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent = value.connected ? t("chatReady") : t("chatEmpty");
+    log.append(empty);
+  } else {
+    const list = document.createElement("div");
+    list.className = "segments";
+    list.append(...value.turns.map((turn) => {
+      const node = document.createElement("div");
+      node.className = "segment";
+      node.dataset.state = turn.state || "final";
+      node.dataset.role = turn.role;
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      const who = document.createElement("span");
+      who.textContent = turn.role === "you" ? t("chatYou") : t("chatReply");
+      meta.append(who);
+      const body = document.createElement("div");
+      body.className = "src";
+      body.textContent = turn.text || t("segmentWaiting");
+      if (!turn.text) body.classList.add("waiting");
+      node.append(meta, body);
+      return node;
+    }));
+    log.append(list);
+    requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+  }
+  panel.append(log);
+}
+
 function defaultMeeting() {
   return {
     title: state.locale === "ja" ? "打ち合わせ" : "Meeting",
@@ -3041,7 +3368,7 @@ function defaultMeeting() {
     /* 会議は「録りながら文字にして、終わりに議事録をもらう」ための画面なので、
        議事録は既定で作る。要らない人だけ外せばよい。 */
     summarize: true,
-    chunkSeconds: 20,
+    chunkSeconds: 6,
     recording: false,
     socket: null,
     audio: null,
@@ -3110,7 +3437,7 @@ function renderMeetingPanel() {
   chunk.max = "60";
   chunk.value = String(value.chunkSeconds);
   chunk.disabled = value.recording;
-  chunk.onchange = () => { value.chunkSeconds = Math.min(60, Math.max(5, Number(chunk.value) || 20)); };
+  chunk.onchange = () => { value.chunkSeconds = Math.min(60, Math.max(3, Number(chunk.value) || 6)); };
   row.append(labelled(t("meetingChunk"), chunk));
   card.append(row);
 
@@ -3426,12 +3753,27 @@ async function startMeeting() {
       if (viaHost) void startMeetingHostCapture(); else startMeetingCapture(stream);
       renderMeetingPanel();
     }
-    if (message.type === "meeting.segment.final" || message.type === "meeting.segment.error") {
-      value.segments = [...value.segments, {
-        start_ms: message.start_ms, end_ms: message.end_ms,
-        source_text: message.source_text, translated_text: message.translated_text,
-        message: message.message, state: message.type.endsWith("error") ? "failed" : "final",
-      }];
+    /* 区切りは 受付 → 処理中 → 確定 の順で知らせが来る。確定だけを待つと、
+       話してから何秒も画面が動かない。受け付けた時点で枠を出し、同じ枠を
+       書き換えていく。 */
+    if (message.type?.startsWith("meeting.segment.")) {
+      const phase = message.type.slice("meeting.segment.".length);
+      const state_ = phase === "error" ? "failed" : phase === "final" ? "final" : phase;
+      const sequence = message.sequence;
+      const existing = value.segments.findIndex((item) => item.sequence === sequence);
+      const merged = {
+        sequence,
+        start_ms: message.start_ms ?? value.segments[existing]?.start_ms,
+        end_ms: message.end_ms ?? value.segments[existing]?.end_ms,
+        source_text: message.source_text ?? value.segments[existing]?.source_text ?? "",
+        translated_text: message.translated_text ?? value.segments[existing]?.translated_text ?? "",
+        message: message.message ?? "",
+        language: message.language ?? value.segments[existing]?.language,
+        state: state_,
+      };
+      value.segments = existing < 0
+        ? [...value.segments, merged]
+        : value.segments.map((item, index) => (index === existing ? merged : item));
       renderMeetingPanel();
     }
     /* サーバは meeting.complete で終わりを告げ、議事録は summary.markdown に

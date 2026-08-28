@@ -83,7 +83,7 @@ def test_meeting_spools_audio_and_persists_final_segments_without_duration_limit
         assert "fake transcription" in transcript.text
 
 
-def test_hosted_meeting_releases_asr_before_translation_and_summary(env, monkeypatch):
+def test_hosted_meeting_keeps_asr_loaded_across_segments(env, monkeypatch):
     from sonicforge import meeting_api
 
     events = []
@@ -193,9 +193,17 @@ def test_hosted_meeting_releases_asr_before_translation_and_summary(env, monkeyp
                 if event["type"] == "meeting.complete":
                     break
 
-    assert events.index("release-ai:True") < events.index("asr")
-    assert events.index("asr") < events.index("evict:asr")
-    assert events.index("evict:asr") < events.index("ensure-ai")
-    assert events.index("ensure-ai") < events.index("ai:translate")
-    assert events.index("ai:translate") < events.index("ai:summary-chunk")
+    # 区切りごとに ASR を捨てて LLM を止め直していたので、翻訳つきの会議は
+    # 毎回モデルの読み込みを待たされていた。同居できるかは Broker が握って
+    # いて、無理なときは worker pool が要求時に相手を降ろす。載る機材では
+    # 両方載せたままにする。
+    assert "release-ai:True" not in events[: events.index("ai:translate")]
+    assert "evict:asr" not in events[: events.index("ai:translate")]
+    assert events.index("asr") < events.index("ai:translate")
+
+    # 会議が終わったら話は別で、議事録を書く LLM に場所を空ける。
+    evicted = events.index("evict:asr")
+    assert events.index("ai:translate") < evicted
+    assert evicted < events.index("ai:summary-chunk")
+    assert "ensure-ai" in events[evicted : events.index("ai:summary-chunk")]
     assert events.index("ai:summary-chunk") < events.index("ai:summary-final")

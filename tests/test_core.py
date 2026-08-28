@@ -171,6 +171,24 @@ def test_meeting_transcript_reads_like_one_utterance_per_card(env):
         card=styles[styles.index('.segment {'):styles.index('.segment .meta')]
         assert 'border:' in card and 'border-radius' in card
 
+def test_meeting_shows_a_segment_before_it_is_finished(env):
+    """話してから文字が出るまで、画面が止まって見えないこと。
+
+    確定だけを待つと、区切りの長さぶん何も起きない。受付と処理中でも同じ枠を
+    出し、届いた分から書き換える。翻訳が入っているときは原文と訳を両方残す。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        app_js=c.get('/app.js').text
+        assert 'message.type?.startsWith("meeting.segment.")' in app_js
+        handler=app_js[app_js.index('message.type?.startsWith("meeting.segment.")'):]
+        handler=handler[:handler.index('meeting.complete')]
+        # 同じ区切りは同じ枠を書き換える。並べ足すと同じ発言が何度も出る。
+        assert 'item.sequence === sequence' in handler
+        # 原文と訳のどちらも、後続の知らせで消えないこと。
+        assert 'source_text: message.source_text ??' in handler
+        assert 'translated_text: message.translated_text ??' in handler
+
 def test_advanced_surfaces_every_public_capability(env):
     """詳細モードから到達できる先が、公開APIの機能を取りこぼしていないこと。"""
     m=load_app()

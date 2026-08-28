@@ -4,6 +4,7 @@ import ctypes
 from contextlib import redirect_stdout
 import json
 import os
+import re
 import signal
 import sys
 from pathlib import Path
@@ -53,11 +54,22 @@ def _model(model_id: str):
     return value
 
 
-def _default_speaker(content_language: str | None) -> str:
+_JAPANESE_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
+
+
+def _default_speaker(content_language: str | None, text: str = "") -> str:
     # Qwen3-TTS' official speaker catalog contains native Japanese Ono_Anna and
     # native English Ryan. Prefer the language-native default instead of always
     # using an English speaker for Japanese content.
-    return "Ono_Anna" if content_language == "ja" else "Ryan"
+    #
+    # "auto" is the UI default, and it used to fall through to the English
+    # speaker, so Japanese text was read aloud by an English male voice. The
+    # script says which language it is, so read it rather than giving up.
+    if content_language == "ja":
+        return "Ono_Anna"
+    if content_language in {None, "", "auto"} and _JAPANESE_RE.search(text or ""):
+        return "Ono_Anna"
+    return "Ryan"
 
 
 def handle(payload: dict) -> None:
@@ -156,7 +168,7 @@ def handle(payload: dict) -> None:
                 else None
             )
             or os.environ.get("SONICFORGE_QWEN_TTS_SPEAKER")
-            or _default_speaker(content_language)
+            or _default_speaker(content_language, text)
         )
         tts = _model(model_id)
         _emit({"type": "progress", "progress": 0.55, "message": "Synthesizing"})

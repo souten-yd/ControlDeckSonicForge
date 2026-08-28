@@ -117,6 +117,18 @@ html[data-bridge="waiting"] #mini-progress { visibility: hidden; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* ControlDeck の中では、上の行が「いまどこか」を出す。同じ題名を 2 つ並べず、
+   その幅は作るものの名前に回す。単体で開いたときだけ自分で名乗る。 */
+html:not([data-bridge="standalone"]) #shell-header h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .grow { flex: 1; }
 
 .pill {

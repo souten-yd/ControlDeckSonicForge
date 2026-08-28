@@ -112,6 +112,28 @@ def test_pipeline_ai_instruction_reaches_the_runtime(env):
     src=(__import__('pathlib').Path(pipeline_runtime.__file__)).read_text(encoding='utf-8')
     assert 'stage.parameters.get("system_prompt")' in src
 
+def test_models_are_offered_by_name_not_typed_from_memory(env):
+    """使えるモデルが、作るものごとに名前で並ぶこと。
+
+    routing.model は前から効いていたが、UI は Hugging Face のリポジトリ名を
+    打ち込む自由入力欄だった。暗記していない人には選べないので、機能ではない。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        doc=c.get('/addon/v1/models').json()
+        by_task={item['task']: item for item in doc['tasks']}
+        assert 'kotoba-tech/kotoba-whisper-v2.0' in [
+            x['id'] for x in by_task['speech.asr.transcribe']['models']]
+        assert by_task['speech.asr.transcribe']['engine'] == 'asr.whisper'
+        assert by_task['music.generate']['engine'] == 'music.ace-step-1.5'
+        markup=c.get('/').text
+        assert '<select id="advanced-model">' in markup
+        assert '<input id="advanced-model"' not in markup
+        app_js=c.get('/app.js').text
+        assert 'loadModels()' in app_js and 'renderRoutingChoices()' in app_js
+        # 知らない id が来ても、消えずに id のまま並ぶこと。
+        assert 't(MODEL_LABELS[item.id]) || item.id' in app_js
+
 def test_advanced_surfaces_every_public_capability(env):
     """詳細モードから到達できる先が、公開APIの機能を取りこぼしていないこと。"""
     m=load_app()

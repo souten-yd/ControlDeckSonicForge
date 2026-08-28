@@ -103,6 +103,16 @@ const I18N = {
     profileName: "プロファイル名",
     engine: "エンジン",
     model: "モデル",
+    modelAuto: "おまかせ（自動で選ぶ）",
+    modelKotoba: "日本語に強い（kotoba-whisper v2.0）",
+    modelWhisperTurbo: "多言語（whisper large v3 turbo）",
+    modelQwenCustom: "標準の読み上げ（Qwen3-TTS 0.6B）",
+    modelQwenDesign: "声のデザイン向け（Qwen3-TTS 1.7B）",
+    modelStableAudio: "効果音（Stable Audio 3 Small SFX）",
+    modelAceStep: "音楽（ACE-Step 1.5 Turbo）",
+    modelNoteVoice: "保存したボイスを選んでいるときは、そのボイスが作られたモデルを使います。",
+    modelNoteSingle: "この機能で使えるモデルは今ひとつだけです。",
+    modelNoteMissing: "この機能はまだ準備できていません。設定から準備してください。",
     device: "デバイス",
     seed: "シード",
     styleInstruction: "話し方の指示（自由文）",
@@ -421,6 +431,16 @@ const I18N = {
     profileName: "Profile name",
     engine: "Engine",
     model: "Model",
+    modelAuto: "Automatic (recommended)",
+    modelKotoba: "Strong in Japanese (kotoba-whisper v2.0)",
+    modelWhisperTurbo: "Multilingual (whisper large v3 turbo)",
+    modelQwenCustom: "Standard speech (Qwen3-TTS 0.6B)",
+    modelQwenDesign: "For designed voices (Qwen3-TTS 1.7B)",
+    modelStableAudio: "Sound effects (Stable Audio 3 Small SFX)",
+    modelAceStep: "Music (ACE-Step 1.5 Turbo)",
+    modelNoteVoice: "With a saved voice selected, the model that voice was built against is used.",
+    modelNoteSingle: "This feature currently has a single model.",
+    modelNoteMissing: "This feature is not prepared yet. Prepare it from settings.",
     device: "Device",
     seed: "Seed",
     styleInstruction: "Delivery instruction (free text)",
@@ -709,6 +729,15 @@ const SETUP_PROFILES = [
   {id: "cpu-essentials", label: "profileCpu"},
 ];
 
+const MODEL_LABELS = {
+  "kotoba-tech/kotoba-whisper-v2.0": "modelKotoba",
+  "openai/whisper-large-v3-turbo": "modelWhisperTurbo",
+  "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice": "modelQwenCustom",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign": "modelQwenDesign",
+  "stabilityai/stable-audio-3-small-sfx": "modelStableAudio",
+  "acestep-v15-turbo": "modelAceStep",
+};
+
 const TASK_CAPABILITY = {
   speech: "speech.tts.synthesize",
   transcribe: "speech.asr.transcribe",
@@ -777,6 +806,7 @@ const state = {
   assets: [],
   voices: [],
   capabilities: null,
+  models: null,
   setup: null,
   plan: null,
   deliveryProfiles: [],
@@ -1049,10 +1079,8 @@ function setMode(mode, {persist = true} = {}) {
   byId("mode-simple").setAttribute("aria-pressed", String(state.mode === "simple"));
   byId("mode-advanced").setAttribute("aria-pressed", String(state.mode === "advanced"));
   for (const node of $$("[data-advanced-only]")) node.hidden = state.mode !== "advanced";
-  byId("nav-pipeline").hidden = state.mode !== "advanced";
   /* シンプルへ戻したときに、詳細だけの画面へ取り残されないようにする。 */
   if (state.mode !== "advanced" && ADVANCED_TASKS.has(state.task)) setTask("speech");
-  if (state.mode !== "advanced" && state.view === "pipeline") activate("studio");
   /* 詳細だけの作るもの（ローカライズ・会議）は、モードを変えた時点で
      選択肢に出入りする。ここで描き直さないと、詳細にしても選べない。 */
   renderTaskChoices();
@@ -1137,8 +1165,7 @@ function syncAdvanced() {
   bindAdvancedValue("advanced-sample-rate", "sampleRate", "");
   bindAdvancedValue("advanced-channels", "channels", "");
   bindAdvancedValue("advanced-profile", "profile", "");
-  bindAdvancedValue("advanced-engine", "engine", "");
-  bindAdvancedValue("advanced-model", "model", "");
+  renderRoutingChoices();
   bindAdvancedValue("advanced-device", "device", "auto");
   bindAdvancedValue("advanced-seed", "seed", "");
   bindAdvancedValue("advanced-style-instruction", "styleInstruction", "");
@@ -1217,6 +1244,52 @@ function taskChoices() {
 
 function taskLabel(task) {
   return t(`task${task[0].toUpperCase()}${task.slice(1)}`);
+}
+
+/* エンジンとモデルは、いまの作るものに紐づく。自由入力だと利用者は
+   Hugging Face のリポジトリ名を暗記していないと選べないので、名前で並べる。 */
+function taskModels() {
+  const capability = TASK_CAPABILITY[state.task];
+  return (state.models?.tasks || []).find((item) => item.task === capability) || null;
+}
+
+function renderRoutingChoices() {
+  const engine = byId("advanced-engine");
+  const model = byId("advanced-model");
+  const note = byId("advanced-model-note");
+  if (!engine || !model) return;
+  const entry = taskModels();
+  const options = (values) => values.map((item) => {
+    const option = document.createElement("option");
+    option.value = item.value;
+    option.textContent = item.text;
+    return option;
+  });
+
+  engine.replaceChildren(...options([
+    {value: "", text: t("modelAuto")},
+    ...(entry ? [{value: entry.engine, text: entry.engine}] : []),
+  ]));
+  engine.value = state.form.engine || "";
+  if (engine.value !== (state.form.engine || "")) { engine.value = ""; state.form.engine = ""; }
+  engine.onchange = () => { state.form.engine = engine.value; };
+
+  model.replaceChildren(...options([
+    {value: "", text: t("modelAuto")},
+    ...(entry?.models || []).map((item) => ({value: item.id, text: t(MODEL_LABELS[item.id]) || item.id})),
+  ]));
+  model.value = state.form.model || "";
+  if (model.value !== (state.form.model || "")) { model.value = ""; state.form.model = ""; }
+  model.onchange = () => { state.form.model = model.value; };
+
+  if (note) {
+    note.textContent = !entry ? ""
+      : !entry.installed ? t("modelNoteMissing")
+      : state.task === "speech" && state.form.voiceId ? t("modelNoteVoice")
+      : entry.models.length < 2 ? t("modelNoteSingle")
+      : "";
+    note.hidden = !note.textContent;
+  }
 }
 
 function renderTaskChoices() {
@@ -2121,6 +2194,13 @@ async function loadCapabilities() {
   renderSettings();
 }
 
+/* 使えるモデルはサーバが知っている。ここで名前を並べておかないと、詳細は
+   Hugging Face のリポジトリ名を打ち込む欄のままで、事実上だれも選べない。 */
+async function loadModels() {
+  try { state.models = await api("/models"); } catch { return; }
+  renderStudio();
+}
+
 async function loadSetup() {
   try {
     state.setup = await api("/setup/status");
@@ -2820,7 +2900,7 @@ function renderPipeline() {
   }));
   delivery.value = value.delivery;
   delivery.onchange = () => { value.delivery = delivery.value; renderPipeline(); };
-  byId("pipeline-project-row").hidden = value.delivery !== "project";
+  byId("pipeline-project-row").hidden = value.delivery !== "project" || state.mode !== "advanced";
   byId("pipeline-project-pick").classList.toggle("filled", Boolean(value.projectGrant));
   byId("pipeline-project-pick").textContent = value.projectGrant
     ? t("projectOutputSelected") : t("chooseProjectOutput");
@@ -3383,7 +3463,7 @@ for (const button of $$("[data-refresh]")) {
 byId("setup-plan-refresh").addEventListener("click", () => void loadPlan());
 
 async function reloadAuthoritative() {
-  const work = [loadSetup(), loadCapabilities(), loadVoices(), loadActiveJobs(), loadAssets()];
+  const work = [loadSetup(), loadCapabilities(), loadModels(), loadVoices(), loadActiveJobs(), loadAssets()];
   if (state.task === "meeting") work.push(loadMeetings());
   await Promise.allSettled(work);
 }

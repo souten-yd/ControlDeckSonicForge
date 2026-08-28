@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import selectinload
 
 from .capabilities import capability_document
+from .models_catalog import model_document
 from .config import ensure_directories, load_settings
 from .db import Asset, Job, LocalizationBatch, LocalizationLine, Provenance, Voice, make_session_factory
 from .events import EventBus
@@ -198,6 +199,12 @@ async def set_setup_credentials(body: SetupCredentials):
     token = body.huggingface_token
     setup_service.write_credentials(settings, {"huggingface_token": (token.strip() or None) if isinstance(token, str) else None})
     return setup_service.credential_state(settings)
+
+
+@app.get("/addon/v1/models")
+async def models():
+    with session_factory() as session:
+        return model_document(session, fake_enabled=settings.enable_fake_worker)
 
 
 @app.get("/addon/v1/setup/plan")

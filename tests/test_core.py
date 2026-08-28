@@ -151,6 +151,26 @@ def test_task_switch_is_an_icon_that_still_opens_the_native_list(env):
         for task in ('speech', 'transcribe', 'sfx', 'music', 'localization', 'meeting'):
             assert f'{task}:' in icons, task
 
+def test_meeting_transcript_reads_like_one_utterance_per_card(env):
+    """会議の書き起こしは KasaneCore の Echo と同じ形にする。
+
+    1 発言 1 枚。上に言語と時刻と状態、本文の下に訳。文字が来る前の枠も
+    潰さず、いま聞き取っていることが分かるようにする。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        app_js=c.get('/app.js').text
+        render=app_js[app_js.index('function renderSegment('):app_js.index('function followLatestSegment(')]
+        for part in ('"meta"', '"flag"', '"time"', '"state"', '"src"', '"dst"'):
+            assert part in render, part
+        assert 't("segmentWaiting")' in render
+        # 過去を読み返している最中に最新へ引き戻さないこと。
+        follow=app_js[app_js.index('function followLatestSegment('):app_js.index('async function loadMeetings(')]
+        assert 'atBottom' in follow
+        styles=c.get('/styles.css').text
+        card=styles[styles.index('.segment {'):styles.index('.segment .meta')]
+        assert 'border:' in card and 'border-radius' in card
+
 def test_advanced_surfaces_every_public_capability(env):
     """詳細モードから到達できる先が、公開APIの機能を取りこぼしていないこと。"""
     m=load_app()

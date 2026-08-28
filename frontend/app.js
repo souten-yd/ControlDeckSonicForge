@@ -318,6 +318,10 @@ const I18N = {
     meetingTranslateOn: "同時翻訳: 入",
     meetingTranslateOff: "同時翻訳: 切",
     meetingMinutesPending: "議事録を作っています…",
+    segmentWaiting: "聞き取っています…",
+    segmentQueued: "順番待ち",
+    segmentProgress: "書き起こし中",
+    segmentFailed: "失敗",
     playBlocked: "再生するには一度タップしてください",
     hfTokenLabel: "Hugging Face アクセストークン",
     hfTokenHint: "この配布物はHugging Faceの承認が要ります。先にモデルページでライセンスに同意し、同じアカウントのトークンを貼ってください。",
@@ -646,6 +650,10 @@ const I18N = {
     meetingTranslateOn: "Translation: on",
     meetingTranslateOff: "Translation: off",
     meetingMinutesPending: "Writing the minutes…",
+    segmentWaiting: "Listening…",
+    segmentQueued: "Queued",
+    segmentProgress: "Transcribing",
+    segmentFailed: "Failed",
     playBlocked: "Tap once to allow playback",
     hfTokenLabel: "Hugging Face access token",
     hfTokenHint: "This model is gated on Hugging Face. Accept its license on the model page first, then paste an access token from that same account.",
@@ -3194,6 +3202,7 @@ function renderMeetingPanel() {
     list.className = "segments";
     list.append(...value.segments.map(renderSegment));
     live.append(list);
+    requestAnimationFrame(() => followLatestSegment(list));
     if (value.summary) {
       const summaryLabel = document.createElement("p");
       summaryLabel.className = "section-label";
@@ -3257,17 +3266,45 @@ function renderMeetingPanel() {
   panel.append(past);
 }
 
+/* KasaneCore の Echo と同じ形にする。1 発言が 1 枚、上に言語と時刻と状態、
+   本文の下に訳。文字が来る前の枠も潰さず、待っていることが分かるようにする。 */
+const SEGMENT_FLAG = {ja: "\u{1F1EF}\u{1F1F5}", en: "\u{1F1FA}\u{1F1F8}"};
+
+const SEGMENT_STATE_LABEL = {
+  queued: "segmentQueued", progress: "segmentProgress", failed: "segmentFailed",
+};
+
 function renderSegment(segment) {
   const node = document.createElement("div");
+  const phase = segment.state || "final";
   node.className = "segment";
-  node.dataset.state = segment.state || "final";
-  const time = document.createElement("div");
+  node.dataset.state = phase;
+
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const language = segment.language || state.meeting?.sourceLanguage || "";
+  const flag = document.createElement("span");
+  flag.className = "flag";
+  flag.textContent = SEGMENT_FLAG[language] || "\u{1F5E3}";
+  const time = document.createElement("span");
   time.className = "time";
   time.textContent = `${formatClock(segment.start_ms)} – ${formatClock(segment.end_ms)}`;
+  const badge = document.createElement("span");
+  badge.className = "state";
+  badge.textContent = SEGMENT_STATE_LABEL[phase] ? t(SEGMENT_STATE_LABEL[phase]) : "";
+  meta.append(flag, time, badge);
+
   const source = document.createElement("div");
   source.className = "src";
-  source.textContent = segment.source_text || segment.message || "";
-  node.append(time, source);
+  const text = segment.source_text || segment.message || "";
+  if (text) {
+    source.textContent = text;
+  } else {
+    source.textContent = t("segmentWaiting");
+    source.classList.add("waiting");
+  }
+  node.append(meta, source);
+
   if (segment.translated_text) {
     const target = document.createElement("div");
     target.className = "dst";
@@ -3275,6 +3312,21 @@ function renderSegment(segment) {
     node.append(target);
   }
   return node;
+}
+
+/* 話している間は最新を追う。過去を読み返しているときに引き戻さないよう、
+   すでに下端にいるときだけ動かす。 */
+function followLatestSegment(list) {
+  const previous = state.meeting?.scrollBottom;
+  const atBottom = previous === undefined
+    || previous <= 24
+    || list.scrollHeight - list.scrollTop - list.clientHeight <= 24;
+  if (atBottom) list.scrollTop = list.scrollHeight;
+  list.onscroll = () => {
+    if (state.meeting) {
+      state.meeting.scrollBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+    }
+  };
 }
 
 async function loadMeetings() {

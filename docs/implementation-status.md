@@ -154,6 +154,39 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
   **NOT TESTED**; it needs a logged-in session. Everything else here was driven in a real
   headless Chrome.
 
+## v0.4.1 silence is not speech, chat takes typed text, Echo-shaped transcript
+
+- Whisper never returns nothing. Handed silence or room tone it reaches for the phrases
+  that end its training clips, which is why the operator saw "Thank you" with nobody
+  talking. There was no gate of any kind in front of it: `split_on_long_silence` only ran
+  for `language=auto`, and its threshold is relative to the clip's own peak, so a clip of
+  pure noise still yields "speech" windows.
+- Counting phrases is a losing game — this machine's room tone produced 「ごめん」, which no
+  published hallucination list contains. The check is on the audio instead: speech peaks
+  and noise does not, so a clip that never gets loud (`peak < 0.02`) or is uniformly tiny
+  (`rms < 0.002`) has nobody speaking in it and returns empty **without loading the
+  model**. Known captions are still dropped as a second layer when the audio is merely
+  quiet, and `condition_on_prev_tokens=False` stops one invented phrase from becoming a
+  page of them. An unsupported generate kwarg falls back rather than failing the job.
+- Measured with the provisioned speech venv and the real models:
+
+  | input | before | after |
+  | --- | --- | --- |
+  | 5 s digital silence | (invented) | `''` |
+  | 5 s room tone | `ごめん` | `''` |
+  | real Japanese speech | 今日の会議は10時から始めます | 今日の会議は10時から始めます |
+
+- The voice chat preset refused typed text: its first stage transcribes and text cannot
+  feed it (`text cannot feed speech.asr`). Chat should work whether you speak or type, so
+  a stage the input cannot feed is skipped — the flow greys it out and the request starts
+  where the types line up. Verified in a browser at 390 px and against `/pipelines/compile`
+  (`start_index: 1`, `stage_ids: ["reply", "tts"]`).
+- The meeting transcript now reads like KasaneCore's Echo: one utterance per card, with
+  language, clock and state above the text and the translation italic beneath. A segment
+  still being transcribed keeps its card and says so rather than collapsing. The list
+  follows the newest line only when the reader is already at the bottom, so scrolling back
+  through a long meeting is not yanked forward.
+
 ## Live mobile registry reachability repair
 
 - The live Host still stored the pre-release managed Add-on manifest with `workspace.mobile: companion`, even though repository and public v0.1.0 manifests declare `embedded`. The effective API therefore returned `companion`; authenticated Chrome 320x720 reached `More -> Audio` but rendered the status-only companion with zero workspace iframes.

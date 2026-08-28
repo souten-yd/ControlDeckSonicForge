@@ -324,8 +324,11 @@ const I18N = {
     chatHint: "話しかけると、その場で文字にしてControlDeckのAIが答え、声で返します。文字起こしと読み上げのモデルは会話の間ずっと読み込んだままなので、毎回の待ちがありません。",
     chatStart: "会話をはじめる",
     chatStop: "終わる",
-    chatTalk: "押している間、話す",
-    chatTalking: "聞いています…",
+    chatTalk: "話しかける",
+    chatTalking: "聞いています…（押すと止める）",
+    chatThinking: "考えています…",
+    chatSpeaking: "返事を読んでいます…",
+    chatTurnHint: "話し終えると自動で区切ります。返事のあとまた聞きにいきます。",
     chatConnecting: "つないでいます…",
     chatReady: "どうぞ話してください。",
     chatYou: "あなた",
@@ -674,8 +677,11 @@ const I18N = {
     chatHint: "Speak, and ControlDeck's AI answers out loud. Transcription and speech stay loaded for the whole conversation, so there is no wait between turns.",
     chatStart: "Start talking",
     chatStop: "End",
-    chatTalk: "Hold to talk",
-    chatTalking: "Listening…",
+    chatTalk: "Start talking",
+    chatTalking: "Listening… (press to stop)",
+    chatThinking: "Thinking…",
+    chatSpeaking: "Speaking…",
+    chatTurnHint: "It commits when you stop speaking, and listens again after the reply.",
     chatConnecting: "Connecting…",
     chatReady: "Go ahead.",
     chatYou: "You",
@@ -3081,7 +3087,10 @@ function defaultChat() {
   return {
     connected: false,
     connecting: false,
-    talking: false,
+    mode: "idle",          // idle / listening / thinking / speaking
+    autoResume: true,
+    turnToken: 0,
+    vad: {speechMs: 0, silenceMs: 0, heard: false},
     error: "",
     socket: null,
     turns: [],
@@ -3102,7 +3111,9 @@ function chatState() {
 async function startChat() {
   const value = chatState();
   if (value.connected || value.connecting) return;
-  if (!proxyRoot) { value.error = t("chatNeedsHost"); renderChatPanel(); return; }
+  /* 必要なのは ControlDeck の LLM であって、特定の URL ではない。橋が
+     繋がっているかで判断する。 */
+  if (!state.bridgePort || !state.nonce) { value.error = t("chatNeedsHost"); renderChatPanel(); return; }
   value.error = "";
   value.connecting = true;
   value.turns = [];
@@ -3132,7 +3143,7 @@ async function startChat() {
   socket.onclose = () => {
     value.connected = false;
     value.connecting = false;
-    value.talking = false;
+    value.mode = "idle";
     value.socket = null;
     if (value.hostCapture) { value.hostCapture = false; void stopHostCapture(); }
     renderChatPanel();
@@ -3169,8 +3180,22 @@ function handleChatMessage(value, event) {
     const last = value.turns[value.turns.length - 1];
     if (last && last.role === "ai") { last.text = message.text || last.text; last.state = "final"; }
     else value.turns = [...value.turns, {role: "ai", text: message.text || "", state: "final"}];
+  } else if (message.type === "turn.complete") {
+    /* 返事の音は生成しながら届くので、turn.complete の時点ではまだ鳴り
+       終わっていない。鳴り終わってから聞き耳に戻さないと、自分の返事を
+       自分で拾って会話が止まらなくなる。 */
+    value.mode = "speaking";
+    const generation = ++value.turnToken;
+    chatPlayQueue = chatPlayQueue.then(() => {
+      if (value.turnToken !== generation || !value.autoResume || !value.connected) {
+        if (value.mode === "speaking") { value.mode = "idle"; renderChatPanel(); }
+        return;
+      }
+      listenForSpeech();
+    });
   } else if (message.type === "turn.error" || message.type === "error") {
     value.error = message.message || t("failed");
+    value.mode = "idle";
   }
   renderChatPanel();
 }
@@ -3205,35 +3230,94 @@ function playChatAudio(blob) {
     .finally(() => URL.revokeObjectURL(url));
 }
 
-async function startChatTalking() {
+/* 会話の往復。押している間だけ話す方式は確実だが、両手が要る。マイクを開いた
+   まま「話し終わり」を音で見つけて自分で区切り、返事を鳴らし終えたら聞き耳に
+   戻る。取り込み自体は会話の間つなぎっぱなしにする。開き直すたびに host へ
+   要求が飛んで数百ミリ秒持っていかれ、往復のたびに間が空くからである。 */
+const VAD_SPEECH_PEAK = 0.06;      // これを超えたら声とみなす
+const VAD_HANGOVER_MS = 900;       // 声が止まってから区切るまで
+const VAD_MIN_SPEECH_MS = 300;     // これ未満は物音として捨てる
+
+function resetChatVad(value) {
+  value.vad = {speechMs: 0, silenceMs: 0, heard: false};
+}
+
+/* 1 フレームぶんの音を見て、話し終わりなら true を返す。 */
+function observeChatFrame(value, samples, peak) {
+  const frameMs = Math.round((samples.length / HOST_CAPTURE_RATE) * 1000);
+  const vad = value.vad;
+  if (peak >= VAD_SPEECH_PEAK) {
+    vad.speechMs += frameMs;
+    vad.silenceMs = 0;
+    if (vad.speechMs >= VAD_MIN_SPEECH_MS) vad.heard = true;
+    return false;
+  }
+  vad.silenceMs += frameMs;
+  return vad.heard && vad.silenceMs >= VAD_HANGOVER_MS;
+}
+
+async function startChatSession() {
   const value = chatState();
-  if (!value.connected || value.talking) return;
-  value.sequence = 0;
-  value.clock = 0;
+  if (value.hostCapture) return true;
   try {
     await startHostCapture((samples, peak) => {
-      if (!value.talking || value.socket?.readyState !== WebSocket.OPEN) return;
       value.level = peak;
+      if (value.mode !== "listening" || value.socket?.readyState !== WebSocket.OPEN) return;
       value.socket.send(encodeAudioFrame(value.sequence, value.clock, samples));
       value.sequence = (value.sequence + 1) >>> 0;
       value.clock = (value.clock + samples.length) >>> 0;
+      if (observeChatFrame(value, samples, peak)) commitChatTurn();
     });
     value.hostCapture = true;
+    return true;
   } catch (error) {
     value.error = error?.message || t("micDenied");
     renderChatPanel();
-    return;
+    return false;
   }
+}
+
+function listenForSpeech() {
+  const value = chatState();
+  if (!value.connected || value.mode === "listening") return;
+  if (value.socket?.readyState !== WebSocket.OPEN) return;
+  value.sequence = 0;
+  value.clock = 0;
+  resetChatVad(value);
+  value.mode = "listening";
   value.socket.send(JSON.stringify({type: "input.start"}));
-  value.talking = true;
   renderChatPanel();
 }
 
-function stopChatTalking() {
+async function beginChatTurn() {
   const value = chatState();
-  if (!value.talking) return;
-  value.talking = false;
-  if (value.hostCapture) { value.hostCapture = false; void stopHostCapture(); }
+  if (!value.connected) return;
+  value.autoResume = true;
+  if (!(await startChatSession())) return;
+  listenForSpeech();
+}
+
+/* もう一度押されたら聞くのをやめる。会話そのものは繋いだままにして、
+   次に押したときすぐ再開できるようにする。 */
+function pauseChat() {
+  const value = chatState();
+  if (value.mode === "listening" && value.socket?.readyState === WebSocket.OPEN) {
+    /* 話しかけた分は捨てずに通す。取りやめではなく、区切りである。 */
+    value.socket.send(JSON.stringify({type: "input.commit"}));
+    value.mode = "thinking";
+  } else {
+    value.mode = "idle";
+  }
+  value.autoResume = false;
+  renderChatPanel();
+}
+
+/* 話し終わりを見つけたら、そこで区切って聞くのをやめる。返事の音を自分の
+   マイクが拾って会話が自分に反応し続けるのを防ぐ。 */
+function commitChatTurn() {
+  const value = chatState();
+  if (value.mode !== "listening") return;
+  value.mode = "thinking";
   if (value.socket?.readyState === WebSocket.OPEN) {
     value.socket.send(JSON.stringify({type: "input.commit"}));
   }
@@ -3242,7 +3326,9 @@ function stopChatTalking() {
 
 function stopChat() {
   const value = chatState();
-  stopChatTalking();
+  value.mode = "idle";
+  value.autoResume = false;
+  if (value.hostCapture) { value.hostCapture = false; void stopHostCapture(); }
   try { value.socket?.send(JSON.stringify({type: "close"})); } catch { /* すでに閉じている */ }
   try { value.socket?.close(); } catch { /* すでに閉じている */ }
   value.connected = false;
@@ -3263,7 +3349,7 @@ function renderChatPanel() {
   heading.textContent = t("chatTitle");
   const hint = document.createElement("p");
   hint.className = "hint";
-  hint.textContent = t("chatHint");
+  hint.textContent = value.connected ? t("chatTurnHint") : t("chatHint");
   card.append(heading, hint);
 
   if (!value.connected) {
@@ -3301,15 +3387,19 @@ function renderChatPanel() {
   card.append(action);
 
   if (value.connected) {
-    /* 押している間だけ話す。声が途切れた瞬間を機械に当てさせるより、
-       利用者が離した時点で区切るほうが確実に早い。 */
+    /* 一度押せば、あとは話し終わりを見つけて自分で区切り、返事を鳴らし終えたら
+       また聞き耳に戻る。もう一度押すと会話ごと止める。 */
     const talk = document.createElement("button");
     talk.type = "button";
     talk.id = "chat-talk";
-    talk.className = value.talking ? "cta-secondary recording" : "cta-secondary";
-    talk.textContent = value.talking ? t("chatTalking") : `\u{1F3A4} ${t("chatTalk")}`;
-    talk.onpointerdown = () => void startChatTalking();
-    for (const name of ["onpointerup", "onpointercancel", "onpointerleave"]) talk[name] = stopChatTalking;
+    talk.className = value.mode === "listening" ? "cta-secondary recording" : "cta-secondary";
+    talk.textContent = value.mode === "listening" ? t("chatTalking")
+      : value.mode === "thinking" ? t("chatThinking")
+      : value.mode === "speaking" ? t("chatSpeaking")
+      : `\u{1F3A4} ${t("chatTalk")}`;
+    talk.onclick = () => {
+      if (value.mode === "idle") void beginChatTurn(); else pauseChat();
+    };
     card.append(talk);
   }
 
@@ -3508,16 +3598,9 @@ function renderMeetingPanel() {
   action.textContent = value.recording ? t("meetingStop") : t("meetingStart");
   action.onclick = () => (value.recording ? stopMeeting() : startMeeting());
   card.append(action);
-  panel.append(card);
 
-  if (value.pendingMinutes && !value.summary) {
-    const pending = document.createElement("p");
-    pending.className = "notice";
-    pending.setAttribute("role", "status");
-    pending.textContent = t("meetingMinutesPending");
-    panel.append(pending);
-  }
-
+  /* 読むのは書き起こしである。会議名や区切りの長さは始める前に一度触るだけ
+     なので、話し始めたら文字が先に来るように並べ替える。 */
   if (value.segments.length || value.summary) {
     const live = document.createElement("div");
     live.className = "panel";
@@ -3541,6 +3624,16 @@ function renderMeetingPanel() {
     }
     panel.append(live);
   }
+
+  if (value.pendingMinutes && !value.summary) {
+    const pending = document.createElement("p");
+    pending.className = "notice";
+    pending.setAttribute("role", "status");
+    pending.textContent = t("meetingMinutesPending");
+    panel.append(pending);
+  }
+
+  panel.append(card);
 
   const past = document.createElement("div");
   past.className = "panel";

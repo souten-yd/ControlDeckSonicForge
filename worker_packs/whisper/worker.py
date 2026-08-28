@@ -10,6 +10,7 @@ from pathlib import Path
 from worker_packs.whisper.audio_segments import (
     looks_like_silence_caption,
     merge_transcripts,
+    speech_dynamics,
     speech_level,
     split_on_long_silence,
 )
@@ -91,10 +92,13 @@ def handle(payload: dict) -> None:
 
     # 誰も話していない録音を渡されたとき、whisper は黙らず作り話をする。
     # 先に音の大きさを見て、話し声が無いなら model を呼ばずに空で返す。
-    # 声は山が高く谷が深い。暗騒音は平らなまま小さい。どちらか一方ではなく、
-    # 「一度も大きくならない」か「全体が極端に小さい」ときを話し声なしとみなす。
+    # 絶対的な大きさだけでは足りない。実機のマイクは自動利得で自分の暗騒音を
+    # 持ち上げるので、静かな部屋のほうが丁寧に録った声より大きく測れてしまう。
+    # 分けるのは形である。声は音節なので鳴っては止まり、フレームごとの大きさが
+    # 大きく振れる。暗騒音や送風の音は平らなまま続く。
     rms, peak = speech_level(audio_path)
-    if peak < 0.02 or rms < 0.002:
+    dynamics = speech_dynamics(audio_path)
+    if peak < 0.02 or rms < 0.002 or dynamics < 3.0:
         _emit(
             {
                 "type": "result",
@@ -108,6 +112,7 @@ def handle(payload: dict) -> None:
                     "segments": [],
                     "silent": True,
                     "level_rms": round(rms, 5),
+                    "level_dynamics": round(dynamics, 2),
                     "warm_model_cache": False,
                 },
             }

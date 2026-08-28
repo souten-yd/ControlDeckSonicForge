@@ -71,6 +71,35 @@ def test_silence_and_room_tone_are_not_transcribed(tmp_path):
     assert not (peak < 0.02 or rms < 0.002), (rms, peak)
 
 
+def test_steady_noise_is_told_apart_from_speech_by_its_shape(tmp_path):
+    """実機のマイクは自動利得で暗騒音を持ち上げる。大きさだけでは分けられない。
+
+    静かな部屋のほうが、丁寧に録った声より大きく測れることがある。分けるのは
+    形で、声は音節なので鳴っては止まり、雑音や送風の音は平らなまま続く。
+    """
+    import math, random
+    from worker_packs.whisper.audio_segments import speech_dynamics
+
+    random.seed(11)
+    # 実機の暗騒音くらいに大きい雑音。絶対値の門は通ってしまう。
+    loud_noise = _wav(tmp_path / "noise.wav", [random.uniform(-1600, 1600) for _ in range(32000)])
+    assert speech_dynamics(loud_noise) < 3.0
+
+    hum = _wav(
+        tmp_path / "hum.wav",
+        [5000 * math.sin(2 * math.pi * 120 * i / 16000) for i in range(32000)],
+    )
+    assert speech_dynamics(hum) < 3.0
+
+    # 鳴っては止まる、という形だけが声を分ける。
+    speech = []
+    for block in range(20):
+        loud = block % 2 == 0
+        for i in range(1600):
+            speech.append((9000 if loud else 40) * math.sin(2 * math.pi * 220 * i / 16000))
+    assert speech_dynamics(_wav(tmp_path / "speech.wav", speech)) >= 3.0
+
+
 def test_known_silence_captions_are_recognised():
     from worker_packs.whisper.audio_segments import looks_like_silence_caption
 

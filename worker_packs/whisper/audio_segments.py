@@ -95,3 +95,63 @@ def merge_transcripts(results: list[tuple[dict, float]]) -> dict:
                 }
             )
     return {"text": " ".join(texts), "chunks": chunks}
+
+
+def speech_level(source: Path) -> tuple[float, float]:
+    """Return (rms, peak) of a 16-bit WAV as fractions of full scale.
+
+    Whisper is trained to always produce text. Handed silence or room tone it
+    invents a caption - "Thank you." and "ご視聴ありがとうございました。" are
+    the ones it reaches for most, because they end so many of its training
+    clips. No decoding threshold catches that reliably, but the level of the
+    audio does: nobody spoke, so there is nothing to transcribe.
+    """
+    try:
+        with wave.open(str(source), "rb") as stream:
+            if stream.getsampwidth() != 2 or stream.getcomptype() != "NONE":
+                return (1.0, 1.0)
+            channels = max(1, stream.getnchannels())
+            raw = stream.readframes(stream.getnframes())
+    except (OSError, EOFError, wave.Error):
+        return (1.0, 1.0)
+
+    samples = array("h")
+    samples.frombytes(raw[: len(raw) - (len(raw) % (2 * channels))])
+    if struct.pack("=H", 1) != struct.pack("<H", 1):
+        samples.byteswap()
+    if not samples:
+        return (0.0, 0.0)
+
+    total = 0
+    peak = 0
+    for value in samples:
+        total += value * value
+        if abs(value) > peak:
+            peak = abs(value)
+    rms = (total / len(samples)) ** 0.5
+    return (rms / 32768.0, peak / 32768.0)
+
+
+# 無音でwhisperが出しがちな決まり文句。実際に話していれば普通に通したいので、
+# これらは音が十分に小さいときだけ捨てる。
+HALLUCINATION_PHRASES = frozenset(
+    {
+        "thank you",
+        "thank you.",
+        "thanks for watching",
+        "thanks for watching!",
+        "thank you for watching",
+        "you",
+        "ご視聴ありがとうございました",
+        "ご視聴ありがとうございました。",
+        "ご清聴ありがとうございました",
+        "ご清聴ありがとうございました。",
+        "おやすみなさい",
+        "本日はご覧いただきありがとうございます",
+    }
+)
+
+
+def looks_like_silence_caption(text: str) -> bool:
+    stripped = text.strip().strip("♪♬〜~").strip()
+    return not stripped or stripped.lower() in HALLUCINATION_PHRASES

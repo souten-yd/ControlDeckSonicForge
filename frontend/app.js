@@ -2767,6 +2767,25 @@ byId("confirm-ok").addEventListener("click", async () => {
 
 /* ── パイプライン ─────────────────────────────────────────────────────── */
 
+/* 段が受け取れる型。サーバの _STAGE_TYPES と同じ並びで、UI 側が先に
+   気付けるようにしておく。ずれたときはサーバが最終的に弾く。 */
+const STAGE_INPUT_TYPE = {
+  "speech.asr": "audio",
+  "host.ai.text": "text",
+  "speech.tts": "text",
+  "audio.sfx": "text",
+  "music.generate": "text",
+  "audio.process": "audio",
+};
+
+/* 文章を渡したのに先頭が文字起こしだと、型が合わずに実行できない。会話は
+   話しても打ってもできるべきなので、要らない段は黙って飛ばす。 */
+function autoStartIndex(value) {
+  const wanted = value.inputKind === "text" ? "text" : "audio";
+  const index = value.stages.findIndex((stage) => STAGE_INPUT_TYPE[stage.kind] === wanted);
+  return index < 0 ? 0 : index;
+}
+
 function defaultPipeline() {
   const preset = PIPELINE_PRESETS[0];
   return {
@@ -2827,7 +2846,7 @@ function renderPipeline() {
 
   const flow = byId("pipeline-flow");
   const ids = value.stages.map((stage) => stage.id);
-  const startIndex = Math.max(0, ids.indexOf(value.startAt));
+  const startIndex = value.startAt ? Math.max(0, ids.indexOf(value.startAt)) : autoStartIndex(value);
   const stopIndex = value.stopAfter ? ids.indexOf(value.stopAfter) : value.stages.length - 1;
   flow.replaceChildren(...value.stages.flatMap((stage, index) => {
     const step = document.createElement("span");
@@ -2965,7 +2984,8 @@ function pipelineBody() {
     }),
     delivery: {mode: value.delivery, profile: "default"},
   };
-  if (value.startAt) body.start_at = value.startAt;
+  const start = value.startAt || value.stages[autoStartIndex(value)]?.id;
+  if (start && start !== value.stages[0]?.id) body.start_at = start;
   if (value.stopAfter) body.stop_after = value.stopAfter;
   if (value.filename.trim()) body.delivery.filename = value.filename.trim();
   if (value.delivery === "project") body.delivery.project_output_grant = value.projectGrant || null;

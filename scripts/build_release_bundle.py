@@ -61,6 +61,8 @@ def _feature_manifest(version: str) -> dict[str, object]:
     }
 
 
+# starlette は python_multipart を try 付きの遅延 import で読む。静的解析が拾い損ねると、
+# 音声の取り込みだけが frozen build で 400 になる。明示的に取り込んでおく。
 def main() -> int:
     parser = argparse.ArgumentParser(); parser.add_argument("--version", required=True); parser.add_argument("--output-dir", type=Path, required=True); parser.add_argument("--pyinstaller", type=Path); args = parser.parse_args()
     if platform.system() != "Linux" or platform.machine().lower() not in {"x86_64", "amd64"}: raise SystemExit("only linux-x86_64 release bundles are currently supported")
@@ -72,7 +74,7 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True); name = f"control-deck-sonic-forge-{args.version}-linux-x86_64"
     with tempfile.TemporaryDirectory(prefix="sonicforge-bundle-") as temporary:
         work = Path(temporary); dist = work / "dist"; pyinstaller_argv = _pyinstaller_argv(args.pyinstaller)
-        command = [*pyinstaller_argv, "--noconfirm", "--clean", "--onefile", "--name", "sonicforge-core", "--paths", str(ROOT / "backend"), "--collect-submodules", "sonicforge", "--distpath", str(dist), "--workpath", str(work / "build"), "--specpath", str(work), "--add-data", f"{ROOT / 'frontend'}:frontend", "--add-data", f"{ROOT / 'schemas'}:schemas", "--add-data", f"{ROOT / 'worker_packs'}:worker_packs", "--add-data", f"{ROOT / 'runtimes'}:runtimes", str(ROOT / "scripts/bundle_entrypoint.py")]
+        command = [*pyinstaller_argv, "--noconfirm", "--clean", "--onefile", "--name", "sonicforge-core", "--paths", str(ROOT / "backend"), "--collect-submodules", "sonicforge", "--collect-submodules", "python_multipart", "--distpath", str(dist), "--workpath", str(work / "build"), "--specpath", str(work), "--add-data", f"{ROOT / 'frontend'}:frontend", "--add-data", f"{ROOT / 'schemas'}:schemas", "--add-data", f"{ROOT / 'worker_packs'}:worker_packs", "--add-data", f"{ROOT / 'runtimes'}:runtimes", str(ROOT / "scripts/bundle_entrypoint.py")]
         subprocess.run(command, check=True, cwd=ROOT)
         bundle = work / name; _copy(dist / "sonicforge-core", bundle / "bin/sonicforge-core", 0o755)
         (bundle / "control-deck-addon.json").write_text(json.dumps(addon, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

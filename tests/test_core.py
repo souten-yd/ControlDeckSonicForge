@@ -62,7 +62,9 @@ def test_switching_mode_redraws_the_task_choices(env):
         assert 'renderTaskChoices()' in set_mode
         choices=app_js[app_js.index('function taskChoices('):app_js.index('function taskLabel(')]
         assert 'ADVANCED_TASKS' in choices
-        assert 'const ADVANCED_TASKS = new Set(["localization", "meeting"])' in app_js
+        # 会議はシンプルからも使える。詳細だけに閉じ込めない。
+        advanced=app_js[app_js.index('const ADVANCED_TASKS'):app_js.index('\n', app_js.index('const ADVANCED_TASKS'))]
+        assert '"meeting"' not in advanced and '"localization"' in advanced
 
 def test_advanced_surfaces_every_public_capability(env):
     """詳細モードから到達できる先が、公開APIの機能を取りこぼしていないこと。"""

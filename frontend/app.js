@@ -264,7 +264,7 @@ const I18N = {
     meetingPast: "これまでの会議",
     meetingNoPast: "まだ記録がありません。",
     meetingTranscript: "全文を開く",
-    meetingMicDenied: "マイクを使えませんでした。ControlDeck側でマイクの利用を許可してください。",
+    meetingMicDenied: "マイクを使えませんでした。ブラウザでマイクの利用を許可してください。",
     meetingMicUnsupported: "このブラウザではマイクからの録音に対応していません。",
     meetingSummary: "要約",
 
@@ -291,7 +291,8 @@ const I18N = {
     audioReady: "取り込みました",
     removeAudio: "取り消す",
     recordUnsupported: "このブラウザでは録音できません。ファイルを選んでください。",
-    micDenied: "マイクを使えませんでした。ブラウザとControlDeckでマイクの利用を許可してください。",
+    micDenied: "マイクを使えませんでした。ブラウザでマイクの利用を許可してください。",
+    micBlockedInFrame: "ControlDeckの中ではマイクを開けません。「ファイルを選ぶ」で音声を渡すか、SonicForgeを直接開いてください。",
     speakerLabel: "組み込みの話者",
     speakerAuto: "言語にあわせる",
     voiceNoteBuiltIn: "保存したボイスを選ぶと、その声で読み上げます。クローンやデザインした声もここに並びます。",
@@ -578,7 +579,7 @@ const I18N = {
     meetingPast: "Past meetings",
     meetingNoPast: "No recordings yet.",
     meetingTranscript: "Open full transcript",
-    meetingMicDenied: "The microphone is not available. Allow microphone access for SonicForge in ControlDeck.",
+    meetingMicDenied: "The microphone is not available. Allow microphone access in the browser.",
     meetingMicUnsupported: "This browser cannot record from the microphone.",
     meetingSummary: "Summary",
 
@@ -605,7 +606,8 @@ const I18N = {
     audioReady: "Ready",
     removeAudio: "Remove",
     recordUnsupported: "This browser cannot record. Choose a file instead.",
-    micDenied: "The microphone is not available. Allow microphone access in the browser and in ControlDeck.",
+    micDenied: "The microphone is not available. Allow microphone access in the browser.",
+    micBlockedInFrame: "The microphone cannot be opened inside ControlDeck. Use \"Choose a file\", or open SonicForge directly.",
     speakerLabel: "Built-in speaker",
     speakerAuto: "Match the language",
     voiceNoteBuiltIn: "Pick a saved voice to read with it. Cloned and designed voices appear here too.",
@@ -635,7 +637,7 @@ const I18N = {
 };
 
 const TASKS = ["speech", "transcribe", "sfx", "music", "localization", "meeting"];
-const ADVANCED_TASKS = new Set(["localization", "meeting"]);
+const ADVANCED_TASKS = new Set(["localization"]);
 const VIEWS = ["studio", "library", "activity", "pipeline", "settings"];
 const ACTIVE_STATES = new Set(["queued", "running"]);
 
@@ -787,6 +789,16 @@ const app = () => byId("app");
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (c) =>
     ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"}[c]));
+}
+
+/* サーバの失敗は機械向けのコードで来ることがある（terms_required:<id> など）。
+   そのまま出すと利用者には読めないので、分かる分だけ言葉に置き換える。 */
+function jobFailureText(job) {
+  const raw = String(job.error_message || "").trim();
+  if (!raw) return t("failed");
+  if (raw.startsWith("terms_required")) return t("termsRequired");
+  if (job.error_code === "worker_failed" && !likelyJapanese(raw) && !/\s/.test(raw)) return t("failed");
+  return raw;
 }
 
 function errorText(error) {
@@ -1444,6 +1456,13 @@ async function acceptAudioFile(slot, file, {rerender, onUploaded}) {
   }
 }
 
+/* 埋め込み枠は不透明 origin で動く。ブラウザはそこに getUserMedia を許さず、
+   allow="microphone" を足しても SecurityError のままなので、許可を促しても直らない。
+   利用者に打つ手がある場合とない場合を、文言で分ける。 */
+function micErrorText(error) {
+  return error?.name === "SecurityError" ? t("micBlockedInFrame") : t("micDenied");
+}
+
 async function startRecording(slot, handlers) {
   slot.error = "";
   slot.note = "";
@@ -1455,8 +1474,8 @@ async function startRecording(slot, handlers) {
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({audio: true});
-  } catch {
-    slot.error = t("micDenied");
+  } catch (error) {
+    slot.error = micErrorText(error);
     handlers.rerender();
     return;
   }
@@ -1691,7 +1710,7 @@ function renderJobStage(job) {
   }
   if (job.state !== "succeeded") {
     result.hidden = true;
-    showError("studio-error", job.error_message || t("failed"));
+    showError("studio-error", jobFailureText(job));
     return;
   }
   showError("studio-error", "");
@@ -3078,8 +3097,8 @@ async function startMeeting() {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true},
     });
-  } catch {
-    value.error = t("meetingMicDenied");
+  } catch (error) {
+    value.error = error?.name === "SecurityError" ? t("micBlockedInFrame") : t("meetingMicDenied");
     renderMeetingPanel();
     return;
   }

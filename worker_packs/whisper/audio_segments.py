@@ -97,6 +97,50 @@ def merge_transcripts(results: list[tuple[dict, float]]) -> dict:
     return {"text": " ".join(texts), "chunks": chunks}
 
 
+def speech_dynamics(source: Path, *, window_ms: int = 20) -> float:
+    """How much the loudness moves across the clip, as a p90/p10 ratio.
+
+    Absolute level alone cannot tell a quiet room from a quiet voice: a phone
+    with automatic gain lifts its own noise floor until it measures louder than
+    real speech recorded politely. What separates them is shape. Speech is
+    syllables - it starts, stops, and pauses, so its frame energies span a wide
+    range. Room tone, fan noise and hum sit flat. A clip whose loud frames are
+    barely louder than its quiet ones has nobody speaking in it.
+    """
+    try:
+        with wave.open(str(source), "rb") as stream:
+            if stream.getsampwidth() != 2 or stream.getcomptype() != "NONE":
+                return 99.0
+            channels = max(1, stream.getnchannels())
+            rate = stream.getframerate()
+            raw = stream.readframes(stream.getnframes())
+    except (OSError, EOFError, wave.Error):
+        return 99.0
+    if rate <= 0:
+        return 99.0
+
+    samples = array("h")
+    samples.frombytes(raw[: len(raw) - (len(raw) % (2 * channels))])
+    if struct.pack("=H", 1) != struct.pack("<H", 1):
+        samples.byteswap()
+    step = max(1, round(rate * window_ms / 1000)) * channels
+    frames: list[float] = []
+    for start in range(0, len(samples) - step + 1, step):
+        total = 0
+        for index in range(start, start + step):
+            value = samples[index]
+            total += value * value
+        frames.append((total / step) ** 0.5)
+    if len(frames) < 10:
+        return 99.0
+
+    frames.sort()
+    low = frames[len(frames) // 10]
+    high = frames[(len(frames) * 9) // 10]
+    # 完全な無音の谷で割り切れなくなるので、量子化の 1 段ぶんを下限にする。
+    return high / max(low, 1.0)
+
+
 def speech_level(source: Path) -> tuple[float, float]:
     """Return (rms, peak) of a 16-bit WAV as fractions of full scale.
 

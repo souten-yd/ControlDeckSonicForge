@@ -331,10 +331,14 @@ main { flex: 1; min-height: 0; padding: 16px; }
 /* ローカライズと会議は表と長い一覧が主役なので、2 段組みをやめて幅を全部使う。
    作る系の 4 つと同じ枠に押し込むと、表が枠の外へ出る。 */
 #localization-panel, #meeting-panel { grid-column: 1 / -1; display: grid; gap: 14px; }
+/* 自分の画面を持つ作るものでは、生成用のフォームと結果欄を出さない。
+   会話の最中に「作る」や「最近作ったもの」が並ぶと、何の画面か分からなくなる。 */
 #app[data-task="localization"] #studio-form,
 #app[data-task="localization"] #stage,
 #app[data-task="meeting"] #studio-form,
-#app[data-task="meeting"] #stage { display: none; }
+#app[data-task="meeting"] #stage,
+#app[data-task="chat"] #studio-form,
+#app[data-task="chat"] #stage { display: none; }
 
 .panel, #stage > div, .row, .info {
   background: var(--surface);

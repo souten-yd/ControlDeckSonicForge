@@ -221,6 +221,39 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
   and an accented one is a worse trade than a native male one.
 - The settings button sits at the right edge while the task and mode controls stay left.
 
+## v0.5.1 noise is told from speech by its shape, not its level
+
+- The silence gate still let "Thank you" through on a real phone. Level alone cannot
+  decide it: automatic gain lifts a device's own noise floor until a quiet room measures
+  louder than a politely recorded voice, so the v0.4.1 thresholds (`peak < 0.02`,
+  `rms < 0.002`) were cleared comfortably by ordinary room tone off a handset.
+- What separates them is shape. Speech is syllables — it starts, stops and pauses, so its
+  frame energies span a wide range; room tone, fan noise and hum sit flat. Measured as the
+  p90/p10 ratio of 20 ms frame loudness, the two do not overlap at all:
+
+  | source | peak | p90/p10 | verdict |
+  | --- | --- | --- | --- |
+  | digital silence | 0.000 | 0.00 | no speech |
+  | room tone | 0.003 | 1.07 | no speech |
+  | loud noise (handset-like) | 0.050 | 1.07 | no speech |
+  | 120 Hz hum | 0.019 | 1.04 | no speech |
+  | real Japanese speech | 0.291 | **663.97** | speech |
+
+  The threshold is 3.0, so there is more than two orders of magnitude of headroom.
+  Confirmed against the real model: loud noise and hum return nothing, and the Japanese
+  sentence still transcribes.
+- The meeting read in the wrong order. The name and segment length are touched once before
+  starting, so putting them above the transcript meant scrolling past them to read what was
+  just said. The transcript now leads.
+- Conversation turn-taking: one press starts listening, the end of speech is found in the
+  audio and commits the turn, and the session listens again once the reply has **finished
+  playing** — not when it is generated, or it would hear itself. Pressing again stops. The
+  microphone stays open across turns because reopening it costs a host round trip every
+  exchange.
+- The 会話 task was still showing the generation form, so a conversation came with a 作る
+  button, an empty-prompt error and a list of recent generations. Tasks that own their
+  screen now hide it, as ローカライズ and 会議 already did.
+
 ## Live mobile registry reachability repair
 
 - The live Host still stored the pre-release managed Add-on manifest with `workspace.mobile: companion`, even though repository and public v0.1.0 manifests declare `embedded`. The effective API therefore returned `companion`; authenticated Chrome 320x720 reached `More -> Audio` but rendered the status-only companion with zero workspace iframes.

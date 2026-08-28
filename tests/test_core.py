@@ -189,6 +189,32 @@ def test_meeting_shows_a_segment_before_it_is_finished(env):
         assert 'source_text: message.source_text ??' in handler
         assert 'translated_text: message.translated_text ??' in handler
 
+def test_tasks_with_their_own_screen_hide_the_generation_form(env):
+    """会話・会議・ローカライズでは、生成用のフォームと結果欄を出さないこと。
+
+    会話の最中に「作る」や「最近作ったもの」やプロンプト未入力のエラーが
+    並ぶと、いま何の画面なのか読めなくなる。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        styles=c.get('/styles.css').text
+        for task in ("localization", "meeting", "chat"):
+            assert f'#app[data-task="{task}"] #studio-form' in styles, task
+            assert f'#app[data-task="{task}"] #stage' in styles, task
+
+def test_meeting_puts_the_transcript_above_the_controls(env):
+    """話し始めたら、読むもの（書き起こし）が先に来ること。
+
+    会議名や区切りの長さは始める前に一度触るだけなので、その下に文字が
+    流れると、読むために毎回スクロールすることになる。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        app_js=c.get('/app.js').text
+        body=app_js[app_js.index('function renderMeetingPanel('):]
+        body=body[:body.index('function renderSegment(')]
+        assert body.index('panel.append(live)') < body.index('panel.append(card)')
+
 def test_advanced_surfaces_every_public_capability(env):
     """詳細モードから到達できる先が、公開APIの機能を取りこぼしていないこと。"""
     m=load_app()

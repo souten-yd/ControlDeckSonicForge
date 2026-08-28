@@ -166,6 +166,8 @@ const I18N = {
     profileCpu: "CPUだけで動く構成",
     termsStability: "Stability AI Community Licenseを確認し、同意しました",
     termsRequired: "先にライセンスへの同意が必要です。",
+    displayLanguage: "表示言語",
+    displayLanguageHint: "ControlDeckの言語にあわせています。ここで変えるとこの画面だけに効きます。",
     backend: "演算バックエンド",
     freeSpace: "空き容量",
     requiredSpace: "必要な容量の見込み",
@@ -231,6 +233,7 @@ const I18N = {
     presetTranscribe: "文字起こしだけ",
     presetSpeak: "読み上げだけ",
     presetRewrite: "文字起こし → 要約",
+    presetChat: "音声チャット（話す → AIの返事 → 読み上げ）",
     pipelineValid: "この組み合わせで実行できます",
     pipelineOutputText: "受け取るのは文字です",
     pipelineOutputAudio: "受け取るのは音声です",
@@ -481,6 +484,8 @@ const I18N = {
     profileCpu: "CPU-only setup",
     termsStability: "I reviewed and accept the Stability AI Community License",
     termsRequired: "Accept the license first.",
+    displayLanguage: "Display language",
+    displayLanguageHint: "Follows ControlDeck. Changing it here affects this screen only.",
     backend: "Compute backend",
     freeSpace: "Free space",
     requiredSpace: "Estimated space needed",
@@ -546,6 +551,7 @@ const I18N = {
     presetTranscribe: "Transcribe only",
     presetSpeak: "Speak only",
     presetRewrite: "Transcribe → summarize",
+    presetChat: "Voice chat (speak → AI reply → speak)",
     pipelineValid: "This chain can run",
     pipelineOutputText: "You receive text",
     pipelineOutputAudio: "You receive audio",
@@ -739,6 +745,15 @@ const PIPELINE_PRESETS = [
    stages: [{id: "tts", kind: "speech.tts"}]},
   {id: "summary", label: "presetRewrite", input: "audio_upload", delivery: "text",
    stages: [{id: "asr", kind: "speech.asr"}, {id: "summarize", kind: "host.ai.text"}]},
+  /* 音声チャット。話しかけて、返事を声で受け取る 1 往復。指示を空にしないのは、
+     既定のままでも会話として成り立つようにするため。 */
+  {id: "chat", label: "presetChat", input: "audio_upload", delivery: "asset",
+   stages: [
+     {id: "asr", kind: "speech.asr"},
+     {id: "reply", kind: "host.ai.text",
+      instruction: "あなたは話し相手です。相手の話し言葉に、話し言葉で短く答えてください。読み上げるので、箇条書きや記号は使わず、2〜3文にまとめてください。"},
+     {id: "tts", kind: "speech.tts"},
+   ]},
 ];
 
 /* ── 状態 ─────────────────────────────────────────────────────────────── */
@@ -905,6 +920,7 @@ window.addEventListener("message", (event) => {
       state.locale = value.data.locale;
       applyLocale();
     }
+    if (value.event === "audio.frame") receiveHostAudioFrame(value.data);
     if (value.event === "theme.changed") applyTheme(value.data || {});
     if (value.event === "safe_area.changed") applySafeArea(value.data || {});
     if (value.event === "session.updated" && typeof value.data?.session_nonce === "string") {
@@ -1394,7 +1410,7 @@ function renderAudioInput(container, slot, {rerender, onUploaded}) {
   record.className = slot.recording ? "cta-secondary recording" : "cta-secondary";
   record.textContent = slot.recording ? t("recordStop") : `\u{1F3A4} ${t("recordStart")}`;
   record.disabled = slot.busy || !isRecordingSupported();
-  record.onclick = () => (slot.recording ? stopRecording(slot, rerender) : startRecording(slot, {rerender, onUploaded}));
+  record.onclick = () => (slot.recording ? stopRecording(slot, {rerender, onUploaded}) : startRecording(slot, {rerender, onUploaded}));
 
   const choose = document.createElement("label");
   choose.className = "dropzone";
@@ -1458,7 +1474,60 @@ async function acceptAudioFile(slot, file, {rerender, onUploaded}) {
 
 /* 埋め込み枠は不透明 origin で動く。ブラウザはそこに getUserMedia を許さず、
    allow="microphone" を足しても SecurityError のままなので、許可を促しても直らない。
-   利用者に打つ手がある場合とない場合を、文言で分ける。 */
+   そこでは host がマイクを開き、PCM だけを bridge の event で送ってくる。 */
+const HOST_CAPTURE_RATE = 16000;
+const hostCapture = {recordingId: "", sink: null};
+
+function hostCaptureAvailable() { return Boolean(state.bridgePort); }
+
+function decodePcmFrame(encoded) {
+  const binary = atob(String(encoded || ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Int16Array(bytes.buffer, 0, bytes.byteLength >> 1);
+}
+
+function receiveHostAudioFrame(data) {
+  if (!hostCapture.sink || !data || data.recording_id !== hostCapture.recordingId) return;
+  hostCapture.sink(decodePcmFrame(data.pcm), Number(data.peak) || 0);
+}
+
+async function startHostCapture(sink) {
+  if (hostCapture.recordingId) throw new Error("already recording");
+  const started = await callHost("host.audio.record.start", {});
+  hostCapture.recordingId = String(started.recording_id || "");
+  hostCapture.sink = sink;
+  return started;
+}
+
+async function stopHostCapture() {
+  const id = hostCapture.recordingId;
+  hostCapture.recordingId = "";
+  hostCapture.sink = null;
+  if (!id) return null;
+  return await callHost("host.audio.record.stop", {recording_id: id}).catch(() => null);
+}
+
+/* 集めた PCM をそのまま WAV にする。ワーカーは素の波形しか読まないので、
+   容器を挟まないこの形が一番取り違えが少ない。 */
+function pcmToWav(chunks, rate) {
+  let total = 0;
+  for (const chunk of chunks) total += chunk.length;
+  const buffer = new ArrayBuffer(44 + total * 2);
+  const view = new DataView(buffer);
+  const ascii = (offset, text) => { for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i)); };
+  ascii(0, "RIFF"); view.setUint32(4, 36 + total * 2, true); ascii(8, "WAVE");
+  ascii(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  ascii(36, "data"); view.setUint32(40, total * 2, true);
+  let offset = 44;
+  for (const chunk of chunks) {
+    for (let index = 0; index < chunk.length; index += 1) { view.setInt16(offset, chunk[index], true); offset += 2; }
+  }
+  return new Blob([buffer], {type: "audio/wav"});
+}
+
 function micErrorText(error) {
   return error?.name === "SecurityError" ? t("micBlockedInFrame") : t("micDenied");
 }
@@ -1466,6 +1535,9 @@ function micErrorText(error) {
 async function startRecording(slot, handlers) {
   slot.error = "";
   slot.note = "";
+  /* ControlDeck の中ではマイクを開けないので、host に開いてもらって
+     PCM を受け取る。単体で開いているときは今までどおり自分で録る。 */
+  if (hostCaptureAvailable()) return startHostRecording(slot, handlers);
   if (!isRecordingSupported()) {
     slot.error = t("recordUnsupported");
     handlers.rerender();
@@ -1499,10 +1571,36 @@ async function startRecording(slot, handlers) {
   handlers.rerender();
 }
 
-function stopRecording(slot, rerender) {
+async function startHostRecording(slot, handlers) {
+  const chunks = [];
+  try {
+    await startHostCapture((frame) => chunks.push(frame));
+  } catch (error) {
+    slot.error = error?.message || t("micDenied");
+    handlers.rerender();
+    return;
+  }
+  slot.recording = true;
+  slot.hostChunks = chunks;
+  handlers.rerender();
+}
+
+function stopRecording(slot, handlers) {
+  if (slot.hostChunks) {
+    const chunks = slot.hostChunks;
+    slot.hostChunks = null;
+    slot.recording = false;
+    handlers.rerender();
+    void stopHostCapture().then(() => {
+      const blob = pcmToWav(chunks, HOST_CAPTURE_RATE);
+      if (blob.size <= 44) { handlers.rerender(); return; }
+      return acceptAudioFile(slot, new File([blob], "recording.wav", {type: "audio/wav"}), handlers);
+    });
+    return;
+  }
   try { slot.recorder?.stop(); } catch { /* すでに止まっている */ }
   slot.recording = false;
-  rerender();
+  handlers.rerender();
 }
 
 async function pickProjectOutput() {
@@ -2047,7 +2145,22 @@ function stateLabel(value) {
   }[value] || value;
 }
 
+function setLocale(locale) {
+  state.locale = locale === "en" ? "en" : "ja";
+  state.localeFromHost = false;
+  remember("locale", state.locale);
+  applyLocale();
+}
+
 function renderSettings() {
+  /* 表示言語は、狭い画面ではヘッダに置けない。設定に「表示言語」として
+     並べておけば、地球のアイコンより何であるかが分かる。 */
+  renderChips(
+    byId("locale-chips"),
+    [{id: "ja", text: "日本語"}, {id: "en", text: "English"}],
+    state.locale,
+    setLocale,
+  );
   const rows = byId("setup-rows");
   if (!rows) return;
   rows.replaceChildren(...SETUP_COMPONENTS.map((component) => {
@@ -2557,7 +2670,7 @@ function defaultPipeline() {
   return {
     preset: preset.id,
     inputKind: preset.input,
-    stages: preset.stages.map((stage) => ({...stage, language: "auto", quality: "balanced", voice_id: ""})),
+    stages: preset.stages.map((stage) => ({language: "auto", quality: "balanced", voice_id: "", instruction: "", ...stage})),
     startAt: "",
     stopAfter: "",
     delivery: preset.delivery,
@@ -2580,7 +2693,7 @@ function renderPipeline() {
       ...defaultPipeline(),
       preset: preset.id,
       inputKind: preset.input,
-      stages: preset.stages.map((stage) => ({...stage, language: "auto", quality: "balanced", voice_id: ""})),
+      stages: preset.stages.map((stage) => ({language: "auto", quality: "balanced", voice_id: "", instruction: "", ...stage})),
       delivery: preset.delivery,
       audio: value.audio,
       assetId: value.assetId,
@@ -2744,7 +2857,8 @@ function pipelineBody() {
         parameters: {},
       };
       if (stage.kind === "speech.tts" && stage.voice_id) item.voice_id = stage.voice_id;
-      if (stage.kind === "host.ai.text" && stage.instruction) item.parameters.instruction = stage.instruction;
+      /* runtime は system_prompt を読む。instruction のままだと指示が捨てられる。 */
+      if (stage.kind === "host.ai.text" && stage.instruction) item.parameters.system_prompt = stage.instruction;
       return item;
     }),
     delivery: {mode: value.delivery, profile: "default"},
@@ -3087,20 +3201,24 @@ async function startMeeting() {
   value.error = "";
   value.segments = [];
   value.summary = "";
-  if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext) {
-    value.error = t("meetingMicUnsupported");
-    renderMeetingPanel();
-    return;
-  }
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true},
-    });
-  } catch (error) {
-    value.error = error?.name === "SecurityError" ? t("micBlockedInFrame") : t("meetingMicDenied");
-    renderMeetingPanel();
-    return;
+  /* ControlDeck の中ではマイクを開けない。host に開いてもらい、PCM だけ受け取る。 */
+  const viaHost = hostCaptureAvailable();
+  let stream = null;
+  if (!viaHost) {
+    if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext) {
+      value.error = t("meetingMicUnsupported");
+      renderMeetingPanel();
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true},
+      });
+    } catch (error) {
+      value.error = error?.name === "SecurityError" ? t("micBlockedInFrame") : t("meetingMicDenied");
+      renderMeetingPanel();
+      return;
+    }
   }
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const url = `${proto}://${location.host}${API}/meetings/ws`;
@@ -3131,7 +3249,7 @@ async function startMeeting() {
     if (message.type === "ready") {
       value.meetingId = message.meeting_id;
       value.recording = true;
-      startMeetingCapture(stream);
+      if (viaHost) void startMeetingHostCapture(); else startMeetingCapture(stream);
       renderMeetingPanel();
     }
     if (message.type === "meeting.segment.final" || message.type === "meeting.segment.error") {
@@ -3201,9 +3319,32 @@ function startMeetingCapture(stream) {
   silence.connect(context.destination);
 }
 
+/* host 録音のときは frame が event で届く。socket へそのまま流す。 */
+async function startMeetingHostCapture() {
+  const value = state.meeting;
+  try {
+    await startHostCapture((samples, peak) => {
+      if (!value.recording || value.socket?.readyState !== WebSocket.OPEN) return;
+      value.level = peak;
+      const meter = byId("meeting-level");
+      if (meter) meter.style.width = `${Math.round(Math.min(1, peak * 1.6) * 100)}%`;
+      value.socket.send(encodeAudioFrame(value.sequence, value.clock, samples));
+      value.sequence = (value.sequence + 1) >>> 0;
+      value.clock = (value.clock + samples.length) >>> 0;
+    });
+    value.hostCapture = true;
+  } catch (error) {
+    value.error = error?.message || t("meetingMicDenied");
+    value.recording = false;
+    try { value.socket?.close(); } catch { /* すでに閉じている */ }
+    renderMeetingPanel();
+  }
+}
+
 function teardownMeetingCapture() {
   const value = state.meeting;
   if (!value) return;
+  if (value.hostCapture) { value.hostCapture = false; void stopHostCapture(); }
   value.recording = false;
   value.level = 0;
   try { value.processor?.disconnect(); } catch { /* すでに切れている */ }
@@ -3235,12 +3376,7 @@ byId("nav-settings").addEventListener("click", () => {
 byId("task-select").addEventListener("change", (event) => setTask(event.target.value));
 byId("mode-simple").addEventListener("click", () => setMode("simple"));
 byId("mode-advanced").addEventListener("click", () => setMode("advanced"));
-byId("locale-toggle").addEventListener("click", () => {
-  state.locale = state.locale === "ja" ? "en" : "ja";
-  state.localeFromHost = false;
-  remember("locale", state.locale);
-  applyLocale();
-});
+byId("locale-toggle").addEventListener("click", () => setLocale(state.locale === "ja" ? "en" : "ja"));
 for (const button of $$("[data-refresh]")) {
   button.addEventListener("click", () => void reloadAuthoritative());
 }

@@ -66,6 +66,52 @@ def test_switching_mode_redraws_the_task_choices(env):
         advanced=app_js[app_js.index('const ADVANCED_TASKS'):app_js.index('\n', app_js.index('const ADVANCED_TASKS'))]
         assert '"meeting"' not in advanced and '"localization"' in advanced
 
+def test_recording_goes_through_the_host_inside_control_deck(env):
+    """埋め込み枠ではマイクを開けないので、録音は host に頼ること。
+
+    add-on frame は allow-same-origin なしの sandbox、つまり不透明 origin で動く。
+    ブラウザはそこでの getUserMedia を SecurityError で拒み、iframe に
+    allow="microphone" を足しても変わらない。録音・会議のどちらも、bridge が
+    あるときは host が開いたマイクの PCM を受け取る経路を通る。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        app_js=c.get('/app.js').text
+        assert 'host.audio.record.start' in app_js and 'host.audio.record.stop' in app_js
+        assert 'value.event === "audio.frame"' in app_js
+        start=app_js[app_js.index('async function startRecording('):app_js.index('async function startHostRecording(')]
+        assert 'hostCaptureAvailable()' in start
+        meeting=app_js[app_js.index('async function startMeeting('):app_js.index('function startMeetingCapture(')]
+        assert 'hostCaptureAvailable()' in meeting
+        # host は 16kHz モノラルの Int16 を送る。会議の frame と同じ形にしておく。
+        assert 'const HOST_CAPTURE_RATE = 16000' in app_js
+        assert 'const MEETING_RATE = 16000' in app_js
+        manifest=json.loads((__import__('pathlib').Path(m.__file__).parents[2] / 'addon.json').read_text(encoding='utf-8'))
+        assert 'audio.capture' in manifest['host_capabilities']
+
+def test_pipeline_ai_instruction_reaches_the_runtime(env):
+    """パイプラインの自由文の指示が、runtime が読むキーで届くこと。
+
+    UI は parameters.instruction を送っていたが runtime は system_prompt を読む。
+    指示は黙って捨てられ、翻訳もチャットも既定の振る舞いになっていた。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        app_js=c.get('/app.js').text
+        body=app_js[app_js.index('function pipelineBody('):app_js.index('byId("pipeline-validate")')]
+        assert 'item.parameters.system_prompt = stage.instruction' in body
+        assert 'parameters.instruction' not in body
+        # 音声チャットは 文字起こし → AI → 読み上げ の 1 往復で、音として返る。
+        presets=app_js[app_js.index('const PIPELINE_PRESETS'):app_js.index('/* ── 状態')]
+        assert '"chat"' in presets and 'presetChat' in presets
+        chat=presets[presets.index('id: "chat"'):]
+        for kind in ('speech.asr', 'host.ai.text', 'speech.tts'):
+            assert kind in chat
+        assert 'delivery: "asset"' in chat
+    from sonicforge import pipeline_runtime
+    src=(__import__('pathlib').Path(pipeline_runtime.__file__)).read_text(encoding='utf-8')
+    assert 'stage.parameters.get("system_prompt")' in src
+
 def test_advanced_surfaces_every_public_capability(env):
     """詳細モードから到達できる先が、公開APIの機能を取りこぼしていないこと。"""
     m=load_app()

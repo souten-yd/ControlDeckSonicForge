@@ -117,8 +117,8 @@ html[data-bridge="waiting"] #mini-progress { visibility: hidden; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* ControlDeck のフレームが既に "SonicForge" を出している。同じ題名を 2 段
-   重ねない。単体で開いたときだけ見せたいので、要素は残して視覚的に畳む。 */
+/* ControlDeck の中では、上の行が「いまどこか」を出す。同じ題名を 2 つ並べず、
+   その幅は作るものの名前に回す。単体で開いたときだけ自分で名乗る。 */
 html:not([data-bridge="standalone"]) #shell-header h1 {
   position: absolute;
   width: 1px;
@@ -274,31 +274,46 @@ main { flex: 1; min-height: 0; padding: 16px; }
 /* 作るものの切り替え。作る対象が 4 つでも 6 つでも幅が変わらないよう、帯では
    なく 1 つのつまみにして表示モードの左へ置く。狭い画面でヘッダの他の操作を
    押し出さないことと、携帯で機種標準のピッカーが出ることの両方を取る。 */
-.function-switch {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  flex: 0 1 auto;
-}
+.function-switch { position: relative; display: inline-flex; align-items: center; flex: none; }
 .function-switch select {
-  width: auto;
-  max-width: min(40vw, 200px);
-  min-height: 34px;
-  padding: 0 30px 0 13px;
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--accent);
-  font-size: .8rem;
-  font-weight: 700;
-  text-overflow: ellipsis;
+  /* 絵を見せるために、つまみ自体は透明にして上にかぶせる。ネイティブの
+     選択画面のまま使えるので、携帯では一覧が指で選びやすい形で出る。 */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
   appearance: none;
   -webkit-appearance: none;
 }
+.function-switch::before {
+  content: "";
+  display: block;
+  width: 58px;
+  height: 36px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.function-switch-icon {
+  position: absolute;
+  inset-inline-start: 10px;
+  width: 1.2rem;
+  height: 1.2rem;
+  color: var(--accent);
+  pointer-events: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .function-switch-caret {
   position: absolute;
-  inset-inline-end: 9px;
+  inset-inline-end: 7px;
   width: 1rem;
   height: 1rem;
   color: var(--accent);
@@ -715,11 +730,23 @@ dialog::backdrop { background: rgba(10, 13, 24, .68); }
     padding: 0 12px;
   }
   #shell-header .pill { display: none; }
-  /* 携帯では自分の題名を出さない。ホストのフレームが既に出しているうえ、
-     出すと作るものの切り替えと表示モードが入りきらない。 */
-  #shell-header h1 { display: none; }
+  /* 題名・作るもの・表示モード・アイコンを 1 行に収める。狭くなったときに
+     削られるのは題名だけで、操作は最後まで押せる大きさを保つ。 */
+  /* 削るのは作るものの名前だけにする。題名と操作は最後まで削らない。 */
+  #shell-header { gap: 7px; }
+  #shell-header h1 { font-size: .9rem; flex: none; }
+  /* 余白の取り合いをやめる。空いた分は作るものの名前に回す。 */
+  #shell-header .grow { display: none; }
+  /* 地球のアイコンは設定の「表示言語」に移した。ここでは幅を作るものに譲る。 */
+  #locale-toggle { display: none; }
+  .function-switch::before { width: 54px; height: 34px; }
+  .function-switch-icon { inset-inline-start: 9px; width: 1.1rem; height: 1.1rem; }
+  .function-switch-caret { inset-inline-end: 6px; }
+  .modeswitch button { padding: 5px 8px; font-size: .74rem; }
+  button.icon { min-width: 34px; min-height: 34px; }
+  button.icon svg { width: 1.05rem; height: 1.05rem; }
   .settings-label { display: none; }
-  button.icon.settings-entry { width: 38px; padding: 0; }
+  button.icon.settings-entry { width: 34px; padding: 0; }
 
 
   #shell-nav {

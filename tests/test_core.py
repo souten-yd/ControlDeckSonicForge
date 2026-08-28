@@ -62,7 +62,94 @@ def test_switching_mode_redraws_the_task_choices(env):
         assert 'renderTaskChoices()' in set_mode
         choices=app_js[app_js.index('function taskChoices('):app_js.index('function taskLabel(')]
         assert 'ADVANCED_TASKS' in choices
-        assert 'const ADVANCED_TASKS = new Set(["localization", "meeting"])' in app_js
+        # 会議はシンプルからも使える。詳細だけに閉じ込めない。
+        advanced=app_js[app_js.index('const ADVANCED_TASKS'):app_js.index('\n', app_js.index('const ADVANCED_TASKS'))]
+        assert '"meeting"' not in advanced and '"localization"' in advanced
+
+def test_recording_goes_through_the_host_inside_control_deck(env):
+    """埋め込み枠ではマイクを開けないので、録音は host に頼ること。
+
+    add-on frame は allow-same-origin なしの sandbox、つまり不透明 origin で動く。
+    ブラウザはそこでの getUserMedia を SecurityError で拒み、iframe に
+    allow="microphone" を足しても変わらない。録音・会議のどちらも、bridge が
+    あるときは host が開いたマイクの PCM を受け取る経路を通る。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        app_js=c.get('/app.js').text
+        assert 'host.audio.record.start' in app_js and 'host.audio.record.stop' in app_js
+        assert 'value.event === "audio.frame"' in app_js
+        start=app_js[app_js.index('async function startRecording('):app_js.index('async function startHostRecording(')]
+        assert 'hostCaptureAvailable()' in start
+        meeting=app_js[app_js.index('async function startMeeting('):app_js.index('function startMeetingCapture(')]
+        assert 'hostCaptureAvailable()' in meeting
+        # host は 16kHz モノラルの Int16 を送る。会議の frame と同じ形にしておく。
+        assert 'const HOST_CAPTURE_RATE = 16000' in app_js
+        assert 'const MEETING_RATE = 16000' in app_js
+        manifest=json.loads((__import__('pathlib').Path(m.__file__).parents[2] / 'addon.json').read_text(encoding='utf-8'))
+        assert 'audio.capture' in manifest['host_capabilities']
+
+def test_pipeline_ai_instruction_reaches_the_runtime(env):
+    """パイプラインの自由文の指示が、runtime が読むキーで届くこと。
+
+    UI は parameters.instruction を送っていたが runtime は system_prompt を読む。
+    指示は黙って捨てられ、翻訳もチャットも既定の振る舞いになっていた。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        app_js=c.get('/app.js').text
+        body=app_js[app_js.index('function pipelineBody('):app_js.index('byId("pipeline-validate")')]
+        assert 'item.parameters.system_prompt = stage.instruction' in body
+        assert 'parameters.instruction' not in body
+        # 音声チャットは 文字起こし → AI → 読み上げ の 1 往復で、音として返る。
+        presets=app_js[app_js.index('const PIPELINE_PRESETS'):app_js.index('/* ── 状態')]
+        assert '"chat"' in presets and 'presetChat' in presets
+        chat=presets[presets.index('id: "chat"'):]
+        for kind in ('speech.asr', 'host.ai.text', 'speech.tts'):
+            assert kind in chat
+        assert 'delivery: "asset"' in chat
+    from sonicforge import pipeline_runtime
+    src=(__import__('pathlib').Path(pipeline_runtime.__file__)).read_text(encoding='utf-8')
+    assert 'stage.parameters.get("system_prompt")' in src
+
+def test_models_are_offered_by_name_not_typed_from_memory(env):
+    """使えるモデルが、作るものごとに名前で並ぶこと。
+
+    routing.model は前から効いていたが、UI は Hugging Face のリポジトリ名を
+    打ち込む自由入力欄だった。暗記していない人には選べないので、機能ではない。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        doc=c.get('/addon/v1/models').json()
+        by_task={item['task']: item for item in doc['tasks']}
+        assert 'kotoba-tech/kotoba-whisper-v2.0' in [
+            x['id'] for x in by_task['speech.asr.transcribe']['models']]
+        assert by_task['speech.asr.transcribe']['engine'] == 'asr.whisper'
+        assert by_task['music.generate']['engine'] == 'music.ace-step-1.5'
+        markup=c.get('/').text
+        assert '<select id="advanced-model">' in markup
+        assert '<input id="advanced-model"' not in markup
+        app_js=c.get('/app.js').text
+        assert 'loadModels()' in app_js and 'renderRoutingChoices()' in app_js
+        # 知らない id が来ても、消えずに id のまま並ぶこと。
+        assert 't(MODEL_LABELS[item.id]) || item.id' in app_js
+
+def test_task_switch_is_an_icon_that_still_opens_the_native_list(env):
+    """作るものの切り替えは絵にする。ただし select のままで、読み上げにも届くこと。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        markup=c.get('/').text
+        assert '<select id="task-select">' in markup and 'id="task-icon"' in markup
+        assert 'aria-label="作るもの"' in markup
+        styles=c.get('/styles.css').text
+        switch=styles[styles.index('.function-switch select {'):styles.index('.function-switch-icon')]
+        # つまみは透明にして絵にかぶせる。当たり判定は絵の大きさのまま。
+        assert 'opacity: 0' in switch and 'position: absolute' in switch
+        app_js=c.get('/app.js').text
+        assert 'const TASK_ICONS' in app_js
+        icons=app_js[app_js.index('const TASK_ICONS'):app_js.index('function renderTaskChoices(')]
+        for task in ('speech', 'transcribe', 'sfx', 'music', 'localization', 'meeting'):
+            assert f'{task}:' in icons, task
 
 def test_advanced_surfaces_every_public_capability(env):
     """詳細モードから到達できる先が、公開APIの機能を取りこぼしていないこと。"""

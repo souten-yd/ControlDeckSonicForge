@@ -105,6 +105,55 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
   of the title is hidden whenever the Host chrome already shows it. MediaForge's 761 tests
   pass.
 
+## v0.4.0 host microphone capture, the one-row header and named models
+
+- Recording never worked inside ControlDeck, and the message told the user to grant a
+  permission that could not help. The add-on frame is sandboxed without
+  `allow-same-origin`, so it runs on an opaque origin. A real-browser matrix settled it:
+
+  | iframe | getUserMedia |
+  | --- | --- |
+  | sandbox, no `allow` (what shipped) | `SecurityError: Invalid security origin` |
+  | sandbox, `allow="microphone *"` | `SecurityError: Invalid security origin` |
+  | sandbox + `allow-same-origin` | OK |
+  | no sandbox, `allow="microphone"` | OK |
+
+  Adding `allow="microphone"` cannot work, because a permission is bound to an origin and
+  an opaque origin cannot hold one. Granting `allow-same-origin` would work and would hand
+  the add-on ControlDeck's own origin, which is the isolation the Bridge exists to keep.
+- So ControlDeck grew an `audio.capture` capability with `host.audio.record.start` /
+  `host.audio.record.stop`. The host opens the microphone itself and streams 16 kHz mono
+  `pcm_s16le` to the frame as `audio.frame` events; it says 🎤 録音中 while it does, and
+  closes the stream when the view goes away. SonicForge's record button turns those frames
+  into a WAV and the meeting sends them straight down its socket. Outside ControlDeck the
+  old `MediaRecorder` path is unchanged. ControlDeck's 819 backend tests give the same
+  result before and after (6 pre-existing failures, unrelated).
+- The header is one row. ControlDeck no longer prints the add-on's name above a frame that
+  already shows it — that header now appears only when there is something to report
+  (recording, busy, unhealthy) — and its top row names the current app instead of leaving
+  its middle empty on a phone. SonicForge's task switch became the current task's icon in
+  a fixed 56px pill: six task names could not share a phone row, so the longest was being
+  cut to 「ロー…」. It is still a native `select`, so the option list is the phone's own
+  picker and the label still reaches a screen reader.
+- The pipeline is in Simple as well. Only the per-stage knobs, the start/stop range and
+  the delivery options stay in 詳細, so Simple runs a preset on its recommended defaults.
+  A voice chat preset was added: speak → transcribe → ControlDeck AI → speak, delivered as
+  audio, with a conversational instruction already filled in.
+- The pipeline's free-text AI instruction had never reached the model. The UI sent
+  `parameters.instruction` and the runtime reads `system_prompt`, so translate and
+  summarize silently ran on their defaults. Fixed, with a test.
+- Model selection existed but could not be used: `routing.model` has always reached the
+  workers, yet the only way to set it was to type a Hugging Face repository id from memory
+  into a free-text box. `GET /addon/v1/models` now derives the selectable models per task
+  from the same pinned constants the provisioner uses, and 詳細 offers them by name. On the
+  live service, `openai/whisper-large-v3-turbo` transcribed correctly and a deliberately
+  bogus id failed with `is not a valid model identifier`, so the override is real.
+- 会議 is in Simple, and job failures no longer reach the studio as raw codes such as
+  `terms_required:stability-ai-community-license`.
+- Authenticated real-browser acceptance of the microphone through the live ControlDeck is
+  **NOT TESTED**; it needs a logged-in session. Everything else here was driven in a real
+  headless Chrome.
+
 ## Live mobile registry reachability repair
 
 - The live Host still stored the pre-release managed Add-on manifest with `workspace.mobile: companion`, even though repository and public v0.1.0 manifests declare `embedded`. The effective API therefore returned `companion`; authenticated Chrome 320x720 reached `More -> Audio` but rendered the status-only companion with zero workspace iframes.

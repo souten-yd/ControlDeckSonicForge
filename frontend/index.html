@@ -25,6 +25,7 @@
              幅の変わらない 1 つのつまみにして、表示モードの左に置く。 -->
         <label class="function-switch" id="task-switch" data-i18n-label="whatToMake" aria-label="作るもの">
           <select id="task-select"></select>
+          <svg class="function-switch-icon" id="task-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"></svg>
           <svg class="function-switch-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="m8 10.5 4 4 4-4"/>
           </svg>
@@ -72,7 +73,7 @@
           <span data-i18n="activity">状況</span>
           <span class="badge" id="activity-badge" hidden>0</span>
         </button>
-        <button type="button" id="nav-pipeline" data-view="pipeline" hidden>
+        <button type="button" id="nav-pipeline" data-view="pipeline">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <circle cx="5.2" cy="12" r="2.2"/>
             <circle cx="12" cy="6.4" r="2.2"/>
@@ -249,8 +250,8 @@
 
             <p class="section-label" data-i18n="pipelineStages">処理の並び</p>
             <div id="pipeline-flow" class="stage-flow"></div>
-            <div id="pipeline-stages" class="stage-list"></div>
-            <div class="form-row">
+            <div id="pipeline-stages" class="stage-list" data-advanced-only hidden></div>
+            <div class="form-row" data-advanced-only hidden>
               <label data-i18n="startAt">開始する段
                 <select id="pipeline-start"></select>
               </label>
@@ -259,8 +260,8 @@
               </label>
             </div>
 
-            <p class="section-label" data-i18n="pipelineDelivery">受け取り方</p>
-            <div class="form-row">
+            <p class="section-label" data-i18n="pipelineDelivery" data-advanced-only hidden>受け取り方</p>
+            <div class="form-row" data-advanced-only hidden>
               <label data-i18n="deliveryMode">形式
                 <select id="pipeline-delivery"></select>
               </label>
@@ -275,7 +276,7 @@
             <p id="pipeline-note" class="hint" role="status"></p>
             <p id="pipeline-error" class="error" role="alert" hidden></p>
             <div class="form-row">
-              <button type="button" id="pipeline-validate" data-i18n="validate">組み合わせを確認</button>
+              <button type="button" id="pipeline-validate" data-i18n="validate" data-advanced-only hidden>組み合わせを確認</button>
               <button type="button" id="pipeline-run" class="primary" data-i18n="run">実行</button>
             </div>
           </div>
@@ -292,6 +293,12 @@
             </button>
           </div>
           <p class="hint" data-i18n="runtimeHint">必要なものだけを、必要になったときに準備します。音声を使うだけなら「音声基本環境」だけで足ります。</p>
+
+          <div class="settings-section" id="display-language">
+            <p class="field-label" data-i18n="displayLanguage">表示言語</p>
+            <div id="locale-chips" class="chips" role="radiogroup" data-i18n-label="displayLanguage" aria-label="表示言語"></div>
+            <p class="hint" data-i18n="displayLanguageHint">ControlDeckの言語にあわせています。ここで変えるとこの画面だけに効きます。</p>
+          </div>
           <div id="setup-rows" class="rows"></div>
           <p id="setup-error" class="error" role="alert" hidden></p>
 
@@ -449,12 +456,13 @@
         <p class="hint" data-i18n="advancedRoutingHint">空欄なら、この機材で最も確実な経路を自動で選びます。</p>
         <div class="form-row">
           <label data-i18n="engine">エンジン
-            <input id="advanced-engine" type="text" maxlength="120" placeholder="auto">
+            <select id="advanced-engine"></select>
           </label>
           <label data-i18n="model">モデル
-            <input id="advanced-model" type="text" maxlength="240" placeholder="auto">
+            <select id="advanced-model"></select>
           </label>
         </div>
+        <p id="advanced-model-note" class="hint"></p>
         <div class="form-row">
           <label data-i18n="device">デバイス
             <select id="advanced-device">

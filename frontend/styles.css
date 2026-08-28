@@ -669,12 +669,48 @@ table.lines audio { height: 34px; }
 @media (prefers-reduced-motion: no-preference) {
   .dot-live { animation: pulse 1.4s ease-in-out infinite; }
 }
-.segments { display: grid; gap: 8px; max-height: 46vh; overflow: auto; }
-.segment { border-left: 2px solid var(--border); padding: 2px 0 2px 10px; }
-.segment .time { font-size: .7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.segment .src { font-size: .86rem; overflow-wrap: anywhere; }
-.segment .dst { font-size: .82rem; color: var(--accent); overflow-wrap: anywhere; }
-.segment[data-state="failed"] { border-left-color: var(--danger-line); }
+/* 会議の書き起こしは、KasaneCore の Echo と同じ「1 発言 1 枚のカード」に
+   する。誰の・いつの・何を言ったかが 1 目盛りで読め、訳が下に付く。 */
+.segments {
+  display: grid;
+  gap: 8px;
+  max-height: 46vh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+}
+.segment {
+  display: grid;
+  gap: 4px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.segment .meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .66rem;
+  color: var(--muted);
+}
+.segment .flag { font-size: .85rem; line-height: 1; }
+.segment .time { font-variant-numeric: tabular-nums; }
+.segment .state { margin-inline-start: auto; }
+.segment .src { font-size: .88rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.segment .dst {
+  font-size: .82rem;
+  line-height: 1.45;
+  color: var(--accent);
+  font-style: italic;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* まだ文字が来ていない枠は、空で潰れず「これから入る」ことを示す。 */
+.segment .waiting { opacity: .5; font-style: italic; }
+.segment[data-state="queued"], .segment[data-state="progress"] { border-style: dashed; }
+.segment[data-state="failed"] { border-color: var(--danger-line); }
+.segment[data-state="failed"] .src { color: var(--danger); }
 
 /* ── ダイアログ ─────────────────────────────────────────────── */
 dialog {

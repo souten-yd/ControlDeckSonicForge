@@ -2,7 +2,7 @@
   "api_version": "2",
   "id": "sonic-forge",
   "name": "SonicForge",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Japanese and English speech, game audio and music generation",
   "publisher": "souten-yd",
   "requires": {"addon_contract": ">=2.0 <3.0"},

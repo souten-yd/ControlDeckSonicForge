@@ -187,6 +187,40 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
   follows the newest line only when the reader is already at the bottom, so scrolling back
   through a long meeting is not yanked forward.
 
+## v0.5.0 a conversation that keeps its models, and a meeting that stops reloading them
+
+- `sonic-live/2` was written and never connected: `create_live_v2_router` appeared in no
+  `include_router`, so `/addon/v2/live/ws` returned 404 and the only way to hold a
+  conversation was the pipeline REST route, which loads and discards ASR and TTS on every
+  single turn. That is the delay the operator was describing.
+- Wiring it up exposed a real defect in its teardown. A disconnect cancels the session
+  coroutine, and the cleanup was awaited unshielded, so it could be dropped partway and
+  leave the resident ASR/TTS subprocesses alive after the session that owned them had
+  gone. The release now runs shielded and finishes even when the session is cancelled.
+  The test proves the residency claim: two turns on one socket leave
+  `asr.process_starts` at 1 while `requests` goes to 2.
+- A 会話 task in the studio drives that session. Press and hold to talk; the reply streams
+  back as text and is spoken as it is generated. Audio arrives as PCM inside `AudioFrame`s,
+  so it is reassembled per chunk before playing, and chunks are queued so the words cannot
+  overtake each other. Blocked autoplay is reported rather than swallowed.
+- **The meeting was doing the opposite of what it should.** With translation on, each
+  segment called `release_llm_hold(stop_runtime=True)`, ran ASR, then `evict("asr")` before
+  translating - rebuilding both models every few seconds. Whether they can coexist is the
+  Broker's call, and `LiveWorkerPool._admit` already evicts a peer when admission is
+  actually refused, so the meeting no longer pre-empts that decision. It still frees ASR
+  once the meeting ends, where the minutes need the room. The test that pinned the old
+  swap order was rewritten: it named the behaviour we deliberately removed.
+- Segments now appear when they are **queued** rather than only when final, and the same
+  card is rewritten in place as the text and its translation arrive, so the screen moves
+  while the speaker is still talking. The default segment length is 6 seconds rather than
+  20 - that length was almost the entire wait.
+- The reading voice was wrong by default. `_default_speaker` only chose the Japanese voice
+  when the language was explicitly `ja`, and 自動 is what the control says out of the box,
+  so Japanese text was read aloud by the English male voice. The script on the page settles
+  it. English keeps Ryan: Qwen3-TTS' built-in catalog has no native English female voice,
+  and an accented one is a worse trade than a native male one.
+- The settings button sits at the right edge while the task and mode controls stay left.
+
 ## Live mobile registry reachability repair
 
 - The live Host still stored the pre-release managed Add-on manifest with `workspace.mobile: companion`, even though repository and public v0.1.0 manifests declare `embedded`. The effective API therefore returned `companion`; authenticated Chrome 320x720 reached `More -> Audio` but rendered the status-only companion with zero workspace iframes.

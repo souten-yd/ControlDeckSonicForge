@@ -1025,6 +1025,9 @@ function setMode(mode, {persist = true} = {}) {
   /* シンプルへ戻したときに、詳細だけの画面へ取り残されないようにする。 */
   if (state.mode !== "advanced" && ADVANCED_TASKS.has(state.task)) setTask("speech");
   if (state.mode !== "advanced" && state.view === "pipeline") activate("studio");
+  /* 詳細だけの作るもの（ローカライズ・会議）は、モードを変えた時点で
+     選択肢に出入りする。ここで描き直さないと、詳細にしても選べない。 */
+  renderTaskChoices();
   mountAdvanced();
   renderStudio();
   renderSettings();
@@ -2772,7 +2775,9 @@ function defaultMeeting() {
     sourceLanguage: "auto",
     translate: false,
     targetLanguage: "en",
-    summarize: false,
+    /* 会議は「録りながら文字にして、終わりに議事録をもらう」ための画面なので、
+       議事録は既定で作る。要らない人だけ外せばよい。 */
+    summarize: true,
     chunkSeconds: 20,
     recording: false,
     socket: null,

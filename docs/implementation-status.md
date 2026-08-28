@@ -89,6 +89,17 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
   -1.0 dB peak, so it is real audio rather than silence.
 - `python-multipart` is now a runtime dependency, because the upload route takes a
   multipart body. The PyInstaller bundle must include it.
+- Two defects were found by driving the branch build in a real headless Chrome and fixed
+  before release. `setMode()` did not redraw the 作るもの pull-down, so switching to 詳細
+  left the simple four in the list and ローカライズ and 会議 were unreachable until a
+  reload — the exact requirement that Advanced reach every feature. And 会議 defaulted its
+  minutes checkbox to off, although producing the minutes at the end is the point of that
+  screen; it now defaults to on. A test now pins the redraw.
+- The release sweep drove the branch service at 1440x1000 and 390x844, in Japanese and
+  English, through both modes, all six 作るもの and every view: **zero JavaScript
+  exceptions, zero console errors and no horizontal overflow anywhere**. Browser file
+  selection produced an upload and a finished ASR job, and the voice-clone dialog filled
+  its reference transcript automatically from that job's text.
 - The same two header changes were applied to MediaForge: the media switch moved into the
   header immediately left of 詳細 as a single compact pull-down, and the in-page duplicate
   of the title is hidden whenever the Host chrome already shows it. MediaForge's 761 tests

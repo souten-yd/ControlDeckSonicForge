@@ -49,6 +49,21 @@ def test_simple_and_advanced_modes_are_wired(env):
         # 詳細でしか出さないものは、シンプルの初期状態で hidden になっている。
         assert 'data-advanced-only hidden' in root
 
+def test_switching_mode_redraws_the_task_choices(env):
+    """詳細だけの作るもの（ローカライズ・会議）へ、モードを変えた直後に行けること。
+
+    setMode が選択肢を描き直さないと、詳細にしても作るものの一覧が
+    シンプルのままで、再読み込みするまで会議へ行けなかった。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        app_js=c.get('/app.js').text
+        set_mode=app_js[app_js.index('function setMode('):app_js.index('function remember(')]
+        assert 'renderTaskChoices()' in set_mode
+        choices=app_js[app_js.index('function taskChoices('):app_js.index('function taskLabel(')]
+        assert 'ADVANCED_TASKS' in choices
+        assert 'const ADVANCED_TASKS = new Set(["localization", "meeting"])' in app_js
+
 def test_advanced_surfaces_every_public_capability(env):
     """詳細モードから到達できる先が、公開APIの機能を取りこぼしていないこと。"""
     m=load_app()

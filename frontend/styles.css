@@ -274,33 +274,46 @@ main { flex: 1; min-height: 0; padding: 16px; }
 /* 作るものの切り替え。作る対象が 4 つでも 6 つでも幅が変わらないよう、帯では
    なく 1 つのつまみにして表示モードの左へ置く。狭い画面でヘッダの他の操作を
    押し出さないことと、携帯で機種標準のピッカーが出ることの両方を取る。 */
-.function-switch {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  flex: 0 1 auto;
-}
+.function-switch { position: relative; display: inline-flex; align-items: center; flex: none; }
 .function-switch select {
-  /* select は放っておくと一番長い選択肢の幅になる。「ローカライズ」に合わせると
-     題名の居場所が無くなるので、幅は wrapper に従わせて、あふれは省略で示す。 */
+  /* 絵を見せるために、つまみ自体は透明にして上にかぶせる。ネイティブの
+     選択画面のまま使えるので、携帯では一覧が指で選びやすい形で出る。 */
+  position: absolute;
+  inset: 0;
   width: 100%;
-  min-width: 0;
-  text-overflow: ellipsis;
-  min-height: 34px;
-  padding: 0 30px 0 13px;
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--accent);
-  font-size: .8rem;
-  font-weight: 700;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
   appearance: none;
   -webkit-appearance: none;
 }
+.function-switch::before {
+  content: "";
+  display: block;
+  width: 58px;
+  height: 36px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.function-switch-icon {
+  position: absolute;
+  inset-inline-start: 10px;
+  width: 1.2rem;
+  height: 1.2rem;
+  color: var(--accent);
+  pointer-events: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .function-switch-caret {
   position: absolute;
-  inset-inline-end: 9px;
+  inset-inline-end: 7px;
   width: 1rem;
   height: 1rem;
   color: var(--accent);
@@ -726,8 +739,8 @@ dialog::backdrop { background: rgba(10, 13, 24, .68); }
   #shell-header .grow { display: none; }
   /* 地球のアイコンは設定の「表示言語」に移した。ここでは幅を作るものに譲る。 */
   #locale-toggle { display: none; }
-  .function-switch { flex: 1 1 auto; max-width: none; }
-  .function-switch select { padding: 0 24px 0 10px; font-size: .76rem; }
+  .function-switch::before { width: 54px; height: 34px; }
+  .function-switch-icon { inset-inline-start: 9px; width: 1.1rem; height: 1.1rem; }
   .function-switch-caret { inset-inline-end: 6px; }
   .modeswitch button { padding: 5px 8px; font-size: .74rem; }
   button.icon { min-width: 34px; min-height: 34px; }

@@ -1292,6 +1292,17 @@ function renderRoutingChoices() {
   }
 }
 
+/* 作るものは絵で示す。名前を全部並べると 1 行に収まらないうえ、いま何を
+   作っているかは下の 1 行の説明と、選んだときの一覧が受け持てる。 */
+const TASK_ICONS = {
+  speech: ["M12 4.5v9", "M8.5 7v4", "M15.5 7v4", "M5 9v1", "M19 9v1", "M7 18h10"],
+  transcribe: ["M6 3.6h8.4L18.4 7.6V20.4H6z", "M14 3.8v4h4", "M8.6 12h6.8", "M8.6 15.4h6.8", "M8.6 18h4.2"],
+  sfx: ["M12 3.6v3.2", "M12 17.2v3.2", "M4.4 12h3.2", "M16.4 12h3.2", "M6.6 6.6l2.3 2.3", "M15.1 15.1l2.3 2.3", "M17.4 6.6l-2.3 2.3", "M8.9 15.1l-2.3 2.3"],
+  music: ["M9.4 17.6V5.6l9.2-1.8v12", "M9.4 17.6a2.6 2.6 0 1 1-5.2 0 2.6 2.6 0 0 1 5.2 0Z", "M18.6 15.8a2.6 2.6 0 1 1-5.2 0 2.6 2.6 0 0 1 5.2 0Z"],
+  localization: ["M12 3.6a8.4 8.4 0 1 0 0 16.8 8.4 8.4 0 0 0 0-16.8Z", "M3.6 12h16.8", "M12 3.6c2.2 2.4 3.3 5.3 3.3 8.4S14.2 18 12 20.4c-2.2-2.4-3.3-5.3-3.3-8.4S9.8 6 12 3.6Z"],
+  meeting: ["M9 10.4a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2Z", "M3.6 19.4c0-3 2.4-5.4 5.4-5.4s5.4 2.4 5.4 5.4", "M16.2 6.2a2.4 2.4 0 0 1 0 4.6", "M17.4 14.4c1.8.7 3 2.4 3 4.4"],
+};
+
 function renderTaskChoices() {
   const select = byId("task-select");
   select.replaceChildren(...taskChoices().map((task) => {
@@ -1301,6 +1312,17 @@ function renderTaskChoices() {
     return option;
   }));
   select.value = state.task;
+  const icon = byId("task-icon");
+  if (icon) {
+    icon.replaceChildren(...(TASK_ICONS[state.task] || []).map((d) => {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", d);
+      return path;
+    }));
+  }
+  /* 絵だけでは何の機能か分からないことがある。押す前に名前を読めるようにする。 */
+  const wrapper = byId("task-switch");
+  if (wrapper) wrapper.title = `${t("whatToMake")}: ${taskLabel(state.task)}`;
 }
 
 function currentSfxKind() {

@@ -134,6 +134,23 @@ def test_models_are_offered_by_name_not_typed_from_memory(env):
         # 知らない id が来ても、消えずに id のまま並ぶこと。
         assert 't(MODEL_LABELS[item.id]) || item.id' in app_js
 
+def test_task_switch_is_an_icon_that_still_opens_the_native_list(env):
+    """作るものの切り替えは絵にする。ただし select のままで、読み上げにも届くこと。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        markup=c.get('/').text
+        assert '<select id="task-select">' in markup and 'id="task-icon"' in markup
+        assert 'aria-label="作るもの"' in markup
+        styles=c.get('/styles.css').text
+        switch=styles[styles.index('.function-switch select {'):styles.index('.function-switch-icon')]
+        # つまみは透明にして絵にかぶせる。当たり判定は絵の大きさのまま。
+        assert 'opacity: 0' in switch and 'position: absolute' in switch
+        app_js=c.get('/app.js').text
+        assert 'const TASK_ICONS' in app_js
+        icons=app_js[app_js.index('const TASK_ICONS'):app_js.index('function renderTaskChoices(')]
+        for task in ('speech', 'transcribe', 'sfx', 'music', 'localization', 'meeting'):
+            assert f'{task}:' in icons, task
+
 def test_advanced_surfaces_every_public_capability(env):
     """詳細モードから到達できる先が、公開APIの機能を取りこぼしていないこと。"""
     m=load_app()

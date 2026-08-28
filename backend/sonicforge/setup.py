@@ -42,6 +42,78 @@ class SetupError(RuntimeError):
     pass
 
 
+# Hugging Face が gate している配布物。ライセンス同意だけでは足りず、同意した
+# アカウントのアクセストークンで認証しないと 401 になる。どのコンポーネントが
+# どのモデルで詰まるのかを、UI がそのまま出せる形で持っておく。
+GATED_MODELS = {
+    STABLE_AUDIO_SMALL_SFX: {
+        "component": "game-audio",
+        "url": f"https://huggingface.co/{STABLE_AUDIO_SMALL_SFX}",
+        "terms": STABILITY_TERMS,
+    },
+}
+
+
+def read_credentials(settings: Settings) -> dict:
+    """Return stored provisioning credentials, or an empty mapping.
+
+    The file holds a Hugging Face access token the operator pasted in. It is
+    never returned over the API; only whether it is present is reported.
+    """
+    try:
+        value = json.loads(settings.credentials_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def write_credentials(settings: Settings, values: dict) -> None:
+    settings.credentials_path.parent.mkdir(parents=True, exist_ok=True)
+    stored = read_credentials(settings)
+    for key, value in values.items():
+        if value is None:
+            stored.pop(key, None)
+        else:
+            stored[key] = value
+    settings.credentials_path.write_text(
+        json.dumps(stored, ensure_ascii=True), encoding="utf-8"
+    )
+    settings.credentials_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+
+def credential_state(settings: Settings) -> dict:
+    stored = read_credentials(settings)
+    token = stored.get("huggingface_token")
+    return {
+        "huggingface_token_set": bool(token),
+        "gated_models": [
+            {"repo": repo, "component": meta["component"], "url": meta["url"]}
+            for repo, meta in GATED_MODELS.items()
+        ],
+    }
+
+
+def _gated_repo_hint(spec: "RuntimeSpec", stderr: str) -> str | None:
+    """Turn a Hugging Face gate refusal into something a person can act on.
+
+    huggingface_hub raises GatedRepoError with a stack trace. Surfacing that
+    trace tells the reader nothing about what to do next, which is exactly the
+    state the UX rules say must never be shown.
+    """
+    lowered = stderr.lower()
+    if "gatedrepoerror" not in lowered and "gated repo" not in lowered:
+        return None
+    for repo, meta in GATED_MODELS.items():
+        if repo in stderr and meta["component"] == spec.component:
+            return (
+                f"{repo} is a gated Hugging Face repository. "
+                f"Accept its license at {meta['url']} while signed in, then paste a "
+                "Hugging Face access token from that same account into SonicForge's "
+                "settings and run the setup again."
+            )
+    return None
+
+
 @dataclass(frozen=True)
 class RuntimeSpec:
     component: str
@@ -456,6 +528,11 @@ async def _build_runtime(settings: Settings, spec: RuntimeSpec) -> dict:
     env = os.environ.copy()
     env.setdefault("PIP_CACHE_DIR", str(settings.cache_dir / "pip"))
     env["HF_HOME"] = str(settings.models_dir / "huggingface")
+    token = read_credentials(settings).get("huggingface_token")
+    if token:
+        # huggingface_hub reads either name depending on version.
+        env["HF_TOKEN"] = str(token)
+        env["HUGGING_FACE_HUB_TOKEN"] = str(token)
     if spec.component == "music":
         env["ACESTEP_CHECKPOINTS_DIR"] = str(settings.models_dir / "ace-step")
     try:
@@ -469,7 +546,13 @@ async def _build_runtime(settings: Settings, spec: RuntimeSpec) -> dict:
         if spec.smoke_imports:
             code = "import importlib,sys; [importlib.import_module(x) for x in sys.argv[1:]]"
             await _run_process([str(python), "-c", code, *spec.smoke_imports], env=env)
-        models = await _prefetch_models(settings, python, spec, env)
+        try:
+            models = await _prefetch_models(settings, python, spec, env)
+        except SetupError as exc:
+            hint = _gated_repo_hint(spec, str(exc))
+            if hint is None:
+                raise
+            raise SetupError(hint) from exc
         models.extend(await _prepare_engine_models(settings, python, spec, env))
         meta = {
             "runtime_id": spec.runtime_id,

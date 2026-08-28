@@ -51,6 +51,49 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
   WebSocket subprotocol) is unchanged from the accepted v0.1.2 code and is covered by the
   frontend transport tests, but that is reasoning rather than executed evidence.
 
+## v0.3.0 web capture, gated provisioning and the meeting minutes flow
+
+- Transcription, voice-clone reference audio and typed pipeline audio inputs no longer go
+  through ControlDeck's Host file picker. That picker cannot reach a microphone and is not
+  the picker a phone user expects; the earlier build failed with `picker_canceled`. Each of
+  those inputs is now the same component: **record in the browser** (`MediaRecorder`, opus
+  in WebM with an mp4 fallback because iOS has no opus) or **pick a file** with the plain
+  web input, uploaded to a new `POST /addon/v1/uploads`.
+- `backend/sonicforge/uploads.py` stores every upload under a server-generated UUID name,
+  caps it at 200 MiB while streaming, and normalises it with ffmpeg to 48 kHz mono
+  `pcm_s16le` WAV so the workers, which read plain waveforms, can consume browser
+  containers. `resolve()` matches `^upload:[0-9a-f]{32}$` and requires containment under
+  the uploads directory. An unreadable file returns one fixed sentence; the ffmpeg detail
+  goes to the log only, so no internal filesystem path reaches the API.
+- Voice-clone reference audio is transcribed automatically by the existing ASR route, so
+  the operator no longer has to type the reference text by hand. QwenTTS voice clone,
+  voice design and per-request speaker customisation are now reachable from the 音声 task
+  in both Simple and Advanced.
+- 会議 transcribes while it records and asks the LLM for the 議事録 at the end, with a
+  JA/EN simultaneous-translation toggle in the same tab.
+- Game Audio provisioning failed with an unhandled `GatedRepoError` 401 on
+  `stabilityai/stable-audio-3-small-sfx`, which is `gated: auto` on Hugging Face. Two
+  causes were confirmed by reproducing the failure with the provisioned speech venv: no
+  Hugging Face token existed anywhere on the host, and the in-app licence checkbox only
+  records local acknowledgement. Setup now injects a stored token as `HF_TOKEN` /
+  `HUGGING_FACE_HUB_TOKEN` and rewrites the gated failure into an instruction naming the
+  model page. `GET`/`PUT /addon/v1/setup/credentials` store that token write-only at mode
+  0600; it is never returned by the API and never logged.
+- `error_message` now keeps the **tail** of the failure (`str(exc)[-1200:]`). The previous
+  head truncation discarded the root cause, because `_run_process` already returns only
+  the last 2000 characters of stderr — that is why the reported traceback was unusable.
+- Music is executed evidence, not just installed. Provisioning job
+  `39a152c6-36ee-4bdf-b014-d41e00995bd2` converged `music-rocm` with ACE-Step 1.5 and both
+  `acestep-v15-turbo` and `acestep-5Hz-lm-0.6B`, `music.generate` reports `available`, and
+  a live `music.generate` produced a 30 s 48 kHz stereo WAV measuring -19.6 dB mean and
+  -1.0 dB peak, so it is real audio rather than silence.
+- `python-multipart` is now a runtime dependency, because the upload route takes a
+  multipart body. The PyInstaller bundle must include it.
+- The same two header changes were applied to MediaForge: the media switch moved into the
+  header immediately left of 詳細 as a single compact pull-down, and the in-page duplicate
+  of the title is hidden whenever the Host chrome already shows it. MediaForge's 761 tests
+  pass.
+
 ## Live mobile registry reachability repair
 
 - The live Host still stored the pre-release managed Add-on manifest with `workspace.mobile: companion`, even though repository and public v0.1.0 manifests declare `embedded`. The effective API therefore returned `companion`; authenticated Chrome 320x720 reached `More -> Audio` but rendered the status-only companion with zero workspace iframes.

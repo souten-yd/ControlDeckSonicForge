@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import selectinload
@@ -18,7 +19,8 @@ from .events import EventBus
 from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
 from .host.files import read_grant
 from .jobs import HostedExecution, JobManager
-from .schemas import LocalizationBatchCreate, SetupApplyRequest, TaskRequest, VoiceCreate
+from .schemas import LocalizationBatchCreate, SetupApplyRequest, SetupCredentials, TaskRequest, VoiceCreate
+from . import uploads
 from . import setup as setup_service
 from . import __version__
 
@@ -73,6 +75,16 @@ async def _prepare_task(
     request: Request, body: TaskRequest, *, detached_host_job: bool = False
 ) -> tuple[dict[str, Any], HostedExecution | None]:
     payload = body.model_dump(mode="json"); identity = await _host_identity(request); hosted: HostedExecution | None = None
+    # Uploaded audio is already on this machine, so it resolves without a Host
+    # round trip. Copy it into the job's staging area so the durable job owns a
+    # file whose lifetime it controls, and the upload can be replayed.
+    upload_input = payload.get("input", {}).get("upload_id")
+    if upload_input:
+        try: source = uploads.resolve(settings, str(upload_input))
+        except uploads.UploadError as exc: raise HTTPException(status_code=400, detail={"code": "invalid_upload", "message": str(exc)}) from exc
+        staging = settings.data_dir / "tmp" / "imports"; staging.mkdir(parents=True, exist_ok=True)
+        staged = staging / f"{uuid.uuid4().hex}.wav"; shutil.copyfile(source, staged)
+        payload["input"]["_internal_staged_input"] = str(staged)
     if identity is not None:
         if "jobs.write" not in identity.granted_capabilities: raise HTTPException(status_code=403, detail={"code": "capability_not_granted", "message": "jobs.write is required"})
         created = await host_client.create_or_attach_job(identity, title=f"SonicForge: {body.task}", detached=detached_host_job); identity = await host_client.identity_from_job_response(identity, created, required=detached_host_job); host_job = created.get("job") if isinstance(created, dict) else None; host_job_id = host_job.get("id") if isinstance(host_job, dict) else None
@@ -109,7 +121,7 @@ async def _run_setup_job(job_id: str, body: SetupApplyRequest, hosted: HostedExe
         await jobs._set(job_id, state="canceled", progress=1.0, error_code="canceled", error_message="Setup canceled")
         await events.publish({"type": "setup", "job_id": job_id, "state": "canceled"})
     except Exception as exc:
-        await jobs._set(job_id, state="failed", progress=1.0, error_code="setup_failed", error_message=str(exc)[:500])
+        await jobs._set(job_id, state="failed", progress=1.0, error_code="setup_failed", error_message=str(exc)[-1200:])
         await events.publish({"type": "setup", "job_id": job_id, "state": "failed"})
     finally:
         setup_tasks.pop(job_id, None); jobs.hosted.pop(job_id, None)
@@ -161,6 +173,31 @@ async def capabilities():
 @app.get("/addon/v1/setup/status")
 async def setup_status():
     with session_factory() as session: return setup_service.status(session)
+
+
+@app.post("/addon/v1/uploads")
+async def create_upload(file: UploadFile = File(...)):
+    """Accept audio recorded or picked in the browser.
+
+    The ControlDeck picker is the right path for audio that already lives in a
+    project. It cannot reach a microphone recording, and on a phone it is not
+    the picker the person expects, so browser-side audio arrives here instead.
+    """
+    try:
+        return await uploads.store(settings, file, filename=file.filename)
+    except uploads.UploadError as exc:
+        raise HTTPException(status_code=400, detail={"code": "invalid_upload", "message": str(exc)}) from exc
+
+
+@app.get("/addon/v1/setup/credentials")
+async def setup_credentials_state(): return setup_service.credential_state(settings)
+
+
+@app.put("/addon/v1/setup/credentials")
+async def set_setup_credentials(body: SetupCredentials):
+    token = body.huggingface_token
+    setup_service.write_credentials(settings, {"huggingface_token": (token.strip() or None) if isinstance(token, str) else None})
+    return setup_service.credential_state(settings)
 
 
 @app.get("/addon/v1/setup/plan")
@@ -253,6 +290,14 @@ async def create_voice(body: VoiceCreate, request: Request):
     if body.source_type in {"clone", "trained", "imported"} and not body.rights_confirmed: raise HTTPException(status_code=400, detail={"code": "voice_rights_confirmation_required", "message": "Voice rights confirmation is required"})
     recipe = dict(body.recipe); identity = await _host_identity(request)
     if body.source_type == "clone":
+        # Reference audio recorded or picked in the browser is already here.
+        upload_id = recipe.pop("reference_upload", None)
+        if upload_id:
+            try: source = uploads.resolve(settings, str(upload_id))
+            except uploads.UploadError as exc: raise HTTPException(status_code=400, detail={"code": "invalid_upload", "message": str(exc)}) from exc
+            voices_dir = settings.data_dir / "voices"; voices_dir.mkdir(parents=True, exist_ok=True)
+            target = voices_dir / f"{uuid.uuid4().hex}.wav"; shutil.copyfile(source, target)
+            recipe["reference_audio"] = str(target.relative_to(settings.data_dir))
         grant_id = recipe.pop("reference_grant", None)
         if grant_id:
             if identity is None: raise HTTPException(status_code=401, detail="ControlDeck grant requires Host authentication")

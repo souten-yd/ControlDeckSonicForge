@@ -46,6 +46,8 @@ class Settings:
     def models_dir(self) -> Path: return self.data_dir / "models"
     @property
     def logs_dir(self) -> Path: return self.data_dir / "logs"
+    @property
+    def credentials_path(self) -> Path: return self.data_dir / "credentials.json"
 
 
 def load_settings() -> Settings:

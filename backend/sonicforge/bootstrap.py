@@ -7,6 +7,7 @@ from .delivery_api import create_delivery_router
 from .device_api import create_device_router
 from .job_extensions import install_job_extensions
 from .live_api import create_live_router
+from .live_v2 import create_live_v2_router
 from .live_streaming_extensions import install_live_streaming_extensions
 from .local_api import create_local_router
 from .meeting_api import create_meeting_router
@@ -41,6 +42,9 @@ def _install_extension_routers() -> None:
     app.include_router(create_delivery_router(base))
     app.include_router(create_device_router(base))
     app.include_router(create_live_router(base))
+    # sonic-live/2。ASR と TTS をセッション中ずっと常駐させたまま話し続ける
+    # 経路で、返事は生成しながら音で返す。書かれていたが繋がっていなかった。
+    app.include_router(create_live_v2_router(base))
     app.include_router(create_meeting_router(base))
     app.include_router(create_local_router(base))
     _move_frontend_last()

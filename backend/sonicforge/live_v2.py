@@ -634,14 +634,26 @@ def create_live_v2_router(base) -> APIRouter:
         finally:
             if spool is not None:
                 spool.discard()
-            if meeting_queue is not None and meeting_task is not None:
-                try:
-                    await meeting_queue.put(None)
-                    await asyncio.wait_for(meeting_task, timeout=5)
-                except (TimeoutError, asyncio.CancelledError):
-                    meeting_task.cancel()
-                    await asyncio.gather(meeting_task, return_exceptions=True)
-            if resources is not None:
-                await resources.close(status=status)
+
+            async def _release() -> None:
+                if meeting_queue is not None and meeting_task is not None:
+                    try:
+                        await meeting_queue.put(None)
+                        await asyncio.wait_for(meeting_task, timeout=5)
+                    except (TimeoutError, asyncio.CancelledError):
+                        meeting_task.cancel()
+                        await asyncio.gather(meeting_task, return_exceptions=True)
+                if resources is not None:
+                    await resources.close(status=status)
+
+            # 切断でこの coroutine ごと cancel されることがある。そのまま
+            # await すると後片付けの途中で降ろされ、常駐させた ASR/TTS の
+            # プロセスがセッションより長生きする。shield して必ず終わらせる。
+            release = asyncio.ensure_future(_release())
+            try:
+                await asyncio.shield(release)
+            except asyncio.CancelledError:
+                await asyncio.gather(release, return_exceptions=True)
+                raise
 
     return router

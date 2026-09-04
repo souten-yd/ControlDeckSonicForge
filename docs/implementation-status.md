@@ -633,4 +633,21 @@ Exact-branch real checks against the already provisioned runtime and model cache
 
 OpenCode inspection documentation said the tool accepts either a Job or Asset, but the published schema and endpoint accepted only `asset_id`. The schema, manifest label and endpoint now accept exactly one of `job_id` or `asset_id`; direct exact-branch endpoint execution passed for both forms. The Job-ID form remains **NOT TESTED through the installed OpenCode projection** because the installed ControlDeck manifest still exposes the old v0.5.1 asset-only schema. It requires a newly built and installed SonicForge release before that external contract can be credited.
 
-The repair branch passed 121 tests, `compileall` and `git diff --check`. The full test batch emitted the existing Starlette/httpx deprecation and an event-loop cleanup warning in `test_trusted_local_asr_needs_no_control_deck_auth`; neither failed the run. The temporary exact-branch service was stopped after validation, and the ControlDeck-managed `cdapp-feature-sonic-forge.service` was restored to the packaged v0.5.1 binary. Its health endpoint returned `healthy`, with all installed packs reporting `ok`. That installed v0.5.1 binary does **not** contain this repair, so browser generation remains unfixed until a release/update installs the changed bundle. Physical M5 behavior was not part of this repair and remains **NOT TESTED** because no board was connected.
+The repair branch passed 121 tests, `compileall` and `git diff --check`. The full test batch emitted the existing Starlette/httpx deprecation and an event-loop cleanup warning in `test_trusted_local_asr_needs_no_control_deck_auth`; neither failed the run. Physical M5 behavior was not part of this repair and remains **NOT TESTED** because no board was connected.
+
+## 12. v0.5.2 merge, release and installed acceptance — 2026-09-04
+
+PR #19 head `3fdd7700ce1d988245917e627e5cea26cb34d974` passed local acceptance and batched CI run `33881445965`, then merged without force as `7e8e26256f106f5f84b505ee2f73a08df204ef3b`. The post-merge focused suite passed 34 tests and `compileall`; the tag-triggered CI run `33881676158` also passed on the merge commit.
+
+Release v0.5.2 was built from merged `main` and published with the four required assets. The Linux x86_64 artifact is 30,105,668 bytes with SHA-256 `7bfa516c55b28fa2b94da30bd291e95354d079ff49fbe80b7efd6851456906d9`. A clean re-download matched the adjacent checksum and GitHub digest, verified against the registered SonicForge publisher key, and the packaged binary passed read-only `doctor`. A one-byte artifact mutation was rejected during pre-publication acceptance.
+
+ControlDeck's generic trusted Release Bundle provider updated the managed feature side-by-side from v0.5.1 to v0.5.2. The `current` link selects `versions/0.5.2`; `cdapp-feature-sonic-forge.service` and `control-deck-web.service` remained active after a Host restart. ControlDeck reported the feature installed, managed, enabled and healthy, and the persisted effective Add-on manifest reported version 0.5.2, `mobile: embedded`, and the Job-or-Asset `sonic.inspect` contract.
+
+Installed-runtime acceptance passed:
+
+- direct API CPU Small-SFX generation completed `job:ed9c0821-6450-4d25-8b70-dbbca5cc9037` as `asset:63f41c8b-9b14-43e2-8b0b-e560aaa3487f` without a Hugging Face token or online metadata fetch;
+- the installed standalone browser UI completed an SFX generation with no JavaScript or HTTP errors; at 320 px the simulated ControlDeck bridge state had zero horizontal overflow;
+- real OpenCode `sonic.generate` completed `job:7d2adac1-26db-4228-b08d-bdc1269e09d0` as `asset:ddc4df5e-b36f-45ed-8fbb-d27bebdcc720`;
+- real OpenCode `sonic.inspect(job_id)` returned that Job in terminal `succeeded` state with the same Asset, proving the updated schema was re-projected after installation.
+
+The authenticated ControlDeck parent-page navigation was **NOT TESTED** in a real signed-in Chrome session during this release pass because no reusable browser credential was available. The persisted effective manifest, bridge-mode 320 px layout, direct installed UI and post-restart service/API paths were checked. The existing physical M5 limitation remains **NOT TESTED** and is unrelated to this release.

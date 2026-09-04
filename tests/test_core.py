@@ -260,6 +260,24 @@ def test_agent_generate_unwraps_control_deck_envelope(env):
             time.sleep(.03)
         assert job['state']=='succeeded',job
 
+def test_agent_inspect_accepts_job_or_asset_reference(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        request={"task":"speech.tts.synthesize","input":{"text":"inspect"},"profile":"default","quality":"balanced","content_language":"en","output":{"format":"wav","sample_rate":None,"channels":None},"routing":{"engine":"fake","model":None,"device":"auto"},"seed":None,"project_output_grant":None}
+        created=c.post('/addon/v1/tasks',json=request)
+        job_id=created.json()['job_id']
+        for _ in range(100):
+            job=c.get('/addon/v1/jobs/'+job_id.replace(':','%3A')).json()
+            if job['state'] not in {'queued','running'}: break
+            time.sleep(.03)
+        inspected_job=c.post('/addon/v1/agent/inspect',json={"job_id":job_id})
+        assert inspected_job.status_code==200,inspected_job.text
+        assert inspected_job.json()['id']==job_id
+        asset_id=job['result']['asset_id']
+        inspected_asset=c.post('/addon/v1/agent/inspect',json={"asset_id":asset_id})
+        assert inspected_asset.status_code==200,inspected_asset.text
+        assert inspected_asset.json()['id']==asset_id
+
 def test_pipeline_routes_precede_spa_mount(env):
     m=load_app()
     with TestClient(m.app) as c:

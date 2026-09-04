@@ -2,7 +2,7 @@
   "api_version": "2",
   "id": "sonic-forge",
   "name": "SonicForge",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Japanese and English speech, game audio and music generation",
   "publisher": "souten-yd",
   "requires": {"addon_contract": ">=2.0 <3.0"},
@@ -25,7 +25,7 @@
       {"id":"sonic.generate","label":"Generate speech, sound or music","endpoint":"/addon/v1/agent/generate","schema_path":"/schemas/generate-request.json","permission":"workflows.run"},
       {"id":"sonic.pipeline","label":"Run a typed speech/audio pipeline","endpoint":"/addon/v1/agent/pipeline","schema_path":"/schemas/pipeline-request.json","permission":"workflows.run"},
       {"id":"sonic.transcribe","label":"Transcribe audio","endpoint":"/addon/v1/agent/transcribe","schema_path":"/schemas/speech-transcribe-request.json","permission":"workflows.run"},
-      {"id":"sonic.inspect","label":"Inspect a SonicForge asset","endpoint":"/addon/v1/agent/inspect","schema_path":"/schemas/asset-reference.json","permission":"workflows.run"},
+      {"id":"sonic.inspect","label":"Inspect a SonicForge job or asset","endpoint":"/addon/v1/agent/inspect","schema_path":"/schemas/asset-reference.json","permission":"workflows.run"},
       {"id":"sonic.pack","label":"Place a SonicForge asset in the current project","endpoint":"/addon/v1/agent/pack","schema_path":"/schemas/project-asset-placement.json","permission":"workflows.run"}
     ],
     "device_relays": [

@@ -610,3 +610,27 @@ Exact-head and post-merge evidence:
 - the single batched GitHub workflow run `32920460756` passed on merged SonicForge `main` head `947aceda7980cbd29a0c2451a2a6fa5249431b54`.
 
 The physical M5 board remains **NOT TESTED** because no board was connected. Previously recorded real model, browser, Relay, Resource Broker, long-session, release and delivery evidence remains the acceptance evidence for the unchanged runtime code.
+
+## 11. Stable Audio SFX and OpenCode repair — 2026-09-04
+
+The user accepted the gated `stabilityai/stable-audio-3-small-sfx` terms with their Hugging Face account. A clean Game Audio setup then completed and activated the pinned model snapshot at revision `ae12755283df...`. The access token is required only for gated provisioning; normal generation must not receive or depend on that credential.
+
+Real installed-service diagnosis found two generation defects after successful setup:
+
+- Transformers attempted an optional online metadata lookup during first generation, despite the provisioned snapshot being complete. Because ordinary workers correctly receive no provisioning token, Hugging Face returned 401.
+- the pinned Stable Audio implementation printed optional-acceleration diagnostics to stdout, corrupting SonicForge's JSON-lines worker protocol and reducing the visible Job error to `worker emitted invalid JSON protocol data`.
+
+The Stable Audio worker is now explicitly cache-only after provisioning (`HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`), and all upstream imports/model loading/generation stdout is redirected to stderr. Provisioning credentials remain outside ordinary generation workers.
+
+Exact-branch real checks against the already provisioned runtime and model cache passed:
+
+- direct worker execution generated a 0.2 s, 44.1 kHz stereo WAV;
+- the real task API completed `job:ba2a69e6-7337-4068-8cdb-bf4898931962` as `asset:c9df8d89-c3ed-4384-ae81-6eff5b58cbed` (35,324 bytes);
+- real OpenCode `sonic.generate` completed `job:8c123054-65d0-4a88-9b05-ceb9020661e4` as `asset:598cdd7d-beed-4a73-88fa-076883467ea4`;
+- real OpenCode `sonic.pipeline` completed `job:2c2643e5-0562-413e-971d-0bbbecd60bfe` as `asset:2dca2d7f-63e0-4393-bef8-80c57a7d7e74`;
+- a Japanese OpenCode prompt completed `job:85daaaf6-55ec-4c5e-ab7d-608d4abfcc60` as `asset:acc48da5-56a7-4793-9919-8a303cc34c26`, a 0.5 s, 44.1 kHz stereo WAV (88,244 bytes), after Host text normalization;
+- real OpenCode `sonic.inspect` returned provenance for the generated Japanese asset.
+
+OpenCode inspection documentation said the tool accepts either a Job or Asset, but the published schema and endpoint accepted only `asset_id`. The schema, manifest label and endpoint now accept exactly one of `job_id` or `asset_id`; direct exact-branch endpoint execution passed for both forms. The Job-ID form remains **NOT TESTED through the installed OpenCode projection** because the installed ControlDeck manifest still exposes the old v0.5.1 asset-only schema. It requires a newly built and installed SonicForge release before that external contract can be credited.
+
+The repair branch passed 121 tests, `compileall` and `git diff --check`. The full test batch emitted the existing Starlette/httpx deprecation and an event-loop cleanup warning in `test_trusted_local_asr_needs_no_control_deck_auth`; neither failed the run. The temporary exact-branch service was stopped after validation, and the ControlDeck-managed `cdapp-feature-sonic-forge.service` was restored to the packaged v0.5.1 binary. Its health endpoint returned `healthy`, with all installed packs reporting `ok`. That installed v0.5.1 binary does **not** contain this repair, so browser generation remains unfixed until a release/update installs the changed bundle. Physical M5 behavior was not part of this repair and remains **NOT TESTED** because no board was connected.

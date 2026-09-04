@@ -392,7 +392,11 @@ async def agent_transcribe(request: Request):
 
 @app.post("/addon/v1/agent/inspect")
 async def agent_inspect(request: Request):
-    value = _agent_arguments(await request.json()); return await get_asset(str(value.get("asset_id") or ""))
+    value = _agent_arguments(await request.json())
+    job_id = value.get("job_id")
+    if isinstance(job_id, str) and job_id:
+        return await get_job(job_id)
+    return await get_asset(str(value.get("asset_id") or ""))
 
 
 @app.post("/addon/v1/agent/pack")

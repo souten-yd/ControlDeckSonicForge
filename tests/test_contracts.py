@@ -8,3 +8,11 @@ def test_addon_manifest_shape():
 def test_json_schemas_are_valid():
     for p in Path('schemas').glob('*.json'):
         Draft202012Validator.check_schema(json.loads(p.read_text()))
+
+def test_agent_inspect_schema_accepts_exactly_one_reference_kind():
+    schema=json.loads(Path('schemas/asset-reference.json').read_text())
+    validator=Draft202012Validator(schema)
+    assert not list(validator.iter_errors({"asset_id":"asset:abc"}))
+    assert not list(validator.iter_errors({"job_id":"job:abc"}))
+    assert list(validator.iter_errors({}))
+    assert list(validator.iter_errors({"asset_id":"asset:abc","job_id":"job:abc"}))

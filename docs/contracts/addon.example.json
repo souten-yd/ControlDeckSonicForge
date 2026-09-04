@@ -139,7 +139,7 @@
       },
       {
         "id": "sonic.inspect",
-        "label": "Inspect a SonicForge audio asset",
+        "label": "Inspect a SonicForge job or audio asset",
         "endpoint": "/addon/v1/agent/inspect",
         "schema_path": "/schemas/asset-reference.json",
         "permission": "workflows.run"

@@ -142,15 +142,25 @@ def _close_process_transport(proc: asyncio.subprocess.Process) -> None:
         transport.close()
 
 
-def _worker_environment(settings: Settings) -> dict[str, str]:
+def _worker_environment(
+    settings: Settings, engine_id: str | None = None
+) -> dict[str, str]:
     ace_project_root = settings.cache_dir / "ace-step"
-    return {
+    env = {
         **os.environ,
         "PYTHONPATH": str(settings.repo_root),
         "HF_HOME": str(settings.models_dir / "huggingface"),
         "ACESTEP_PROJECT_ROOT": str(ace_project_root),
         "ACESTEP_CHECKPOINTS_DIR": str(settings.models_dir / "ace-step"),
     }
+    if engine_id == "audio.stable-audio-3":
+        # Provisioning downloads the complete gated snapshot before atomically
+        # activating Game Audio. Generation is cache-only so an optional
+        # Transformers metadata probe cannot turn an installed pack into a 401,
+        # and provisioning credentials stay out of ordinary worker processes.
+        env["HF_HUB_OFFLINE"] = "1"
+        env["TRANSFORMERS_OFFLINE"] = "1"
+    return env
 
 
 async def _stderr_tail(stream: asyncio.StreamReader | None) -> bytes:
@@ -185,7 +195,7 @@ async def execute(
         argv = [str(python)] + ([str(script)] if str(script) else [])
     else:
         argv = [str(python), str(script)]
-    env = _worker_environment(settings)
+    env = _worker_environment(settings, engine_id)
     proc = await asyncio.create_subprocess_exec(
         *argv,
         stdin=asyncio.subprocess.PIPE,

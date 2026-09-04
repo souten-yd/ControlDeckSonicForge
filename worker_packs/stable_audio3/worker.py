@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 payload = json.loads(sys.stdin.readline())
@@ -21,8 +22,11 @@ print(
 )
 
 try:
-    import soundfile as sf
-    from stable_audio_3 import StableAudioModel
+    # Upstream emits optional-acceleration diagnostics on stdout. Stdout is the
+    # SonicForge JSON-lines protocol, so isolate all upstream chatter on stderr.
+    with redirect_stdout(sys.stderr):
+        import soundfile as sf
+        from stable_audio_3 import StableAudioModel
 
     inp = request.get("input", {})
     user_prompt = str(inp.get("prompt") or inp.get("description") or "").strip()
@@ -48,7 +52,8 @@ try:
         raise ValueError(
             "GPU Small-SFX is experimental; use CPU or explicitly enable the experimental route"
         )
-    model = StableAudioModel.from_pretrained(model_name, device=device)
+    with redirect_stdout(sys.stderr):
+        model = StableAudioModel.from_pretrained(model_name, device=device)
     print(
         json.dumps(
             {
@@ -59,13 +64,14 @@ try:
         ),
         flush=True,
     )
-    audio = model.generate(
-        prompt=prompt,
-        duration=duration,
-        steps=8,
-        seed=request.get("seed", -1) if request.get("seed") is not None else -1,
-        batch_size=1,
-    )
+    with redirect_stdout(sys.stderr):
+        audio = model.generate(
+            prompt=prompt,
+            duration=duration,
+            steps=8,
+            seed=request.get("seed", -1) if request.get("seed") is not None else -1,
+            batch_size=1,
+        )
     if hasattr(audio, "detach"):
         audio = audio.detach().float().cpu().numpy()
     if getattr(audio, "ndim", 0) == 3:

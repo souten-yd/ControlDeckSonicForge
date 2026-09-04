@@ -40,3 +40,21 @@ def test_worker_environment_keeps_ace_step_writes_out_of_source(env):
         settings.models_dir / "ace-step"
     )
     assert worker_env["ACESTEP_PROJECT_ROOT"] != str(settings.repo_root)
+
+
+def test_stable_audio_worker_is_cache_only_after_provisioning(env):
+    settings = load_settings()
+
+    worker_env = _worker_environment(settings, "audio.stable-audio-3")
+
+    assert worker_env["HF_HUB_OFFLINE"] == "1"
+    assert worker_env["TRANSFORMERS_OFFLINE"] == "1"
+
+
+def test_other_workers_do_not_inherit_stable_audio_offline_policy(env):
+    settings = load_settings()
+
+    worker_env = _worker_environment(settings, "music.ace-step-1.5")
+
+    assert "HF_HUB_OFFLINE" not in worker_env
+    assert "TRANSFORMERS_OFFLINE" not in worker_env

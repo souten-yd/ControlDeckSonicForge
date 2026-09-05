@@ -140,3 +140,56 @@ def test_a_job_shares_the_device_with_a_resident_llm(env):
                  "audio.master", "music.compose"):
         estimate = manager._resource_estimate({"task": task}, "job_1")
         assert estimate["compute_mode"] == "shared-safe", task
+
+
+def test_the_declared_vram_matches_what_the_engines_measured(env):
+    """多めに言うと、LLM が載っている間は空きがあっても弾かれる。
+
+    実測（2026-09-05、gfx1201 / R9700、GPU 占有）:
+
+        speech.asr.transcribe   1.84 GiB   whisper-large-v3-turbo、5 秒の音声
+        speech.tts.synthesize   2.49 GiB   Qwen3-TTS CustomVoice、bfloat16
+        music.*                11.78 GiB   ACE-Step DiT の読み込み
+
+    LLM 21.42 GiB が載っているときの残りは 10.44 GiB なので、実測値なら ASR も
+    TTS も共存できる。以前の申告（5 / 8 / 18 GB）では全部弾かれていた。
+    """
+    from sonicforge.config import load_settings
+    from sonicforge.db import make_session_factory
+    from sonicforge.events import EventBus
+    from sonicforge.jobs import JobManager
+
+    settings = load_settings()
+    ensure_directories(settings)
+    manager = JobManager(settings, make_session_factory(settings), EventBus())
+    expected = {
+        "speech.asr.transcribe": 3 * 1024**3,
+        "speech.tts.synthesize": 4 * 1024**3,
+        "music.compose": 13 * 1024**3,
+    }
+    for task, peak in expected.items():
+        estimate = manager._resource_estimate({"task": task}, "job_1")
+        assert estimate["vram"]["execution_peak_bytes"] == peak, task
+
+
+def test_speech_runs_in_bfloat16():
+    """float16 は指数部が狭く、logits が溢れると確率に NaN が入る。
+
+    その NaN を torch.multinomial が踏むと、ROCm では assert カーネルが HIP 719
+    （unspecified launch failure）で落ちる。2026-09-05 に単体で再現した:
+
+        正常な確率  語彙 20 万でも通る
+        NaN 混入    at::native::_assert_async_cuda_kernel が HIP 719 で落ちる
+
+    ASR は貪欲デコードなので今は multinomial を通らないが、同じ桁溢れの上に
+    乗っている。bfloat16 は指数部が fp32 と同じ幅なので溢れない。実測でも
+    bfloat16 の方が速かった（ASR 5 秒の音声で 4.29 → 3.66 秒）。
+    """
+    from pathlib import Path
+
+    root = Path(__file__).parents[1] / "worker_packs"
+    for path in (root / "whisper" / "worker.py", root / "whisper" / "live_worker.py",
+                 root / "qwen_tts" / "worker.py", root / "qwen_tts" / "live_worker.py"):
+        source = path.read_text(encoding="utf-8")
+        assert "torch.bfloat16" in source, path.name
+        assert "torch.float16" not in source, path.name

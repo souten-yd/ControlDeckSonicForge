@@ -41,7 +41,12 @@ def asr_pipe(model_id: str):
     if cached is not None:
         return cached
     device = 0 if torch.cuda.is_available() else -1
-    dtype = torch.float16 if device >= 0 else torch.float32
+    # bfloat16 にする。float16 は指数部が狭く、logits が溢れると確率に NaN が
+    # 入る。その NaN を torch.multinomial が踏むと、ROCm では assert カーネルが
+    # HIP 719（unspecified launch failure）で落ちる（2026-09-05 に単体再現）。
+    # ASR は貪欲デコードなので今は multinomial を通らないが、同じ桁溢れの上に
+    # 乗っている。TTS 側は既に bfloat16 で、そちらは実機で正常に生成できている。
+    dtype = torch.bfloat16 if device >= 0 else torch.float32
     model = AutoModelForSpeechSeq2Seq.from_pretrained(
         model_id,
         torch_dtype=dtype,

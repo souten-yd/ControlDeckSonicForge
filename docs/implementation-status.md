@@ -6,6 +6,18 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
 
 ## GPT-SoVITS engine selection and R9700 evidence (2026-09-05)
 
+- PR #27 was accepted at exact head
+  `605fcca6e611d15a42babe9202ea9159b8213b3d`: local `./sf.sh test` passed 133
+  tests, the current ControlDeck Host's nine directly related contract modules
+  passed 101 tests, and batched validation run `33949545513` passed. It merged as
+  `8d0b5ce7355a61c83a1f8e9e8220b6da448f46c2`.
+- A post-merge `main` smoke generated GPT-SoVITS job
+  `job:3cefe251-6f3b-47a7-9be5-34463f155317` and persisted
+  `asset:f716acec-69fa-418a-9c59-7ab012743b53`: 3.900 s, 32 kHz, mono WAV,
+  SHA-256 `479f9f87f98c2805f2ec3f514b74c06c9556f91ad32625e8d702b4015fde6f14`.
+  The temporary reference voice was deleted and the saved engine was restored to
+  Qwen3-TTS afterward.
+
 - The fixed comparison sentence was generated three times per engine on the R9700
   (`gfx1201`) after stopping the LLM workload. GPT-SoVITS used upstream
   `RVC-Boss/GPT-SoVITS` commit `48b1a0169a28582a8984402f82cf438d3bfa6aca`, the

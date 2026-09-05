@@ -4,6 +4,49 @@ Last updated: 2026-09-05
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
 
+## v0.6.1 installed acceptance (2026-09-05)
+
+- PR #30 passed batched validation run `33951884076` at exact head
+  `ea41b2d1704887b785da0ab29ad136d8bc4a7605` and merged as
+  `5fa1204d5f8d0d60bd26d6ad5e2c0ad544562c67`. The v0.6.1 tag targets that
+  merge and tag-triggered run `33951948913` passed. The final published artifact
+  is 30,149,321 bytes with SHA-256
+  `70df162c7cf48a31fc19011a8d1a66ec5ed33fed9093dd232bfe37954ceda0f0`;
+  a fresh GitHub download passed both publisher-signature/context verification
+  and its SHA-256 sidecar.
+- ControlDeck's generic Feature updater switched SonicForge from 0.6.0 to 0.6.1.
+  The effective `current` target and running process both resolved to the 0.6.1
+  version directory. ControlDeck and `cdapp-feature-sonic-forge.service` remained
+  active after a ControlDeck restart; SonicForge health was `healthy` with core,
+  Speech Essentials, GPT-SoVITS, Game Audio and Music all `ok`.
+- With the persisted preference set to GPT-SoVITS and request routing omitted,
+  job `job:605a3264-446f-4fb8-bbba-16bed0f73d6f` produced
+  `asset:4ea25653-6c67-4167-9eae-1fe4915d7d75`: a 4.680 s, 32 kHz, mono WAV,
+  299,564 bytes, SHA-256
+  `fac3f3201fae5a0a5f96aaa6653a94ae5023803739a54397c1411d2d017fb7f8`.
+  Provenance identifies `tts.gpt-sovits`, clone mode and the selected reference
+  voice. Semantic listening was `not_checked`.
+- After switching and persisting Qwen3-TTS, another routing-omitted request
+  (`job:866e2652-c0c0-41a9-af46-8959cbb05f5c`) produced
+  `asset:4df88337-8c2e-4189-9a9f-b56ec96b25a7`: a 6.160 s, 24 kHz, mono WAV,
+  295,724 bytes, SHA-256
+  `f898487505e2e54839e72516e6ef2a5e68ae0643c136b9b4f4ef0456664537df`.
+  Provenance identifies `tts.qwen3`; semantic listening was `not_checked`.
+- The installed 0.6.1 UI passed a real headless Chrome check at 485 CSS pixels in
+  Japanese and English. GPT-SoVITS showed reference-sample/voice-clone controls,
+  hid Qwen style controls and listed the registered clone; Qwen restored its
+  built-in Voice and style controls. Settings listed custom local audio,
+  `あみたろ（ITA・よふかし）` and `ずんだもん`; no checked page/API errors or
+  horizontal overflow occurred. A missing-consent production install request was
+  rejected with HTTP 400. No third-party terms were accepted and neither catalog
+  sample was installed during acceptance. The temporary rights-confirmed reference
+  voice was deleted and the final saved preference is Qwen3-TTS.
+- A fresh Host health observation before and after ControlDeck restart reported
+  the navigation, embedded workspace (`mobile: embedded`) and Settings
+  contributions as available. An authenticated parent-ControlDeck 320 px iframe
+  browser run remains NOT TESTED because no reusable authenticated browser session
+  was available; the direct installed Add-on browser path above was tested.
+
 ## GPT-SoVITS sample selection merge and 0.6.1 release candidate (2026-09-05)
 
 - PR #29 was accepted at exact head
@@ -83,9 +126,13 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
   resolved the observed Half-input/float-bias mismatch. Its third run generated
   4.621 s of audio in 10.522 s, for a 0.439 realtime ratio. Peak allocated VRAM was
   2,033,598,976 bytes; 106 samples had 100% median and maximum GPU use. Runs one
-  and two were 15.596 s / 4.574 s / 0.293 and 10.368 s / 4.505 s / 0.434.
-- GPT-SoVITS therefore exceeded the Qwen3-TTS comparison ratio of 0.56 and was
-  selected; Style-Bert-VITS2 was not added to the product runtime. GPT-SoVITS now
+  and two were 15.596 s / 4.574 s / 0.293 and 10.368 s / 4.505 s / 0.434. This
+  fp32 measurement does not satisfy the current plan's required bfloat16 comparison
+  and is invalid as an engine-performance conclusion; a bfloat16 remeasurement
+  remains NOT TESTED.
+- GPT-SoVITS independently exceeded the Qwen3-TTS comparison ratio of 0.56 and was
+  selected for the optional engine path. Style-Bert-VITS2 was not added to the
+  product runtime, but was not validly ruled out by the fp32 result. GPT-SoVITS now
   has its own atomically provisioned `speech-gpt-sovits-rocm` venv and fixed,
   digest-checked upstream/model preparation. Advanced routing offers
   `tts.qwen3` and `tts.gpt-sovits`; automatic routing remains Qwen3-TTS so a

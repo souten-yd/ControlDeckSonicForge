@@ -80,6 +80,10 @@ class JobManager:
             if engine == tts_models.GPT_SOVITS_ENGINE:
                 model_id = routing.get("model") or selected["gpt_sovits_model_id"]
                 routing["model"] = model_id
+                inp = dict(request.get("input") or {})
+                if not inp.get("voice_id") and selected["gpt_sovits_voice_id"]:
+                    inp["voice_id"] = selected["gpt_sovits_voice_id"]
+                request["input"] = inp
         request["routing"] = routing
         return request
 

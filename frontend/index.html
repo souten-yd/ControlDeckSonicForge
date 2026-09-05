@@ -116,13 +116,15 @@
               <select id="speech-engine"></select>
               <p id="speech-engine-note" class="hint"></p>
               <div class="field-head">
-                <span class="field-label" data-i18n="voice">ボイス</span>
+                <span id="speech-voice-label" class="field-label" data-i18n="voice">ボイス</span>
                 <button type="button" id="speech-voice-add" class="cta-secondary" data-i18n="voiceAdd">＋ ボイスを作る</button>
               </div>
               <select id="speech-voice"></select>
               <p id="speech-voice-note" class="hint"></p>
-              <p class="section-label" data-i18n="speechStyle">話し方</p>
-              <div id="speech-style-chips" class="chips" role="radiogroup" data-i18n-label="speechStyle" aria-label="話し方"></div>
+              <div id="speech-style-fields">
+                <p class="section-label" data-i18n="speechStyle">話し方</p>
+                <div id="speech-style-chips" class="chips" role="radiogroup" data-i18n-label="speechStyle" aria-label="話し方"></div>
+              </div>
               <p class="section-label" data-i18n="speechLanguageLabel">読み上げる言語</p>
               <div id="speech-language-chips" class="chips" role="radiogroup" data-i18n-label="contentLanguage" aria-label="読み上げる言語"></div>
             </div>
@@ -333,6 +335,11 @@
             </details>
             <div id="tts-model-rows" class="rows"></div>
             <p id="tts-model-error" class="error" role="alert" hidden></p>
+            <label data-i18n="gptSamplePreset">参照サンプル
+              <select id="gpt-sample-preset"><option value="">自分の音声</option></select>
+            </label>
+            <p id="gpt-sample-source-note" class="hint"></p>
+            <p class="hint"><a id="gpt-sample-source" target="_blank" rel="noreferrer noopener"></a> <a id="gpt-sample-terms" target="_blank" rel="noreferrer noopener"></a></p>
             <div class="form-row">
               <label data-i18n="gptSampleName">サンプル音声名
                 <input id="gpt-sample-name" type="text" maxlength="120">
@@ -346,7 +353,7 @@
             </label>
             <label class="check">
               <input id="gpt-sample-rights" type="checkbox">
-              <span data-i18n="voiceRights">この音声を利用・複製する権利があることを確認します</span>
+              <span id="gpt-sample-rights-label" data-i18n="voiceRights">この音声を利用・複製する権利があることを確認します</span>
             </label>
             <div class="form-row gpt-sample-file-row">
               <input id="gpt-sample-file" type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg,.webm">

@@ -4,6 +4,20 @@ Last updated: 2026-09-05
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
 
+## GPT-SoVITS sample selection merge and 0.6.1 release candidate (2026-09-05)
+
+- PR #29 was accepted at exact head
+  `2771c5eb45269d7d8c06bc6a4dd7e0b582e0544d`: local `./sf.sh test` passed 134
+  tests and batched validation run `33951668235` passed. It merged as
+  `82f38d4c61b973756baff4684156f9db29982981` with no review findings or merge
+  conflict.
+- A fresh post-merge `main` run of `./sf.sh test` passed the same 134 tests. The
+  two warnings were the existing Starlette/httpx deprecation and subprocess
+  transport cleanup warning.
+- Release metadata is set to `0.6.1`. Signed bundle verification, publication,
+  installation into ControlDeck, installed-browser checks and installed-runtime
+  GPT-SoVITS inference remain NOT TESTED at this release-candidate stage.
+
 ## GPT-SoVITS sample selection and engine-specific UI candidate (2026-09-05)
 
 - The GPT-SoVITS Studio surface now exposes reference samples for zero-shot voice

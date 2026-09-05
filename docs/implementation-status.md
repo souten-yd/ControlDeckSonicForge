@@ -4,14 +4,53 @@ Last updated: 2026-09-05
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
 
+## v0.6.2 installed managed-state recovery acceptance (2026-09-05)
+
+- Release PR #34 passed manual batched validation run `33955427519` at exact head
+  `b062bf7b8dc0838f44def5c29d638d05f6598b6f` and merged as
+  `d31db271bd62acb8a352ebba2fa118243695ebcb`. The `v0.6.2` tag targets that
+  merge and tag-triggered run `33955611063` passed.
+- The published linux-x86_64 artifact is 30,170,000 bytes with SHA-256
+  `01a06a18563cf02e83f308616759a8e3e74897dfb0346462115e29cdf0c64ee6`.
+  The publisher signature and signed feature/version/platform/architecture
+  context passed before publication and again after a clean GitHub download;
+  the downloaded SHA-256 sidecar matched. A one-byte artifact append was
+  rejected by the verifier, and the extracted frozen executable passed
+  read-only `doctor` with both embedded manifests reporting `0.6.2`.
+- ControlDeck's generic Feature updater switched the installed service from
+  0.6.1 to 0.6.2. The effective `current` target and running `ExecStart` both
+  resolved to the 0.6.2 version directory. After restarting ControlDeck, both
+  ControlDeck and `cdapp-feature-sonic-forge.service` were active; Feature
+  status was managed/enabled/healthy at 0.6.2 and SonicForge reported core,
+  Speech Essentials, GPT-SoVITS, Game Audio and Music as `ok`.
+- The managed SQLite database passed `integrity_check` after the update and
+  retained 127 jobs, 62 assets, 2 voices, 10 meeting sessions and 12 meeting
+  segments. Exactly one legacy-import marker and one pre-import backup remained,
+  showing that the 0.6.2 restart did not repeat the import. All five setup
+  components reported `available` through the installed API.
+- The oldest recovered asset
+  `asset:0842d874-0479-48e4-8f47-bd7fb3e8720d` was fetched again through the
+  installed API. It is a 4.320 s, 24 kHz, 16-bit mono WAV, 207,404 bytes; its
+  SHA-256 `9a79ae5b58dbf3d0f53c5c7285563376779fc54897799a63bf05c75cc8008389`
+  matched the stored value.
+- A real installed Google Chrome run at 390 x 800 CSS pixels in Japanese and
+  English showed five available setup rows with zero setup buttons, 127 activity
+  rows, 62 asset cards and the two recovered voices, with no horizontal overflow.
+  The only console error was the existing `/favicon.ico` HTTP 404; no page
+  exception occurred. With setup/job/asset API URLs blocked, a fresh load showed
+  five unavailable rows, zero setup buttons, explicit errors and no false empty
+  history. Unblocking recovered 62/127 items; blocking again retained those items
+  and the five available setup states while displaying refresh errors. An
+  authenticated parent-ControlDeck iframe run remains NOT TESTED.
+
 ## Managed-state recovery and truthful loading UI (2026-09-05)
 
 - PR #33 passed batched validation run `33955252609` at exact head
   `4b6d1f1669513f1c91939ede357dab53c42b9b7b` and merged as
   `7e6f01b7c9e3cebdcc5e8f650ff05ba036fedeee`. A focused post-merge run passed
-  all 30 legacy-migration/core tests. Release metadata is set to `0.6.2`;
-  signed-bundle publication and installed 0.6.2 acceptance remain NOT TESTED at
-  this release-candidate stage.
+  all 30 legacy-migration/core tests. Release metadata was set to `0.6.2`;
+  signed-bundle publication and installed acceptance were NOT TESTED at that
+  release-candidate stage.
 - The installed 0.6.1 backend was healthy and reported all five setup components as
   available while its API still held 77 jobs and 45 assets. The reported apparent
   loss was a UI-state defect: initial/failed API reads used the same empty values as

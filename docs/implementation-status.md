@@ -14,9 +14,17 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
 - A fresh post-merge `main` run of `./sf.sh test` passed the same 134 tests. The
   two warnings were the existing Starlette/httpx deprecation and subprocess
   transport cleanup warning.
-- Release metadata is set to `0.6.1`. Signed bundle verification, publication,
-  installation into ControlDeck, installed-browser checks and installed-runtime
-  GPT-SoVITS inference remain NOT TESTED at this release-candidate stage.
+- Release metadata is set to `0.6.1`. The actual 30,150,025-byte Linux x86_64
+  candidate bundle has SHA-256
+  `55dd60ed9089fca362dd4e7ab4706749562100cb7c4712e0d2d12ca83c3af191`.
+  The repository-external production publisher key signed it and
+  `verify_release.py` accepted its identity and context; same-name artifact
+  tampering, signed-manifest tampering and a wrong feature id were rejected.
+  The focused release suite passed 7 tests. Its packaged binary passed read-only
+  `doctor`, clean test-mode Speech Essentials provisioning, served version 0.6.1
+  as healthy, and listed both sample catalog entries. Publication, installation
+  into ControlDeck, installed-browser checks and installed-runtime GPT-SoVITS
+  inference remain NOT TESTED at this release-candidate stage.
 
 ## GPT-SoVITS sample selection and engine-specific UI candidate (2026-09-05)
 

@@ -181,6 +181,7 @@ class LiveSessionResources:
     ) -> WorkerResult:
         if self.workers is None or not self.has_tts:
             raise WorkerError("live TTS worker is not available")
+        request = self.jobs._apply_tts_preferences(request)
         request = self.jobs._resolve_voice(request)
         return await self.workers.tts.execute(request, work_dir, progress)
 

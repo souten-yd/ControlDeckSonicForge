@@ -20,9 +20,10 @@ from .events import EventBus
 from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
 from .host.files import read_grant
 from .jobs import HostedExecution, JobManager
-from .schemas import LocalizationBatchCreate, SetupApplyRequest, SetupCredentials, TaskRequest, VoiceCreate
+from .schemas import LocalizationBatchCreate, SetupApplyRequest, SetupCredentials, TaskRequest, TtsPreferenceUpdate, VoiceCreate
 from . import uploads
 from . import setup as setup_service
+from . import tts_models
 from . import __version__
 
 settings = load_settings()
@@ -102,7 +103,7 @@ async def _prepare_task(
 def _health_item(component: dict[str, Any]) -> dict[str, Any]:
     state = str(component.get("state") or "missing")
     mapped = "ok" if state == "available" else "checking" if state == "installing" else "error" if state == "error" else "missing"
-    labels = {"core": "SonicForge core", "speech-essentials": "Speech Essentials", "game-audio": "Game Audio", "music": "Music"}
+    labels = {"core": "SonicForge core", "speech-essentials": "Speech Essentials", "gpt-sovits": "GPT-SoVITS", "game-audio": "Game Audio", "music": "Music"}
     detail = component.get("detail") or None
     return {"id": str(component["id"]), "label": labels.get(str(component["id"]), str(component["id"])), "state": mapped, "detail": str(detail)[:300] if detail else None}
 
@@ -204,7 +205,67 @@ async def set_setup_credentials(body: SetupCredentials):
 @app.get("/addon/v1/models")
 async def models():
     with session_factory() as session:
-        return model_document(session, fake_enabled=settings.enable_fake_worker)
+        return model_document(
+            session, settings=settings, fake_enabled=settings.enable_fake_worker
+        )
+
+
+@app.get("/addon/v1/tts/preferences")
+async def tts_preferences():
+    with session_factory() as session:
+        return tts_models.preferences(session)
+
+
+@app.put("/addon/v1/tts/preferences")
+async def set_tts_preferences(body: TtsPreferenceUpdate):
+    try:
+        with session_factory() as session:
+            return tts_models.set_preference(
+                session,
+                engine_id=body.engine_id,
+                model_id=body.gpt_sovits_model_id,
+            )
+    except tts_models.ModelPackError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/addon/v1/tts/models")
+async def tts_model_packs():
+    with session_factory() as session:
+        return tts_models.model_document(settings, session)
+
+
+@app.post("/addon/v1/tts/models/upload")
+async def upload_tts_model(file: UploadFile = File(...)):
+    try:
+        with session_factory() as session:
+            return await tts_models.install(settings, session, file)
+    except tts_models.ModelPackError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/addon/v1/tts/models/{model_id:path}/activate")
+async def activate_tts_model(model_id: str):
+    try:
+        with session_factory() as session:
+            current = tts_models.preferences(session)
+            return tts_models.set_preference(
+                session,
+                engine_id=current["engine_id"],
+                model_id=model_id,
+            )
+    except tts_models.ModelPackError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/addon/v1/tts/models/{model_id:path}")
+async def delete_tts_model(model_id: str):
+    try:
+        with session_factory() as session:
+            tts_models.delete(settings, session, model_id)
+        return {"deleted": True, "model_id": model_id}
+    except tts_models.ModelPackError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/addon/v1/setup/plan")

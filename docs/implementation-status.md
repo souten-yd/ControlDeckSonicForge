@@ -1,8 +1,88 @@
 # SonicForge Implementation Status
 
-Last updated: 2026-08-28
+Last updated: 2026-09-05
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
+
+## GPT-SoVITS engine selection and R9700 evidence (2026-09-05)
+
+- The fixed comparison sentence was generated three times per engine on the R9700
+  (`gfx1201`) after stopping the LLM workload. GPT-SoVITS used upstream
+  `RVC-Boss/GPT-SoVITS` commit `48b1a0169a28582a8984402f82cf438d3bfa6aca`, the
+  `lj1995/GPT-SoVITS` weights at revision
+  `336b2ec4e8d4ac74740798dd40af44e74659ecaf`, and bfloat16. Its third run generated
+  5.360 s of audio in 1.522 s, for a 3.522 realtime ratio. Peak allocated VRAM was
+  1,612,531,200 bytes; 14 `rocm-smi` samples had 99.5% median and 100% maximum GPU
+  use. Runs one and two were 9.682 s / 5.360 s / 0.554 and 1.506 s / 5.360 s /
+  3.559 respectively.
+- Style-Bert-VITS2 2.5.0 was measured in a separate venv with the
+  `litagin/style_bert_vits2_jvnv` `jvnv-F1-jp_e160_s14000.safetensors` checkpoint
+  at revision `205830ca1d49e666ddfbf2a755f0108e9cade4dd`. Keeping BERT and VITS in fp32
+  resolved the observed Half-input/float-bias mismatch. Its third run generated
+  4.621 s of audio in 10.522 s, for a 0.439 realtime ratio. Peak allocated VRAM was
+  2,033,598,976 bytes; 106 samples had 100% median and maximum GPU use. Runs one
+  and two were 15.596 s / 4.574 s / 0.293 and 10.368 s / 4.505 s / 0.434.
+- GPT-SoVITS therefore exceeded the Qwen3-TTS comparison ratio of 0.56 and was
+  selected; Style-Bert-VITS2 was not added to the product runtime. GPT-SoVITS now
+  has its own atomically provisioned `speech-gpt-sovits-rocm` venv and fixed,
+  digest-checked upstream/model preparation. Advanced routing offers
+  `tts.qwen3` and `tts.gpt-sovits`; automatic routing remains Qwen3-TTS so a
+  built-in voice still works without GPT-SoVITS reference audio.
+- Settings now has a separate `gpt-sovits` one-click setup profile. A production
+  apply on the R9700 rebuilt only the separate `speech-gpt-sovits-rocm` runtime
+  and converged with fingerprint
+  `75fd677464a6e73878b90d56f91e7ed603a2d15c073a72dda15394ee998f4ad6` and model
+  patch revision 2; the existing `speech-rocm` runtime was not replaced. The
+  fixed upstream preparer was also applied to a fresh source archive and changed
+  all five targeted `weights_only=False` occurrences on the inference/model-pack
+  paths to `weights_only=True`; the three installed
+  upstream checkpoint files loaded successfully with that safe mode.
+- The selected TTS engine and GPT-SoVITS model are persisted in SonicForge's own
+  database and applied when callers omit routing, including localization and live
+  pipeline TTS paths. A branch service restart retained the GPT-SoVITS choice.
+  A browser-driven switch then persisted GPT-SoVITS, switched back to Qwen3-TTS,
+  and both subsequent preference reads returned the selected engine.
+- Settings can register a rights-confirmed GPT-SoVITS reference sample from an
+  uploaded audio file plus its exact transcript. A real 5.360 s, 32 kHz mono WAV
+  was uploaded through the same API as the settings control, saved as a GPT-SoVITS
+  clone voice, and used by a routing-unspecified job
+  (`job:a40399cb-d9bc-441a-8e75-3c36ec201d5b`). It produced
+  `asset:18a3fae5-e913-4307-a871-afe4239a5de9`, a 4.220 s, 32 kHz mono WAV with
+  SHA-256 `e0da591f906550ad53d8a2d4c6212907a12005ad088c290d69f6d2394886aa55`.
+  The temporary acceptance voice was deleted afterward.
+- After the final worker cache/lifecycle change, a fresh GPT-SoVITS job
+  (`job:7b599d63-ac30-46db-8003-06059c2a3fd5`) produced
+  `asset:08b06d83-47a3-43ee-b8bd-7e40b1af6af0`: 3.460 s, 32 kHz, mono WAV,
+  SHA-256 `856057e4d8e9d4356eb0e5b0367aa392c9a4dfc45f6711bf424e805b09911be1`.
+  Its provenance reports `tts.gpt-sovits` and model revision
+  `336b2ec4e8d4ac74740798dd40af44e74659ecaf`; its temporary sample voice was
+  deleted and the saved preference was restored to Qwen3-TTS afterward.
+- Switching the saved preference to Qwen3-TTS and again omitting request routing
+  produced `asset:87a52258-8dcc-4e5c-8e03-695c980d6c49` from
+  `job:53cc41c0-3b48-40e9-90ba-b1f0f5b53098`: 4.160 s, 24 kHz, mono WAV,
+  SHA-256 `dc3f998a044a435c3577618638d5a84781a69ec00fa2c336de586fc38ac7b47d`.
+- The model-management HTTP path accepted a 2,129,558-byte test ZIP, recorded its
+  SHA-256 `b2e8eaa90aa23e190a0a20ea96d5d04d3c0c5d279abe755c27bb7a90ab442263`,
+  extracted and activated `gpt-sovits:narrator-ja`, switched back to the built-in
+  model, deleted the custom model, and returned only the built-in model afterward.
+  The test weights were deliberately not sent to a worker.
+- A real SonicForge `speech.tts.synthesize` job through `tts.gpt-sovits`
+  (`job:a22eb244-dcf3-41b6-9197-311a74a53871`) succeeded after the final runtime
+  rebuild and persisted `asset:589c9060-b0a9-4b24-980c-47b66d36b01c`: 5.360 s,
+  32 kHz, mono WAV, SHA-256
+  `4ed9f0d3bf5b5d769828670bc61e5fa38a77547c3d7adb4633dab6fa72e00cc4`.
+  Switching the same job route back to Qwen3-TTS also succeeded
+  (`job:4fba585f-326b-4bbf-bb2e-6a84854b890c`) and persisted a 6.080 s, 24 kHz,
+  mono WAV with SHA-256
+  `8ebe1d59c9d9adc35c41cbb517824241d2cd7767da23f9cd5216471b5ad77cd4`.
+- Full `./sf.sh test`: 133 passed with two warnings (the existing Starlette
+  TestClient deprecation and subprocess transport cleanup warning).
+- A real headless Chrome check of the branch service exercised the visible Studio
+  engine selector and Settings in Japanese and English. It displayed the separate
+  GPT-SoVITS setup component, model ZIP control and sample-audio form, and showed
+  `Qwen3-TTS` and `GPT-SoVITS` in the Studio selector. The 500 CSS-pixel mobile
+  viewport had a 485-pixel document width, so there was no horizontal overflow.
+  Authenticated embedded ControlDeck browser acceptance is NOT TESTED.
 
 ## Automatic Speech Essentials Feature provisioning
 

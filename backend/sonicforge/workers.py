@@ -51,6 +51,15 @@ def route(
             settings.repo_root / "worker_packs/fake/worker.py",
         )
     if task == "speech.tts.synthesize":
+        if routing_engine == "tts.gpt-sovits":
+            py = _runtime_python(settings, "speech-gpt-sovits-rocm")
+            if not py:
+                raise WorkerError("GPT-SoVITS runtime is not installed")
+            return (
+                "tts.gpt-sovits",
+                py,
+                settings.repo_root / "worker_packs/gpt_sovits/worker.py",
+            )
         py = _runtime_python(settings, "speech-rocm") or _runtime_python(
             settings, "speech-cpu"
         )
@@ -152,12 +161,14 @@ def _worker_environment(
         "HF_HOME": str(settings.models_dir / "huggingface"),
         "ACESTEP_PROJECT_ROOT": str(ace_project_root),
         "ACESTEP_CHECKPOINTS_DIR": str(settings.models_dir / "ace-step"),
+        "XDG_CACHE_HOME": str(settings.cache_dir),
+        "SONICFORGE_GPT_SOVITS_ROOT": str(settings.models_dir / "gpt-sovits"),
     }
-    if engine_id == "audio.stable-audio-3":
-        # Provisioning downloads the complete gated snapshot before atomically
-        # activating Game Audio. Generation is cache-only so an optional
-        # Transformers metadata probe cannot turn an installed pack into a 401,
-        # and provisioning credentials stay out of ordinary worker processes.
+    if engine_id in {"audio.stable-audio-3", "tts.gpt-sovits"}:
+        # Provisioning downloads complete snapshots before atomic activation.
+        # Generation is cache-only so metadata probes cannot turn an installed
+        # pack into a network/authentication failure, and provisioning
+        # credentials stay out of ordinary worker processes.
         env["HF_HUB_OFFLINE"] = "1"
         env["TRANSFORMERS_OFFLINE"] = "1"
     return env
@@ -186,7 +197,7 @@ async def _stderr_tail(stream: asyncio.StreamReader | None) -> bytes:
 #
 # 常駐させるのは speech（TTS / ASR）だけにする。音楽と効果音は 1 回が数分かかる
 # 上に大きく、抱えたままにする利点が無い。
-_WARM_ENGINES = frozenset({"tts.qwen3", "asr.whisper"})
+_WARM_ENGINES = frozenset({"tts.qwen3", "tts.gpt-sovits", "asr.whisper"})
 _warm: dict[tuple, asyncio.subprocess.Process] = {}
 
 

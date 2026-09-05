@@ -20,9 +20,10 @@ from .db import SetupComponent
 
 PROFILE_COMPONENTS = {
     "speech-essentials": ["speech-essentials"],
+    "gpt-sovits": ["gpt-sovits"],
     "game-audio": ["game-audio"],
     "music": ["music"],
-    "full-studio": ["speech-essentials", "game-audio", "music"],
+    "full-studio": ["speech-essentials", "gpt-sovits", "game-audio", "music"],
     "cpu-essentials": ["speech-essentials"],
     "custom": [],
 }
@@ -31,6 +32,7 @@ STABILITY_TERMS = "stability-ai-community-license"
 QWEN_CUSTOM_VOICE = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
 QWEN_CLONE_BASE = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
 QWEN_VOICE_DESIGN = "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
+GPT_SOVITS_MODEL = "lj1995/GPT-SoVITS"
 KOTOBA_WHISPER = "kotoba-tech/kotoba-whisper-v2.0"
 WHISPER_TURBO = "openai/whisper-large-v3-turbo"
 STABLE_AUDIO_SMALL_SFX = "stabilityai/stable-audio-3-small-sfx"
@@ -125,6 +127,7 @@ class RuntimeSpec:
     prefetch_models: tuple[str, ...] = ()
     engine_models: tuple[str, ...] = ()
     required_terms: tuple[str, ...] = ()
+    model_preparer: Path | None = None
 
 
 def _relocate_virtualenv(runtime: Path, target: Path) -> int:
@@ -224,6 +227,25 @@ def runtime_specs(
                 ),
             )
         )
+    if "gpt-sovits" in components and backend == "rocm":
+        specs.append(
+            RuntimeSpec(
+                "gpt-sovits",
+                "speech-gpt-sovits-rocm",
+                settings.repo_root
+                / "runtimes"
+                / "speech-gpt-sovits-rocm"
+                / "requirements.txt",
+                8_000_000_000,
+                extra_install=("pyopenjtalk==0.4.1",),
+                smoke_imports=("torch", "torchaudio", "soundfile"),
+                engine_models=(GPT_SOVITS_MODEL,),
+                model_preparer=settings.repo_root
+                / "worker_packs"
+                / "gpt_sovits"
+                / "prepare.py",
+            )
+        )
 
     if "game-audio" in components:
         specs.append(
@@ -270,6 +292,8 @@ def _blockers(specs: list[RuntimeSpec]) -> list[str]:
             result.append(
                 "Music pack currently requires the experimental Linux ROCm route"
             )
+        if spec.component == "gpt-sovits" and detect_backend() != "rocm":
+            result.append("GPT-SoVITS currently requires the Linux ROCm route")
         if spec.component == "music" and not (3, 11) <= sys.version_info[:2] < (3, 13):
             result.append("ACE-Step runtime requires Python 3.11 or 3.12")
     return result
@@ -294,7 +318,7 @@ def status(session: Session) -> dict:
                 ),
                 "detail": rows[cid].detail if cid in rows else {},
             }
-            for cid in ["core", "speech-essentials", "game-audio", "music"]
+            for cid in ["core", "speech-essentials", "gpt-sovits", "game-audio", "music"]
         ],
     }
 
@@ -305,6 +329,25 @@ def plan(
     specs = runtime_specs(settings, profile, explicit)
     free = shutil.disk_usage(settings.data_dir).free
     terms = sorted({term for spec in specs for term in spec.required_terms})
+    components: list[dict] = []
+    for spec in specs:
+        existing = next((item for item in components if item["id"] == spec.component), None)
+        if existing is None:
+            existing = {
+                "id": spec.component,
+                "runtime_id": spec.runtime_id,
+                "runtime_ids": [],
+                "requirements": [],
+                "estimated_bytes": 0,
+                "models": [],
+                "terms": [],
+            }
+            components.append(existing)
+        existing["runtime_ids"].append(spec.runtime_id)
+        existing["requirements"].append(spec.requirements.name)
+        existing["estimated_bytes"] += spec.estimated_bytes
+        existing["models"].extend([*spec.prefetch_models, *spec.engine_models])
+        existing["terms"] = sorted(set(existing["terms"]) | set(spec.required_terms))
     return {
         "profile": profile,
         "backend": detect_backend(),
@@ -312,17 +355,7 @@ def plan(
         "platform": platform.platform(),
         "free_bytes": free,
         "required_bytes_estimate": sum(s.estimated_bytes for s in specs),
-        "components": [
-            {
-                "id": s.component,
-                "runtime_id": s.runtime_id,
-                "requirements": s.requirements.name,
-                "estimated_bytes": s.estimated_bytes,
-                "models": [*s.prefetch_models, *s.engine_models],
-                "terms": list(s.required_terms),
-            }
-            for s in specs
-        ],
+        "components": components,
         "warnings": (
             ["Music on ROCm is experimental until target-hardware evidence is recorded."]
             if any(s.component == "music" for s in specs)
@@ -398,6 +431,9 @@ def _fingerprint(spec: RuntimeSpec) -> str:
     for model in (*spec.prefetch_models, *spec.engine_models):
         h.update(b"\0model\0")
         h.update(model.encode())
+    if spec.model_preparer:
+        h.update(b"\0preparer\0")
+        h.update(spec.model_preparer.read_bytes())
     h.update(sys.version.encode())
     h.update(detect_backend().encode())
     return h.hexdigest()
@@ -463,6 +499,20 @@ async def _prepare_engine_models(
         or os.environ.get("SONICFORGE_SETUP_SKIP_MODEL_PREFETCH") == "1"
     ):
         return []
+    if spec.model_preparer:
+        raw = await _run_process(
+            [str(python), str(spec.model_preparer), str(settings.models_dir / "gpt-sovits")],
+            env=env,
+            capture=True,
+        )
+        for line in reversed(raw.splitlines()):
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, list):
+                return value
+        raise SetupError("GPT-SoVITS model preparation returned invalid metadata")
     if spec.component != "music":
         raise SetupError(f"unsupported engine model preparation: {spec.component}")
     checkpoint_dir = settings.models_dir / "ace-step"
@@ -528,6 +578,7 @@ async def _build_runtime(settings: Settings, spec: RuntimeSpec) -> dict:
     env = os.environ.copy()
     env.setdefault("PIP_CACHE_DIR", str(settings.cache_dir / "pip"))
     env["HF_HOME"] = str(settings.models_dir / "huggingface")
+    env["XDG_CACHE_HOME"] = str(settings.cache_dir)
     token = read_credentials(settings).get("huggingface_token")
     if token:
         # huggingface_hub reads either name depending on version.
@@ -602,6 +653,7 @@ async def apply(
     if shutil.disk_usage(settings.data_dir).free < required_bytes:
         raise SetupError("insufficient_disk_space")
     results = []
+    component_results: dict[str, list[dict]] = {}
     for index, spec in enumerate(specs):
         _upsert(
             session,
@@ -624,7 +676,11 @@ async def apply(
         except Exception as exc:
             _upsert(session, spec.component, "error", {"error": str(exc)[:300]})
             raise
-        _upsert(session, spec.component, "available", result)
+        component_results.setdefault(spec.component, []).append(result)
+        if not any(other.component == spec.component for other in specs[index + 1 :]):
+            gathered = component_results[spec.component]
+            detail = gathered[0] if len(gathered) == 1 else {"runtimes": gathered}
+            _upsert(session, spec.component, "available", detail)
         results.append({"component": spec.component, **result})
     if progress:
         await progress(1.0, "Setup complete")

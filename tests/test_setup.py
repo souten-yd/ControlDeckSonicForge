@@ -22,7 +22,8 @@ def test_runtime_bootstrap_requires_host_python(monkeypatch):
         setup._runtime_bootstrap_python()
 
 
-def test_setup_plan_and_idempotent_apply(env):
+def test_setup_plan_and_idempotent_apply(env, monkeypatch):
+    monkeypatch.setattr(setup, "detect_backend", lambda: "rocm")
     settings = load_settings()
     ensure_directories(settings)
     factory = make_session_factory(settings)
@@ -36,6 +37,7 @@ def test_setup_plan_and_idempotent_apply(env):
         setup.WHISPER_TURBO,
     ]
     assert setup.QWEN_VOICE_DESIGN == "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
+    assert plan["components"][0]["runtime_ids"] == ["speech-rocm"]
 
     with factory() as session:
         first = asyncio.run(setup.apply(settings, session, "speech-essentials"))
@@ -46,6 +48,18 @@ def test_setup_plan_and_idempotent_apply(env):
     assert state["state"] == "available"
     assert first["components"][0]["installed"]
     assert second["components"][0]["installed"]
+
+
+def test_gpt_sovits_has_a_separate_setup_profile(env, monkeypatch):
+    settings = load_settings()
+    ensure_directories(settings)
+    monkeypatch.setattr(setup, "detect_backend", lambda: "rocm")
+
+    plan = setup.plan(settings, "gpt-sovits")
+
+    assert plan["components"][0]["id"] == "gpt-sovits"
+    assert plan["components"][0]["runtime_ids"] == ["speech-gpt-sovits-rocm"]
+    assert plan["components"][0]["models"] == [setup.GPT_SOVITS_MODEL]
 
 
 def test_game_audio_plan_prefetches_gated_small_sfx_after_terms(env):

@@ -33,6 +33,12 @@ class RoutingSpec(BaseModel):
     device: str = Field(default="auto", min_length=1, max_length=64)
 
 
+class TtsPreferenceUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    engine_id: Literal["tts.qwen3", "tts.gpt-sovits"]
+    gpt_sovits_model_id: str | None = Field(default=None, min_length=1, max_length=80)
+
+
 class TaskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task: TaskName
@@ -113,6 +119,7 @@ class SetupApplyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     profile: Literal[
         "speech-essentials",
+        "gpt-sovits",
         "game-audio",
         "music",
         "full-studio",
@@ -120,8 +127,8 @@ class SetupApplyRequest(BaseModel):
         "custom",
     ] = "speech-essentials"
     components: list[
-        Literal["speech-essentials", "game-audio", "music"]
-    ] = Field(default_factory=list, max_length=3)
+        Literal["speech-essentials", "gpt-sovits", "game-audio", "music"]
+    ] = Field(default_factory=list, max_length=4)
     accepted_terms: list[str] = Field(default_factory=list, max_length=16)
 
 
@@ -172,6 +179,10 @@ class VoiceCreate(BaseModel):
                 or re.fullmatch(UPLOAD_PATTERN, upload) is None
             ):
                 raise ValueError("reference_upload must be an upload reference")
+            if self.engine_id == "tts.gpt-sovits" and not str(
+                self.recipe.get("reference_text") or ""
+            ).strip():
+                raise ValueError("GPT-SoVITS sample voice requires reference_text")
 
         return self
 

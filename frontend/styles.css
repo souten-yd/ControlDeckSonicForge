@@ -853,6 +853,7 @@ dialog::backdrop { background: rgba(10, 13, 24, .68); }
 
   /* iOS は 16px 未満の入力欄で勝手に拡大する。 */
   textarea, input, select { font-size: 16px; }
+  .gpt-sample-file-row { grid-template-columns: minmax(0, 1fr); }
 
   /* 横に伸ばすと、肝心の音声と状態が画面の外へ出る。1 行をカードに積み替える。 */
   .table-wrap { overflow-x: visible; border: 0; }

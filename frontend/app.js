@@ -39,6 +39,11 @@ const I18N = {
     speechLanguageLabel: "読み上げる言語",
     transcribeLanguageLabel: "話されている言語",
     voice: "ボイス",
+    ttsEngine: "音声エンジン",
+    ttsQwen: "Qwen3-TTS（組み込み音声・ボイス設計）",
+    ttsGptSovits: "GPT-SoVITS（高速・参照音声）",
+    ttsEngineSaved: "この選択は保存され、次回以降のTTSにも使われます。",
+    gptVoiceRequired: "GPT-SoVITSではクローン音声、または参照音声付きモデルを選んでください。",
     builtInVoice: "組み込みボイス（おまかせ）",
     audioFile: "音声ファイル",
     chooseAudio: "＋ 音声ファイルを選ぶ",
@@ -164,6 +169,23 @@ const I18N = {
     update: "更新",
     openSetup: "セットアップを開く",
     setupRequired: "この機能にはセットアップが必要です",
+    componentGptSovits: "GPT-SoVITS",
+    componentGptSovitsDetail: "高速な参照音声ベースの読み上げ。Qwen3-TTSとは別環境に導入します。",
+    profileGptSovits: "GPT-SoVITSだけ",
+    ttsModelsTitle: "GPT-SoVITS モデル",
+    ttsModelsHint: "manifest.json付きZIPを検査して展開します。モデルの権利・ライセンス・入手元の記載が必要です。",
+    ttsModelFormat: "ZIP の manifest.json 形式",
+    ttsModelUpload: "ZIPを追加",
+    ttsModelActivate: "使う",
+    ttsModelActive: "使用中",
+    ttsModelDeleteActive: "使用中のモデルは削除できません。先に別のモデルへ切り替えてください。",
+    ttsModelDeleteBody: "モデル本体と管理情報を削除します。この操作は取り消せません。",
+    gptSampleName: "サンプル音声名",
+    gptSampleLanguage: "言語",
+    gptSampleText: "音声の正確な書き起こし",
+    gptSampleAdd: "サンプル音声を登録",
+    gptSampleRequired: "名前、音声、正確な書き起こし、権利確認が必要です。",
+    gptSampleSelect: "登録したサンプル音声を選択",
     componentCore: "SonicForge本体",
     componentSpeech: "音声基本環境",
     componentSpeechDetail: "日本語・英語の音声合成と文字起こし",
@@ -392,6 +414,11 @@ const I18N = {
     speechLanguageLabel: "Language to read in",
     transcribeLanguageLabel: "Language being spoken",
     voice: "Voice",
+    ttsEngine: "Speech engine",
+    ttsQwen: "Qwen3-TTS (built-in and designed voices)",
+    ttsGptSovits: "GPT-SoVITS (fast, reference-based)",
+    ttsEngineSaved: "This choice is saved and used for future TTS calls.",
+    gptVoiceRequired: "GPT-SoVITS needs a cloned voice or a model pack with reference audio.",
     builtInVoice: "Built-in voice (recommended)",
     audioFile: "Audio file",
     chooseAudio: "+ Choose an audio file",
@@ -517,6 +544,23 @@ const I18N = {
     update: "Update",
     openSetup: "Open setup",
     setupRequired: "This capability needs setup first",
+    componentGptSovits: "GPT-SoVITS",
+    componentGptSovitsDetail: "Fast reference-based speech, installed separately from Qwen3-TTS.",
+    profileGptSovits: "GPT-SoVITS only",
+    ttsModelsTitle: "GPT-SoVITS models",
+    ttsModelsHint: "ZIP files are checked and extracted. The manifest must state rights, license, and source.",
+    ttsModelFormat: "manifest.json format inside the ZIP",
+    ttsModelUpload: "Add ZIP",
+    ttsModelActivate: "Use",
+    ttsModelActive: "Active",
+    ttsModelDeleteActive: "Switch to another model before deleting the active model.",
+    ttsModelDeleteBody: "Delete the model files and management record. This cannot be undone.",
+    gptSampleName: "Sample voice name",
+    gptSampleLanguage: "Language",
+    gptSampleText: "Exact transcript of the audio",
+    gptSampleAdd: "Add sample voice",
+    gptSampleRequired: "Name, audio, exact transcript, and rights confirmation are required.",
+    gptSampleSelect: "Select a registered sample voice",
     componentCore: "SonicForge core",
     componentSpeech: "Speech Essentials",
     componentSpeechDetail: "Japanese/English speech synthesis and transcription",
@@ -767,12 +811,14 @@ const QUALITIES = [
 const SETUP_COMPONENTS = [
   {id: "core", label: "componentCore", detail: null, profile: null},
   {id: "speech-essentials", label: "componentSpeech", detail: "componentSpeechDetail", profile: "speech-essentials"},
+  {id: "gpt-sovits", label: "componentGptSovits", detail: "componentGptSovitsDetail", profile: "gpt-sovits"},
   {id: "game-audio", label: "componentGame", detail: "componentGameDetail", profile: "game-audio"},
   {id: "music", label: "componentMusic", detail: "componentMusicDetail", profile: "music"},
 ];
 
 const SETUP_PROFILES = [
   {id: "speech-essentials", label: "profileSpeech"},
+  {id: "gpt-sovits", label: "profileGptSovits"},
   {id: "game-audio", label: "profileGame"},
   {id: "music", label: "profileMusic"},
   {id: "full-studio", label: "profileFull"},
@@ -784,6 +830,7 @@ const MODEL_LABELS = {
   "openai/whisper-large-v3-turbo": "modelWhisperTurbo",
   "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice": "modelQwenCustom",
   "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign": "modelQwenDesign",
+  "lj1995/GPT-SoVITS": "GPT-SoVITS v2 ProPlus",
   "stabilityai/stable-audio-3-small-sfx": "modelStableAudio",
   "acestep-v15-turbo": "modelAceStep",
 };
@@ -858,6 +905,8 @@ const state = {
   voices: [],
   capabilities: null,
   models: null,
+  ttsPreferences: null,
+  ttsModels: [],
   setup: null,
   plan: null,
   deliveryProfiles: [],
@@ -1162,7 +1211,9 @@ function activate(name, {sync = true} = {}) {
   byId("nav-settings").setAttribute("aria-current", view === "settings" ? "page" : "false");
   if (view === "library") void loadAssets();
   if (view === "activity") void loadActiveJobs();
-  if (view === "settings") { void loadSetup(); void loadVoices(); void loadPlan(); void loadCredentials(); }
+  if (view === "settings") {
+    void loadSetup(); void loadVoices(); void loadPlan(); void loadCredentials(); void loadTtsSettings();
+  }
   if (view === "pipeline") renderPipeline();
   if (sync && state.bridgePort) {
     void callHost("host.route.sync", {path: view === "studio" ? "/" : `/${view}`}).catch(() => {});
@@ -1319,27 +1370,55 @@ function renderRoutingChoices() {
     return option;
   });
 
+  const engines = entry?.engines || (entry ? [{id: entry.engine, installed: entry.installed, models: entry.models}] : []);
   engine.replaceChildren(...options([
     {value: "", text: t("modelAuto")},
-    ...(entry ? [{value: entry.engine, text: entry.engine}] : []),
+    ...engines.map((item) => ({
+      value: item.id,
+      text: `${item.id}${item.installed ? "" : ` — ${t("modelNoteMissing")}`}`,
+    })),
   ]));
-  engine.value = state.form.engine || "";
-  if (engine.value !== (state.form.engine || "")) { engine.value = ""; state.form.engine = ""; }
-  engine.onchange = () => { state.form.engine = engine.value; };
+  const requestedEngine = state.task === "speech"
+    ? (state.ttsPreferences?.engine_id || "tts.qwen3")
+    : (state.form.engine || "");
+  engine.value = requestedEngine;
+  if (engine.value !== requestedEngine) engine.value = "";
+  engine.onchange = () => {
+    if (state.task === "speech" && engine.value) {
+      void saveTtsPreference(engine.value).catch((error) => showError("studio-error", errorText(error)));
+    } else {
+      state.form.engine = engine.value;
+    }
+    state.form.model = "";
+    renderRoutingChoices();
+  };
+
+  const selectedEngine = engines.find((item) => item.id === requestedEngine);
+  const models = selectedEngine?.models || entry?.models || [];
 
   model.replaceChildren(...options([
     {value: "", text: t("modelAuto")},
-    ...(entry?.models || []).map((item) => ({value: item.id, text: t(MODEL_LABELS[item.id]) || item.id})),
+    ...models.map((item) => ({value: item.id, text: t(MODEL_LABELS[item.id]) || item.id})),
   ]));
-  model.value = state.form.model || "";
-  if (model.value !== (state.form.model || "")) { model.value = ""; state.form.model = ""; }
-  model.onchange = () => { state.form.model = model.value; };
+  const requestedModel = state.task === "speech" && requestedEngine === "tts.gpt-sovits"
+    ? (state.ttsPreferences?.gpt_sovits_model_id || "lj1995/GPT-SoVITS")
+    : (state.form.model || "");
+  model.value = requestedModel;
+  if (model.value !== requestedModel) model.value = "";
+  model.onchange = () => {
+    if (state.task === "speech" && requestedEngine === "tts.gpt-sovits" && model.value) {
+      void saveTtsPreference(requestedEngine, model.value)
+        .catch((error) => showError("studio-error", errorText(error)));
+    } else {
+      state.form.model = model.value;
+    }
+  };
 
   if (note) {
     note.textContent = !entry ? ""
       : !entry.installed ? t("modelNoteMissing")
       : state.task === "speech" && state.form.voiceId ? t("modelNoteVoice")
-      : entry.models.length < 2 ? t("modelNoteSingle")
+      : models.length < 2 ? t("modelNoteSingle")
       : "";
     note.hidden = !note.textContent;
   }
@@ -1443,9 +1522,34 @@ function renderStudio() {
       syncAdvanced();
     });
 
+  const speechEngine = byId("speech-engine");
+  const selectedTtsEngine = state.ttsPreferences?.engine_id || "tts.qwen3";
+  const engineChoices = [
+    {id: "tts.qwen3", label: "ttsQwen"},
+    {id: "tts.gpt-sovits", label: "ttsGptSovits"},
+  ];
+  speechEngine.replaceChildren(...engineChoices.map((item) => {
+    const option = document.createElement("option");
+    option.value = item.id;
+    const catalogEngine = taskModels()?.engines?.find((entry) => entry.id === item.id);
+    const missing = item.id === "tts.gpt-sovits" && catalogEngine?.installed === false;
+    option.textContent = `${t(item.label)}${missing ? ` — ${t("modelNoteMissing")}` : ""}`;
+    option.disabled = missing && selectedTtsEngine !== item.id;
+    return option;
+  }));
+  speechEngine.value = selectedTtsEngine;
+  speechEngine.onchange = () => {
+    void saveTtsPreference(speechEngine.value)
+      .catch((error) => showError("studio-error", errorText(error)));
+  };
+  byId("speech-engine-note").textContent = t("ttsEngineSaved");
+
   const voice = byId("speech-voice");
   const selected = voice.value || state.form.voiceId || "";
-  voice.replaceChildren(...[{id: "", name: t("builtInVoice")}, ...state.voices.map((item) => ({
+  const speechVoices = selectedTtsEngine === "tts.gpt-sovits"
+    ? state.voices.filter((item) => item.source_type === "clone" && (!item.engine_id || item.engine_id === "tts.gpt-sovits"))
+    : state.voices;
+  voice.replaceChildren(...[{id: "", name: selectedTtsEngine === "tts.gpt-sovits" ? t("gptSampleSelect") : t("builtInVoice")}, ...speechVoices.map((item) => ({
     id: item.id,
     name: `${item.name} · ${(item.languages || []).join("/")}`,
   }))].map((item) => {
@@ -1455,6 +1559,7 @@ function renderStudio() {
     return option;
   }));
   voice.value = selected;
+  if (voice.value !== selected) state.form.voiceId = "";
   voice.onchange = () => { state.form.voiceId = voice.value; };
 
   state.transcribeAudio = audioSlot(state.transcribeAudio);
@@ -1817,7 +1922,21 @@ function buildRequest() {
        保存したボイスは自分の素性と話者を持っているので上書きしない。 */
     if (!state.form.voiceId && state.form.speaker) input.speaker = state.form.speaker;
     if (instruction) input.style = {preset: preset?.id || "auto", instruction};
-    return {...shared, task: "speech.tts.synthesize", input,
+    if ((state.ttsPreferences?.engine_id || "tts.qwen3") === "tts.gpt-sovits") {
+      const selectedVoice = state.voices.find((item) => item.id === state.form.voiceId);
+      const selectedModel = state.ttsModels.find((item) => item.active);
+      const modelHasReference = Boolean(selectedModel?.has_reference);
+      if ((!selectedVoice || selectedVoice.source_type !== "clone") && !modelHasReference) {
+        throw new Error(t("gptVoiceRequired"));
+      }
+    }
+    return {...shared, routing: {
+      ...shared.routing,
+      engine: state.ttsPreferences?.engine_id || "tts.qwen3",
+      model: (state.ttsPreferences?.engine_id === "tts.gpt-sovits")
+        ? (state.ttsPreferences?.gpt_sovits_model_id || "lj1995/GPT-SoVITS")
+        : shared.routing.model,
+    }, task: "speech.tts.synthesize", input,
       content_language: state.form.speechLanguage || "auto"};
   }
   if (state.task === "transcribe") {
@@ -2277,6 +2396,37 @@ async function loadModels() {
   renderStudio();
 }
 
+async function loadTtsSettings() {
+  try {
+    const [preferences, models] = await Promise.all([
+      api("/tts/preferences"),
+      api("/tts/models"),
+    ]);
+    state.ttsPreferences = preferences;
+    state.ttsModels = models.models || [];
+    showError("tts-model-error", "");
+  } catch (error) {
+    showError("tts-model-error", errorText(error));
+    return;
+  }
+  renderStudio();
+  renderTtsModels();
+}
+
+async function saveTtsPreference(engineId, modelId = null) {
+  const body = {
+    engine_id: engineId,
+    gpt_sovits_model_id: modelId || state.ttsPreferences?.gpt_sovits_model_id || null,
+  };
+  state.ttsPreferences = await api("/tts/preferences", {
+    method: "PUT",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify(body),
+  });
+  renderStudio();
+  renderTtsModels();
+}
+
 async function loadSetup() {
   try {
     state.setup = await api("/setup/status");
@@ -2393,6 +2543,7 @@ function renderSettings() {
   renderPlan();
   renderCapabilityRows();
   renderVoices();
+  renderTtsModels();
 }
 
 /* Hugging Face が gate している配布物は、ライセンス同意だけでは降りてこない。
@@ -2556,6 +2707,101 @@ function renderCapabilityRows() {
     return wrap;
   }));
 }
+
+/* ── 設定：TTS モデル ────────────────────────────────────────────────── */
+
+function renderTtsModels() {
+  const rows = byId("tts-model-rows");
+  if (!rows) return;
+  rows.replaceChildren(...state.ttsModels.map((model) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "t";
+    title.textContent = model.name;
+    const sub = document.createElement("div");
+    sub.className = "s";
+    sub.textContent = [model.id, model.license_id, model.size_bytes ? formatBytes(model.size_bytes) : null]
+      .filter(Boolean).join(" · ");
+    left.append(title, sub);
+    const side = document.createElement("div");
+    side.className = "row-side";
+    if (model.active) {
+      const badge = document.createElement("span");
+      badge.className = "state";
+      badge.dataset.tone = "ok";
+      badge.textContent = t("ttsModelActive");
+      side.append(badge);
+    } else {
+      const activate = document.createElement("button");
+      activate.type = "button";
+      activate.className = "cta-secondary";
+      activate.textContent = t("ttsModelActivate");
+      activate.onclick = async () => {
+        try {
+          await api(`/tts/models/${encodeURIComponent(model.id)}/activate`, {method: "PUT"});
+          await loadTtsSettings();
+        } catch (error) { showError("tts-model-error", errorText(error)); }
+      };
+      side.append(activate);
+    }
+    if (!model.built_in) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = t("delete");
+      remove.disabled = model.active;
+      remove.title = model.active ? t("ttsModelDeleteActive") : "";
+      remove.onclick = () => confirmAction(model.name, t("ttsModelDeleteBody"), async () => {
+        await api(`/tts/models/${encodeURIComponent(model.id)}`, {method: "DELETE"});
+        await loadTtsSettings();
+      });
+      side.append(remove);
+    }
+    row.append(left, side);
+    return row;
+  }));
+}
+
+byId("tts-model-upload").addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file, file.name);
+  try {
+    await api("/tts/models/upload", {method: "POST", body: form});
+    await loadTtsSettings();
+  } catch (error) { showError("tts-model-error", errorText(error)); }
+});
+
+byId("gpt-sample-add").addEventListener("click", async () => {
+  const name = String(byId("gpt-sample-name").value || "").trim();
+  const transcript = String(byId("gpt-sample-text").value || "").trim();
+  const language = byId("gpt-sample-language").value || "ja";
+  const file = byId("gpt-sample-file").files?.[0];
+  if (!name || !transcript || !file || !byId("gpt-sample-rights").checked) {
+    showError("gpt-sample-error", t("gptSampleRequired"));
+    return;
+  }
+  try {
+    const uploaded = await uploadAudioBlob(file, file.name);
+    await jsonPost("/voices", {
+      name,
+      source_type: "clone",
+      languages: [language],
+      engine_id: "tts.gpt-sovits",
+      recipe: {reference_upload: uploaded.upload_id, reference_text: transcript},
+      rights_confirmed: true,
+    });
+    byId("gpt-sample-name").value = "";
+    byId("gpt-sample-text").value = "";
+    byId("gpt-sample-file").value = "";
+    byId("gpt-sample-rights").checked = false;
+    showError("gpt-sample-error", "");
+    await loadVoices();
+  } catch (error) { showError("gpt-sample-error", errorText(error)); }
+});
 
 /* ── 設定：ボイス ─────────────────────────────────────────────────────── */
 
@@ -2765,7 +3011,7 @@ byId("voice-save").addEventListener("click", async () => {
       name,
       source_type: state.voiceKind,
       languages: state.voiceLanguages,
-      engine_id: "tts.qwen3",
+      engine_id: state.voiceKind === "built-in" ? "tts.qwen3" : null,
       recipe,
       rights_confirmed: rights,
     });
@@ -3992,7 +4238,7 @@ for (const button of $$("[data-refresh]")) {
 byId("setup-plan-refresh").addEventListener("click", () => void loadPlan());
 
 async function reloadAuthoritative() {
-  const work = [loadSetup(), loadCapabilities(), loadModels(), loadVoices(), loadActiveJobs(), loadAssets()];
+  const work = [loadSetup(), loadCapabilities(), loadModels(), loadTtsSettings(), loadVoices(), loadActiveJobs(), loadAssets()];
   if (state.task === "meeting") work.push(loadMeetings());
   await Promise.allSettled(work);
 }

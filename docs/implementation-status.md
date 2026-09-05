@@ -6,6 +6,12 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
 
 ## Managed-state recovery and truthful loading UI (2026-09-05)
 
+- PR #33 passed batched validation run `33955252609` at exact head
+  `4b6d1f1669513f1c91939ede357dab53c42b9b7b` and merged as
+  `7e6f01b7c9e3cebdcc5e8f650ff05ba036fedeee`. A focused post-merge run passed
+  all 30 legacy-migration/core tests. Release metadata is set to `0.6.2`;
+  signed-bundle publication and installed 0.6.2 acceptance remain NOT TESTED at
+  this release-candidate stage.
 - The installed 0.6.1 backend was healthy and reported all five setup components as
   available while its API still held 77 jobs and 45 assets. The reported apparent
   loss was a UI-state defect: initial/failed API reads used the same empty values as

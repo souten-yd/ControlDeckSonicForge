@@ -4,6 +4,34 @@ Last updated: 2026-09-05
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
 
+## GPT-SoVITS sample selection and engine-specific UI candidate (2026-09-05)
+
+- The GPT-SoVITS Studio surface now exposes reference samples for zero-shot voice
+  cloning instead of Qwen speaker/style controls. Switching back to Qwen restores its
+  saved/logical voices, Voice Design entry and style controls. A real headless Chrome
+  run at a 485 CSS-pixel document width checked both states in Japanese and English:
+  GPT displayed the selected `ずんだもん` sample and hid Qwen style controls; Qwen
+  restored `Voice` / `ボイス` and its style controls. There were no page exceptions,
+  visible API errors or horizontal overflow; the only 404 was Chrome's unsolicited
+  `/favicon.ico` request.
+- Settings lists a custom local sample, `あみたろ（ITA・よふかし）`, and
+  `ずんだもん`. Amitaro remains a local-file import because its publisher forbids
+  tools from hotlinking voice files; the UI links the official corpus and terms and
+  pre-fills the exact reference transcript. The Zundamon option uses the official
+  `zunzun999/zundamon-speech-webui` reference at commit
+  `cf5104f20781e3e81be499cd0c872b9801be1c51`, SHA-256
+  `b41e3f0d539c2c294fdbf03349b8b07127bad9576e52936d45c190c7eec07b02`.
+- A real source-service install rejected missing terms consent, then downloaded the
+  pinned 1,999,242-byte Zundamon WAV, normalized its 6.942 s / 96 kHz mono source to
+  SonicForge's 48 kHz mono voice storage, registered it and persisted it as the
+  selected GPT-SoVITS reference. A routing-unspecified fake-worker TTS job
+  `job:73b135dd-417b-4048-9c13-905186454704` then succeeded with that stored default.
+  Real GPT-SoVITS inference with the catalog sample remains NOT TESTED until the release
+  is installed over the production runtime.
+- `./sf.sh test` passed 134 tests. `node --check frontend/app.js`, Python `compileall`
+  and `git diff --check` passed. The two existing warnings were the Starlette/httpx
+  deprecation and subprocess transport cleanup warning.
+
 ## GPT-SoVITS engine selection and R9700 evidence (2026-09-05)
 
 - PR #27 was accepted at exact head

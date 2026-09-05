@@ -37,6 +37,12 @@ class TtsPreferenceUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     engine_id: Literal["tts.qwen3", "tts.gpt-sovits"]
     gpt_sovits_model_id: str | None = Field(default=None, min_length=1, max_length=80)
+    gpt_sovits_voice_id: str | None = Field(default=None, pattern=r"^voice:[0-9a-f-]{36}$")
+
+
+class TtsSampleInstall(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    accepted_terms: bool = False
 
 
 class TaskRequest(BaseModel):

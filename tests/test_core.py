@@ -49,6 +49,7 @@ def test_tts_engine_preference_and_gpt_sample_voice_are_persistent(env, monkeypa
         assert c.get('/addon/v1/tts/preferences').json() == {
             'engine_id': 'tts.qwen3',
             'gpt_sovits_model_id': 'lj1995/GPT-SoVITS',
+            'gpt_sovits_voice_id': None,
         }
         changed=c.put('/addon/v1/tts/preferences', json={
             'engine_id': 'tts.gpt-sovits',
@@ -79,14 +80,61 @@ def test_tts_engine_preference_and_gpt_sample_voice_are_persistent(env, monkeypa
         assert voice.status_code == 200
         assert voice.json()['engine_id'] == 'tts.gpt-sovits'
         assert voice.json()['recipe']['reference_audio'].startswith('voices/')
+        voice_id=voice.json()['id']
+        selected=c.put('/addon/v1/tts/preferences', json={
+            'engine_id': 'tts.gpt-sovits',
+            'gpt_sovits_model_id': 'lj1995/GPT-SoVITS',
+            'gpt_sovits_voice_id': voice_id,
+        })
+        assert selected.status_code == 200
+        assert selected.json()['gpt_sovits_voice_id'] == voice_id
+        routed=m.base.jobs._apply_tts_preferences({
+            'task': 'speech.tts.synthesize', 'input': {'text': 'こんにちは'},
+            'routing': {'engine': None, 'model': None, 'device': 'auto'},
+        })
+        assert routed['input']['voice_id'] == voice_id
         assert c.delete(f"/addon/v1/voices/{voice.json()['id']}").status_code == 200
+        assert c.get('/addon/v1/tts/preferences').json()['gpt_sovits_voice_id'] is None
 
         markup=c.get('/settings/').text
-        for element_id in ('tts-model-upload', 'gpt-sample-file', 'gpt-sample-add'):
+        for element_id in ('tts-model-upload', 'gpt-sample-preset', 'gpt-sample-file', 'gpt-sample-add'):
             assert f'id="{element_id}"' in markup
         app_js=c.get('/app.js').text
         assert 'saveTtsPreference' in app_js
         assert 'engine_id: "tts.gpt-sovits"' in app_js
+        assert 'gpt_sovits_voice_id' in app_js and '/tts/samples/' in app_js
+        assert 'speech-style-fields' in markup
+
+
+def test_managed_gpt_sample_install_is_consent_gated_and_persistent(env, monkeypatch):
+    from sonicforge import tts_samples, uploads
+
+    async def copy_normalised(source, target):
+        shutil.copyfile(source, target)
+
+    audio=io.BytesIO()
+    with wave.open(audio, 'wb') as wav:
+        wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(16000)
+        wav.writeframes(b'\0\0' * 16000 * 4)
+    monkeypatch.setattr(uploads, '_normalise', copy_normalised)
+    monkeypatch.setattr(tts_samples, '_download_zundamon', audio.getvalue)
+    m=load_app()
+    with TestClient(m.app) as c:
+        catalog=c.get('/addon/v1/tts/samples')
+        assert catalog.status_code == 200
+        assert {item['id'] for item in catalog.json()['samples']} == {
+            'amitaro-ita-yofukashi', 'zundamon-reference',
+        }
+        denied=c.post('/addon/v1/tts/samples/zundamon-reference/install', json={'accepted_terms': False})
+        assert denied.status_code == 400
+        installed=c.post('/addon/v1/tts/samples/zundamon-reference/install', json={'accepted_terms': True})
+        assert installed.status_code == 200
+        assert installed.json()['name'] == 'ずんだもん'
+        prefs=c.get('/addon/v1/tts/preferences').json()
+        assert prefs['engine_id'] == 'tts.gpt-sovits'
+        assert prefs['gpt_sovits_voice_id'] == installed.json()['id']
+        repeated=c.post('/addon/v1/tts/samples/zundamon-reference/install', json={'accepted_terms': True})
+        assert repeated.json()['id'] == installed.json()['id']
 
 def test_simple_and_advanced_modes_are_wired(env):
     """シンプル/詳細の切り替えと、詳細だけの断片が実際に存在すること。"""

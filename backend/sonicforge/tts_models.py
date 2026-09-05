@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 from sqlalchemy.orm import Session
 
 from .config import Settings
-from .db import AppPreference, TtsModelPack
+from .db import AppPreference, TtsModelPack, Voice
 
 QWEN_ENGINE = "tts.qwen3"
 GPT_SOVITS_ENGINE = "tts.gpt-sovits"
@@ -43,10 +43,22 @@ def preferences(session: Session) -> dict:
         "gpt_sovits_model_id": _preference(
             session, "tts.gpt_sovits.model", BASE_GPT_MODEL
         ),
+        "gpt_sovits_voice_id": (
+            _preference(session, "tts.gpt_sovits.voice", "") or None
+        ),
     }
 
 
-def set_preference(session: Session, *, engine_id: str, model_id: str | None) -> dict:
+_UNCHANGED = object()
+
+
+def set_preference(
+    session: Session,
+    *,
+    engine_id: str,
+    model_id: str | None,
+    voice_id: str | None | object = _UNCHANGED,
+) -> dict:
     if engine_id not in ENGINE_IDS:
         raise ModelPackError("unsupported TTS engine")
     if model_id is not None:
@@ -56,6 +68,19 @@ def set_preference(session: Session, *, engine_id: str, model_id: str | None) ->
             key="tts.gpt_sovits.model"
         )
         row.value = {"id": model_id}
+        session.add(row)
+    if voice_id is not _UNCHANGED:
+        if voice_id is not None:
+            voice = session.get(Voice, voice_id)
+            if voice is None or voice.source_type != "clone" or voice.engine_id not in {
+                None,
+                GPT_SOVITS_ENGINE,
+            }:
+                raise ModelPackError("GPT-SoVITS sample voice does not exist")
+        row = session.get(AppPreference, "tts.gpt_sovits.voice") or AppPreference(
+            key="tts.gpt_sovits.voice"
+        )
+        row.value = {"id": voice_id} if voice_id is not None else {}
         session.add(row)
     row = session.get(AppPreference, "tts.engine") or AppPreference(key="tts.engine")
     row.value = {"id": engine_id}

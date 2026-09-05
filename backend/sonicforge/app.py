@@ -20,10 +20,11 @@ from .events import EventBus
 from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
 from .host.files import read_grant
 from .jobs import HostedExecution, JobManager
-from .schemas import LocalizationBatchCreate, SetupApplyRequest, SetupCredentials, TaskRequest, TtsPreferenceUpdate, VoiceCreate
+from .schemas import LocalizationBatchCreate, SetupApplyRequest, SetupCredentials, TaskRequest, TtsPreferenceUpdate, TtsSampleInstall, VoiceCreate
 from . import uploads
 from . import setup as setup_service
 from . import tts_models
+from . import tts_samples
 from . import __version__
 
 settings = load_settings()
@@ -224,6 +225,7 @@ async def set_tts_preferences(body: TtsPreferenceUpdate):
                 session,
                 engine_id=body.engine_id,
                 model_id=body.gpt_sovits_model_id,
+                voice_id=body.gpt_sovits_voice_id,
             )
     except tts_models.ModelPackError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -233,6 +235,30 @@ async def set_tts_preferences(body: TtsPreferenceUpdate):
 async def tts_model_packs():
     with session_factory() as session:
         return tts_models.model_document(settings, session)
+
+
+@app.get("/addon/v1/tts/samples")
+async def tts_sample_catalog():
+    with session_factory() as session:
+        return tts_samples.catalog(session)
+
+
+@app.post("/addon/v1/tts/samples/{sample_id}/install")
+async def install_tts_sample(sample_id: str, body: TtsSampleInstall):
+    try:
+        with session_factory() as session:
+            voice = await tts_samples.install(
+                settings, session, sample_id, accepted_terms=body.accepted_terms
+            )
+            tts_models.set_preference(
+                session,
+                engine_id="tts.gpt-sovits",
+                model_id=tts_models.BASE_GPT_MODEL,
+                voice_id=voice.id,
+            )
+            return _voice_dict(voice)
+    except tts_samples.SampleCatalogError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/addon/v1/tts/models/upload")
@@ -253,6 +279,7 @@ async def activate_tts_model(model_id: str):
                 session,
                 engine_id=current["engine_id"],
                 model_id=model_id,
+                voice_id=None,
             )
     except tts_models.ModelPackError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -384,6 +411,14 @@ async def delete_voice(voice_id: str):
         if isinstance(reference, str):
             target = (settings.data_dir / reference).resolve()
             if target.is_relative_to((settings.data_dir / "voices").resolve()): target.unlink(missing_ok=True)
+        current = tts_models.preferences(session)
+        if current["gpt_sovits_voice_id"] == voice_id:
+            tts_models.set_preference(
+                session,
+                engine_id=current["engine_id"],
+                model_id=current["gpt_sovits_model_id"],
+                voice_id=None,
+            )
         session.delete(row); session.commit()
     return {"deleted": True}
 

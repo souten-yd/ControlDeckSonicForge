@@ -1,4 +1,4 @@
-import importlib, io, json, sys, time, wave
+import importlib, io, json, shutil, sys, time, wave
 from fastapi.testclient import TestClient
 
 def load_app():
@@ -37,7 +37,13 @@ def test_embedded_frontend_routes(env):
         assert "safe-area-inset-bottom" in styles.text and _compact("min-height: 44px") in _compact(styles.text)
         assert _compact("--tabbar: 60px") in _compact(styles.text)
 
-def test_tts_engine_preference_and_gpt_sample_voice_are_persistent(env):
+def test_tts_engine_preference_and_gpt_sample_voice_are_persistent(env, monkeypatch):
+    from sonicforge import uploads
+
+    async def copy_normalised(source, target):
+        shutil.copyfile(source, target)
+
+    monkeypatch.setattr(uploads, '_normalise', copy_normalised)
     m=load_app()
     with TestClient(m.app) as c:
         assert c.get('/addon/v1/tts/preferences').json() == {

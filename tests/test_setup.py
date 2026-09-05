@@ -22,7 +22,8 @@ def test_runtime_bootstrap_requires_host_python(monkeypatch):
         setup._runtime_bootstrap_python()
 
 
-def test_setup_plan_and_idempotent_apply(env):
+def test_setup_plan_and_idempotent_apply(env, monkeypatch):
+    monkeypatch.setattr(setup, "detect_backend", lambda: "rocm")
     settings = load_settings()
     ensure_directories(settings)
     factory = make_session_factory(settings)

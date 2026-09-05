@@ -125,6 +125,10 @@ def test_models_are_offered_by_name_not_typed_from_memory(env):
         assert 'kotoba-tech/kotoba-whisper-v2.0' in [
             x['id'] for x in by_task['speech.asr.transcribe']['models']]
         assert by_task['speech.asr.transcribe']['engine'] == 'asr.whisper'
+        assert [item['id'] for item in by_task['speech.tts.synthesize']['engines']] == [
+            'tts.qwen3', 'tts.gpt-sovits']
+        assert by_task['speech.tts.synthesize']['engines'][1]['models'][0]['id'] == \
+            'lj1995/GPT-SoVITS'
         assert by_task['music.generate']['engine'] == 'music.ace-step-1.5'
         markup=c.get('/').text
         assert '<select id="advanced-model">' in markup

@@ -51,6 +51,14 @@ def test_stable_audio_worker_is_cache_only_after_provisioning(env):
     assert worker_env["TRANSFORMERS_OFFLINE"] == "1"
 
 
+def test_gpt_sovits_worker_is_cache_only_after_provisioning(env):
+    settings = load_settings()
+    worker_env = _worker_environment(settings, "tts.gpt-sovits")
+
+    assert worker_env["HF_HUB_OFFLINE"] == "1"
+    assert worker_env["TRANSFORMERS_OFFLINE"] == "1"
+
+
 def test_other_workers_do_not_inherit_stable_audio_offline_policy(env):
     settings = load_settings()
 
@@ -58,3 +66,20 @@ def test_other_workers_do_not_inherit_stable_audio_offline_policy(env):
 
     assert "HF_HUB_OFFLINE" not in worker_env
     assert "TRANSFORMERS_OFFLINE" not in worker_env
+
+
+def test_gpt_sovits_uses_its_own_runtime(env, monkeypatch):
+    monkeypatch.setenv("SONICFORGE_ENABLE_FAKE", "0")
+    settings = load_settings()
+    runtime_python = settings.runtime_dir / "speech-gpt-sovits-rocm/bin/python"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.write_text("a" * 64, encoding="utf-8")
+
+    engine, executable, script = route(
+        settings, "speech.tts.synthesize", "ja", "tts.gpt-sovits"
+    )
+
+    assert engine == "tts.gpt-sovits"
+    assert executable == runtime_python
+    assert script.name == "worker.py"
+    assert script.parent.name == "gpt_sovits"

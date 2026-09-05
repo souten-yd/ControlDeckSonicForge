@@ -20,11 +20,13 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from .capabilities import _state
+from .config import Settings
 from .setup import (
     ACESTEP_DIT,
     KOTOBA_WHISPER,
     QWEN_CUSTOM_VOICE,
     QWEN_VOICE_DESIGN,
+    GPT_SOVITS_MODEL,
     STABLE_AUDIO_SMALL_SFX,
     WHISPER_TURBO,
 )
@@ -49,13 +51,14 @@ TASK_ENGINE: dict[str, str] = {
 }
 
 
-def model_document(session: Session, *, fake_enabled: bool = False) -> dict:
+def model_document(
+    session: Session, *, settings: Settings | None = None, fake_enabled: bool = False
+) -> dict:
     """The selectable models per task, with whether each is ready to use."""
     tasks = []
     for task, (component, model_ids) in TASK_MODELS.items():
         ready = fake_enabled or _state(session, component) == "available"
-        tasks.append(
-            {
+        entry = {
                 "task": task,
                 "component": component,
                 "engine": TASK_ENGINE[task],
@@ -64,5 +67,23 @@ def model_document(session: Session, *, fake_enabled: bool = False) -> dict:
                     {"id": model_id, "installed": ready} for model_id in model_ids
                 ],
             }
-        )
+        if task == "speech.tts.synthesize":
+            gpt_ready = fake_enabled or bool(
+                settings
+                and (settings.runtime_dir / "speech-gpt-sovits-rocm/bin/python").is_file()
+                and (settings.models_dir / "gpt-sovits/sonicforge-gpt-sovits.json").is_file()
+            )
+            entry["engines"] = [
+                {
+                    "id": "tts.qwen3",
+                    "installed": ready,
+                    "models": entry["models"],
+                },
+                {
+                    "id": "tts.gpt-sovits",
+                    "installed": gpt_ready,
+                    "models": [{"id": GPT_SOVITS_MODEL, "installed": gpt_ready}],
+                },
+            ]
+        tasks.append(entry)
     return {"tasks": tasks}

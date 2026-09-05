@@ -171,6 +171,13 @@ def test_the_declared_vram_matches_what_the_engines_measured(env):
         estimate = manager._resource_estimate({"task": task}, "job_1")
         assert estimate["vram"]["execution_peak_bytes"] == peak, task
 
+    gpt = manager._resource_estimate(
+        {"task": "speech.tts.synthesize", "routing": {"engine": "tts.gpt-sovits"}},
+        "job_gpt",
+    )
+    assert gpt["vram"]["execution_peak_bytes"] == 1_612_531_200
+    assert gpt["residency_key"] == "sonicforge:gpt-sovits"
+
 
 def test_speech_runs_in_bfloat16():
     """float16 は指数部が狭く、logits が溢れると確率に NaN が入る。
@@ -189,7 +196,8 @@ def test_speech_runs_in_bfloat16():
 
     root = Path(__file__).parents[1] / "worker_packs"
     for path in (root / "whisper" / "worker.py", root / "whisper" / "live_worker.py",
-                 root / "qwen_tts" / "worker.py", root / "qwen_tts" / "live_worker.py"):
+                 root / "qwen_tts" / "worker.py", root / "qwen_tts" / "live_worker.py",
+                 root / "gpt_sovits" / "worker.py"):
         source = path.read_text(encoding="utf-8")
         assert "torch.bfloat16" in source, path.name
         assert "torch.float16" not in source, path.name
@@ -204,7 +212,8 @@ def test_speech_workers_read_one_line_at_a_time():
     from pathlib import Path
 
     root = Path(__file__).parents[1] / "worker_packs"
-    for path in (root / "qwen_tts" / "worker.py", root / "whisper" / "worker.py"):
+    for path in (root / "qwen_tts" / "worker.py", root / "whisper" / "worker.py",
+                 root / "gpt_sovits" / "worker.py"):
         # コメントで言及することはあるので、実行される行だけを見る。
         code = [line for line in path.read_text(encoding="utf-8").splitlines()
                 if not line.lstrip().startswith("#")]
@@ -217,4 +226,4 @@ def test_only_speech_engines_are_kept_loaded():
     """音楽と効果音は 1 回が数分かかる上に大きい。抱えたままにする利点が無い。"""
     from sonicforge.workers import _WARM_ENGINES
 
-    assert _WARM_ENGINES == {"tts.qwen3", "asr.whisper"}
+    assert _WARM_ENGINES == {"tts.qwen3", "tts.gpt-sovits", "asr.whisper"}

@@ -204,7 +204,9 @@ async def set_setup_credentials(body: SetupCredentials):
 @app.get("/addon/v1/models")
 async def models():
     with session_factory() as session:
-        return model_document(session, fake_enabled=settings.enable_fake_worker)
+        return model_document(
+            session, settings=settings, fake_enabled=settings.enable_fake_worker
+        )
 
 
 @app.get("/addon/v1/setup/plan")

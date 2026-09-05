@@ -34,8 +34,12 @@ def test_setup_plan_and_idempotent_apply(env):
         setup.QWEN_VOICE_DESIGN,
         setup.KOTOBA_WHISPER,
         setup.WHISPER_TURBO,
+        setup.GPT_SOVITS_MODEL,
     ]
     assert setup.QWEN_VOICE_DESIGN == "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
+    assert plan["components"][0]["runtime_ids"] == [
+        "speech-rocm", "speech-gpt-sovits-rocm"
+    ]
 
     with factory() as session:
         first = asyncio.run(setup.apply(settings, session, "speech-essentials"))

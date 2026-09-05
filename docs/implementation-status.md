@@ -4,6 +4,47 @@ Last updated: 2026-08-28
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
 
+## GPT-SoVITS engine selection and R9700 evidence (2026-09-05)
+
+- The fixed comparison sentence was generated three times per engine on the R9700
+  (`gfx1201`) after stopping the LLM workload. GPT-SoVITS used upstream
+  `RVC-Boss/GPT-SoVITS` commit `48b1a0169a28582a8984402f82cf438d3bfa6aca`, the
+  `lj1995/GPT-SoVITS` weights at revision
+  `336b2ec4e8d4ac74740798dd40af44e74659ecaf`, and bfloat16. Its third run generated
+  5.360 s of audio in 1.522 s, for a 3.522 realtime ratio. Peak allocated VRAM was
+  1,612,531,200 bytes; 14 `rocm-smi` samples had 99.5% median and 100% maximum GPU
+  use. Runs one and two were 9.682 s / 5.360 s / 0.554 and 1.506 s / 5.360 s /
+  3.559 respectively.
+- Style-Bert-VITS2 2.5.0 was measured in a separate venv with the
+  `litagin/style_bert_vits2_jvnv` `jvnv-F1-jp_e160_s14000.safetensors` checkpoint
+  at revision `205830ca1d49e666ddfbf2a755f0108e9cade4dd`. Keeping BERT and VITS in fp32
+  resolved the observed Half-input/float-bias mismatch. Its third run generated
+  4.621 s of audio in 10.522 s, for a 0.439 realtime ratio. Peak allocated VRAM was
+  2,033,598,976 bytes; 106 samples had 100% median and maximum GPU use. Runs one
+  and two were 15.596 s / 4.574 s / 0.293 and 10.368 s / 4.505 s / 0.434.
+- GPT-SoVITS therefore exceeded the Qwen3-TTS comparison ratio of 0.56 and was
+  selected; Style-Bert-VITS2 was not added to the product runtime. GPT-SoVITS now
+  has its own atomically provisioned `speech-gpt-sovits-rocm` venv and fixed,
+  digest-checked upstream/model preparation. Advanced routing offers
+  `tts.qwen3` and `tts.gpt-sovits`; automatic routing remains Qwen3-TTS so a
+  built-in voice still works without GPT-SoVITS reference audio.
+- A real SonicForge `speech.tts.synthesize` job through `tts.gpt-sovits`
+  (`job:a22eb244-dcf3-41b6-9197-311a74a53871`) succeeded after the final runtime
+  rebuild and persisted `asset:589c9060-b0a9-4b24-980c-47b66d36b01c`: 5.360 s,
+  32 kHz, mono WAV, SHA-256
+  `4ed9f0d3bf5b5d769828670bc61e5fa38a77547c3d7adb4633dab6fa72e00cc4`.
+  Switching the same job route back to Qwen3-TTS also succeeded
+  (`job:4fba585f-326b-4bbf-bb2e-6a84854b890c`) and persisted a 6.080 s, 24 kHz,
+  mono WAV with SHA-256
+  `8ebe1d59c9d9adc35c41cbb517824241d2cd7767da23f9cd5216471b5ad77cd4`.
+- Full `./sf.sh test`: 128 passed with two warnings (the existing Starlette
+  TestClient deprecation and subprocess transport cleanup warning).
+- A real headless Chrome check of the branch service at 1280x800 and 390x844
+  displayed Automatic, `tts.qwen3`, and `tts.gpt-sovits` in the Advanced engine
+  selector in both Japanese and English. Both viewports had zero page/console
+  errors and no horizontal overflow. Authenticated embedded ControlDeck browser
+  acceptance is NOT TESTED.
+
 ## Automatic Speech Essentials Feature provisioning
 
 - The v0.1.2 source follows MediaForge's generic Release Bundle lifecycle: `control-deck-feature.json` declares `provision_args: ["provision"]` instead of running the read-only `doctor` command as provisioning. The existing SonicForge `provision` command defaults to `speech-essentials`; Game Audio and Music remain optional and no gated terms are accepted implicitly.

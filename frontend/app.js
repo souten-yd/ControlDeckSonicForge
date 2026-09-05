@@ -784,6 +784,7 @@ const MODEL_LABELS = {
   "openai/whisper-large-v3-turbo": "modelWhisperTurbo",
   "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice": "modelQwenCustom",
   "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign": "modelQwenDesign",
+  "lj1995/GPT-SoVITS": "GPT-SoVITS v2 ProPlus",
   "stabilityai/stable-audio-3-small-sfx": "modelStableAudio",
   "acestep-v15-turbo": "modelAceStep",
 };
@@ -1319,17 +1320,28 @@ function renderRoutingChoices() {
     return option;
   });
 
+  const engines = entry?.engines || (entry ? [{id: entry.engine, installed: entry.installed, models: entry.models}] : []);
   engine.replaceChildren(...options([
     {value: "", text: t("modelAuto")},
-    ...(entry ? [{value: entry.engine, text: entry.engine}] : []),
+    ...engines.map((item) => ({
+      value: item.id,
+      text: `${item.id}${item.installed ? "" : ` — ${t("modelNoteMissing")}`}`,
+    })),
   ]));
   engine.value = state.form.engine || "";
   if (engine.value !== (state.form.engine || "")) { engine.value = ""; state.form.engine = ""; }
-  engine.onchange = () => { state.form.engine = engine.value; };
+  engine.onchange = () => {
+    state.form.engine = engine.value;
+    state.form.model = "";
+    renderRoutingChoices();
+  };
+
+  const selectedEngine = engines.find((item) => item.id === state.form.engine);
+  const models = selectedEngine?.models || entry?.models || [];
 
   model.replaceChildren(...options([
     {value: "", text: t("modelAuto")},
-    ...(entry?.models || []).map((item) => ({value: item.id, text: t(MODEL_LABELS[item.id]) || item.id})),
+    ...models.map((item) => ({value: item.id, text: t(MODEL_LABELS[item.id]) || item.id})),
   ]));
   model.value = state.form.model || "";
   if (model.value !== (state.form.model || "")) { model.value = ""; state.form.model = ""; }
@@ -1339,7 +1351,7 @@ function renderRoutingChoices() {
     note.textContent = !entry ? ""
       : !entry.installed ? t("modelNoteMissing")
       : state.task === "speech" && state.form.voiceId ? t("modelNoteVoice")
-      : entry.models.length < 2 ? t("modelNoteSingle")
+      : models.length < 2 ? t("modelNoteSingle")
       : "";
     note.hidden = !note.textContent;
   }

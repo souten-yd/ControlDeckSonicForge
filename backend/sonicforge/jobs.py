@@ -197,7 +197,13 @@ class JobManager:
         # 申告は実測（2026-09-05、gfx1201 / R9700、GPU 占有で測定）。多めに言うと、
         # LLM が載っている間は空きがあっても弾かれる。実測+余裕にとどめる。
         task = request["task"]
-        if task in {"speech.tts.synthesize", "speech.localization.batch"}:
+        engine = request.get("routing", {}).get("engine")
+        if task == "speech.tts.synthesize" and engine == "tts.gpt-sovits":
+            # 実測 1,612,531,200 bytes（R9700 / gfx1201、3 回目）。
+            peak = 1_612_531_200
+            runtime = 120
+            residency = "sonicforge:gpt-sovits"
+        elif task in {"speech.tts.synthesize", "speech.localization.batch"}:
             peak = 4 * 1024**3          # 実測 2.49 GiB（bfloat16）
             runtime = 120 if task == "speech.tts.synthesize" else 1800
             residency = "sonicforge:qwen3-tts"

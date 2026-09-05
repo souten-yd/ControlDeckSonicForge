@@ -194,21 +194,23 @@ class JobManager:
     def _resource_estimate(
         self, request: dict, host_job_id: str
     ) -> dict[str, Any]:
+        # 申告は実測（2026-09-05、gfx1201 / R9700、GPU 占有で測定）。多めに言うと、
+        # LLM が載っている間は空きがあっても弾かれる。実測+余裕にとどめる。
         task = request["task"]
         if task in {"speech.tts.synthesize", "speech.localization.batch"}:
-            peak = 8 * 1024**3
+            peak = 4 * 1024**3          # 実測 2.49 GiB（bfloat16）
             runtime = 120 if task == "speech.tts.synthesize" else 1800
             residency = "sonicforge:qwen3-tts"
         elif task == "speech.asr.transcribe":
-            peak = 5 * 1024**3
+            peak = 3 * 1024**3          # 実測 1.84 GiB
             runtime = 180
             residency = "sonicforge:whisper"
         elif task.startswith("audio."):
-            peak = 4 * 1024**3
+            peak = 4 * 1024**3          # CPU 経路なので lease は取らない
             runtime = 180
             residency = "sonicforge:stable-audio-3"
         else:
-            peak = 18 * 1024**3
+            peak = 13 * 1024**3         # 実測 11.78 GiB（ACE-Step DiT 読み込み）
             runtime = 300
             residency = "sonicforge:ace-step-1.5"
         return {

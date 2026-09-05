@@ -44,7 +44,12 @@ def _pipeline(model_id: str):
     from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
     device = 0 if torch.cuda.is_available() else -1
-    dtype = torch.float16 if device >= 0 else torch.float32
+    # bfloat16 にする。float16 は指数部が狭く、logits が溢れると確率に NaN が
+    # 入る。その NaN を torch.multinomial が踏むと、ROCm では assert カーネルが
+    # HIP 719（unspecified launch failure）で落ちる（2026-09-05 に単体再現）。
+    # ASR は貪欲デコードなので今は multinomial を通らないが、同じ桁溢れの上に
+    # 乗っている。TTS 側は既に bfloat16 で、そちらは実機で正常に生成できている。
+    dtype = torch.bfloat16 if device >= 0 else torch.float32
     key = (model_id, "gpu" if device >= 0 else "cpu")
     cached = _PIPELINES.get(key)
     if cached is not None:

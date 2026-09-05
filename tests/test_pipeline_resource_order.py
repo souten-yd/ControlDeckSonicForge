@@ -118,3 +118,25 @@ async def test_asr_ai_tts_releases_between_stages(env, monkeypatch):
         'release',
     ]
     await host.close()
+
+
+def test_a_job_shares_the_device_with_a_resident_llm(env):
+    """exclusive だと、LLM が載っている間は VRAM の空きに関係なく断られる。
+
+    broker の受理は `exclusive and (leases or providers)` で落ちる。LLM は
+    provider 予約として常駐するので、空き容量を見る前に弾かれていた。実測
+    （2026-09-05、31.86GiB のカードに 21.42GiB の LLM、空き 10.4GiB）:
+
+        exclusive-preferred → 通らない
+        shared-safe         → 通る
+
+    バイトの勘定は broker の admitted_free_bytes が見ているので、共有にしても
+    容量を超えて受理されることはない。
+    """
+    settings = load_settings()
+    ensure_directories(settings)
+    manager = JobManager(settings, make_session_factory(settings), EventBus())
+    for task in ("speech.tts.synthesize", "speech.asr.transcribe",
+                 "audio.master", "music.compose"):
+        estimate = manager._resource_estimate({"task": task}, "job_1")
+        assert estimate["compute_mode"] == "shared-safe", task

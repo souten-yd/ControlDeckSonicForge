@@ -221,7 +221,14 @@ class JobManager:
                 "headroom_bytes": 512 * 1024**2,
                 "confidence": "low",
             },
-            "compute_mode": "exclusive-preferred",
+            # LLM と場所を分け合う。exclusive は「その device に他の lease も
+            # provider 予約も無いこと」を求めるので、LLM が載っている間は VRAM の
+            # 空きに関係なく device_busy_exclusive で断られる。実測（2026-09-05、
+            # 31.86GiB のカードに 21.42GiB の LLM 常駐、空き 10.4GiB）:
+            #   exclusive-preferred → 通らない
+            #   shared-safe         → 通る
+            # バイトの勘定は broker の admitted_free_bytes が見ている。
+            "compute_mode": "shared-safe",
             "priority": 20,
             "class": "interactive",
             "residency_key": residency,

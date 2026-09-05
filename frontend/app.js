@@ -60,6 +60,9 @@ const I18N = {
     resetForm: "入力と設定を初期に戻す",
     refresh: "一覧を更新",
     filter: "絞り込み",
+    loadingState: "読み込み中…",
+    loadFailed: "データを取得できませんでした。再読み込みしてください。",
+    stateChecking: "確認中",
 
     auto: "自動",
     japanese: "日本語",
@@ -446,6 +449,9 @@ const I18N = {
     resetForm: "Reset input and settings",
     refresh: "Refresh",
     filter: "Filter",
+    loadingState: "Loading…",
+    loadFailed: "Could not load data. Refresh and try again.",
+    stateChecking: "Checking",
 
     auto: "Auto",
     japanese: "日本語",
@@ -923,7 +929,11 @@ const state = {
   sequence: 0,
   activeJob: "",
   jobs: [],
+  jobsLoaded: false,
+  jobsError: "",
   assets: [],
+  assetsLoaded: false,
+  assetsError: "",
   voices: [],
   capabilities: null,
   models: null,
@@ -931,6 +941,8 @@ const state = {
   ttsModels: [],
   ttsSamples: [],
   setup: null,
+  setupLoaded: false,
+  setupError: "",
   plan: null,
   deliveryProfiles: [],
   credentials: null,
@@ -2175,9 +2187,17 @@ async function cancelJob(id) {
 
 async function loadActiveJobs() {
   try {
-    const data = await api("/jobs?limit=100");
+    const data = await api("/jobs?limit=200");
     state.jobs = data.jobs || [];
-  } catch { return; }
+    state.jobsLoaded = true;
+    state.jobsError = "";
+  } catch (error) {
+    state.jobsError = errorText(error);
+    renderActivity();
+    renderLibrary();
+    renderRecent();
+    return;
+  }
   const active = state.jobs.filter((job) => ACTIVE_STATES.has(job.state));
   const badge = byId("activity-badge");
   badge.hidden = active.length === 0;
@@ -2196,8 +2216,12 @@ async function loadActiveJobs() {
 function renderActivity() {
   const rows = byId("activity-rows");
   if (!rows) return;
-  byId("activity-count").textContent = state.jobs.length ? `${state.jobs.length}${t("itemCount")}` : "";
-  byId("activity-empty").hidden = state.jobs.length > 0;
+  const unavailable = !state.jobsLoaded || Boolean(state.jobsError);
+  byId("activity-count").textContent = state.jobsLoaded
+    ? (state.jobs.length ? `${state.jobs.length}${t("itemCount")}` : "")
+    : (state.jobsError ? "" : t("loadingState"));
+  byId("activity-empty").hidden = unavailable || state.jobs.length > 0;
+  showError("activity-error", state.jobsError ? `${t("loadFailed")} ${state.jobsError}` : "");
   rows.replaceChildren(...state.jobs.map((job) => {
     const row = document.createElement("div");
     row.className = "row";
@@ -2248,9 +2272,14 @@ async function loadAssets() {
   try {
     const data = await api("/assets?limit=200");
     state.assets = data.assets || [];
+    state.assetsLoaded = true;
+    state.assetsError = "";
     showError("library-error", "");
   } catch (error) {
-    showError("library-error", errorText(error));
+    state.assetsError = errorText(error);
+    showError("library-error", `${t("loadFailed")} ${state.assetsError}`);
+    renderLibrary();
+    renderRecent();
     return;
   }
   renderLibrary();
@@ -2276,8 +2305,10 @@ function renderLibrary() {
     if (state.libraryFilter === "audio.sfx.generate") return task.startsWith("audio.");
     return task === state.libraryFilter;
   });
-  byId("library-count").textContent = `${items.length}${t("itemCount")}`;
-  byId("library-empty").hidden = items.length > 0;
+  const unavailable = !state.assetsLoaded || Boolean(state.assetsError);
+  byId("library-count").textContent = state.assetsLoaded
+    ? `${items.length}${t("itemCount")}` : (state.assetsError ? "" : t("loadingState"));
+  byId("library-empty").hidden = unavailable || items.length > 0;
   grid.replaceChildren(...items.map((asset) => {
     const card = document.createElement("div");
     card.className = "card";
@@ -2321,7 +2352,10 @@ function renderRecent() {
   const strip = byId("recent-strip");
   if (!strip) return;
   const items = state.assets.slice(0, 5);
-  byId("recent-empty").hidden = items.length > 0;
+  const empty = byId("recent-empty");
+  empty.hidden = state.assetsLoaded && !state.assetsError && items.length > 0;
+  empty.textContent = state.assetsError
+    ? t("loadFailed") : (!state.assetsLoaded ? t("loadingState") : t("recentEmpty"));
   strip.replaceChildren(...items.map((asset) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -2479,9 +2513,14 @@ async function saveTtsPreference(engineId, modelId = null, voiceId = undefined) 
 async function loadSetup() {
   try {
     state.setup = await api("/setup/status");
+    state.setupLoaded = true;
+    state.setupError = "";
     showError("setup-error", "");
   } catch (error) {
-    showError("setup-error", errorText(error));
+    state.setupError = errorText(error);
+    showError("setup-error", `${t("loadFailed")} ${state.setupError}`);
+    renderServicePill();
+    renderSettings();
     return;
   }
   renderServicePill();
@@ -2489,12 +2528,16 @@ async function loadSetup() {
 }
 
 function componentState(id) {
-  return state.setup?.components?.find((item) => item.id === id)?.state || "missing";
+  if (state.setupLoaded) {
+    return state.setup?.components?.find((item) => item.id === id)?.state || "missing";
+  }
+  return state.setupError ? "unavailable" : "checking";
 }
 
 function stateLabel(value) {
   return {
     available: t("stateAvailable"), preparing: t("statePreparing"),
+    checking: t("stateChecking"),
     setup_required: t("stateSetupRequired"), missing: t("stateSetupRequired"),
     failed: t("stateFailed"), unavailable: t("stateUnavailable"),
   }[value] || value;
@@ -2533,7 +2576,8 @@ function renderSettings() {
       sub.textContent = t(component.detail);
       left.append(sub);
     }
-    if (component.id === "game-audio" && value !== "available") {
+    const authoritative = state.setupLoaded && !state.setupError;
+    if (component.id === "game-audio" && authoritative && value !== "available") {
       left.append(gatedCredentialBlock(component.id));
       const terms = document.createElement("label");
       terms.className = "check";
@@ -2549,18 +2593,18 @@ function renderSettings() {
     side.className = "row-side";
     const badge = document.createElement("span");
     badge.className = "state";
-    badge.dataset.tone = value === "available" ? "ok" : (value === "failed" ? "bad" : "warn");
+    badge.dataset.tone = value === "available" ? "ok" : (value === "failed" ? "bad" : (authoritative ? "warn" : "muted"));
     badge.textContent = stateLabel(value);
     side.append(badge);
     if (component.profile) {
-      if (value !== "available") {
+      if (authoritative && value !== "available") {
         const setup = document.createElement("button");
         setup.type = "button";
         setup.className = "cta-secondary";
         setup.textContent = t("setUp");
         setup.onclick = () => applySetup(component.profile, "apply");
         side.append(setup);
-      } else if (state.mode === "advanced") {
+      } else if (authoritative && state.mode === "advanced") {
         for (const [key, endpoint] of [["repair", "repair"], ["update", "update"]]) {
           const button = document.createElement("button");
           button.type = "button";

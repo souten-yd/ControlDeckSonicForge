@@ -4,6 +4,36 @@ Last updated: 2026-09-05
 
 This file separates **code availability** from **executed evidence**. `IMPLEMENTED` means the path exists on `impl/full-platform-baseline`; it does not mean real models, AMD/ROCm, existing M5 hardware/client, browser E2E or the current full test suite have passed. Anything not actually executed remains `NOT TESTED`.
 
+## Managed-state recovery and truthful loading UI (2026-09-05)
+
+- The installed 0.6.1 backend was healthy and reported all five setup components as
+  available while its API still held 77 jobs and 45 assets. The reported apparent
+  loss was a UI-state defect: initial/failed API reads used the same empty values as
+  an authoritative zero-result response, and an unavailable setup response rendered
+  every component as needing setup.
+- A separate pre-Feature data root, `/data1tb/ControlDeck/data/sonicforge`, still held
+  50 jobs, 17 assets, 2 voices, 8 meeting sessions and 9 meeting segments. A staged
+  rehearsal imported these without ID collisions, retained the five current setup
+  records, reached 127 jobs / 62 assets / 2 voices / 10 meetings / 12 segments, passed
+  SQLite `integrity_check`, and made an idempotent second run with no changes.
+- The same verified migration was applied to the installed managed data after stopping
+  the service. It copied 18 referenced files, created a 278,528-byte pre-import DB
+  backup, retained the old root unchanged and restored the service to healthy. The
+  oldest restored asset was fetched through the installed content API as a 24 kHz,
+  16-bit mono WAV; its SHA-256 was
+  `9a79ae5b58dbf3d0f53c5c7285563376779fc54897799a63bf05c75cc8008389`, matching its
+  database record.
+- The candidate UI now distinguishes loading, failed refresh and authoritative empty
+  state. A real headless Chrome run at 390 px in Japanese and English forced setup,
+  job and asset endpoints to HTTP 503. It displayed unavailable/error copy with no
+  setup buttons and no false empty-history message, recovered to five available setup
+  components, 127 job rows and 62 asset cards, then retained those rows/cards through
+  another forced failure. Both locales had zero document/body horizontal overflow and
+  no page exception. Authenticated parent-ControlDeck iframe acceptance is NOT TESTED.
+- Focused migration/core tests passed 30 tests. Full `./sf.sh test` passed 138 tests
+  with the existing Starlette/httpx deprecation and subprocess event-loop cleanup
+  warnings.
+
 ## v0.6.1 installed acceptance (2026-09-05)
 
 - PR #30 passed batched validation run `33951884076` at exact head

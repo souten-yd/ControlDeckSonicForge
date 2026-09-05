@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
+import sqlite3
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,6 +22,7 @@ from .events import EventBus
 from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
 from .host.files import read_grant
 from .jobs import HostedExecution, JobManager
+from .legacy_data import LegacyDataError, migrate_discovered_legacy_data
 from .schemas import LocalizationBatchCreate, SetupApplyRequest, SetupCredentials, TaskRequest, TtsPreferenceUpdate, TtsSampleInstall, VoiceCreate
 from . import uploads
 from . import setup as setup_service
@@ -30,6 +33,13 @@ from . import __version__
 settings = load_settings()
 ensure_directories(settings)
 session_factory = make_session_factory(settings)
+try:
+    legacy_data_imports = migrate_discovered_legacy_data(settings)
+except (LegacyDataError, OSError, sqlite3.Error) as exc:
+    # A failed import must never make the already usable managed data unavailable.
+    # The untouched legacy source and the pre-import backup remain available for repair.
+    logging.getLogger(__name__).error("legacy SonicForge data import failed: %s", exc)
+    legacy_data_imports = []
 events = EventBus()
 host_client = ControlDeckHostClient(settings.control_deck_url)
 jobs = JobManager(settings, session_factory, events, host_client=host_client)

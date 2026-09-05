@@ -102,6 +102,23 @@ When installed by ControlDeck Release Bundle Features, the generic Host may prov
 
 Respect explicit environment variables and configured model-library roots.
 
+Early source-managed ControlDeck installations stored SonicForge under
+`<host-data>/sonicforge` before the generic Feature lifecycle standardized
+`<host-data>/feature-data/sonic-forge`. On the first start from that exact managed
+layout, SonicForge performs one idempotent legacy import:
+
+- merge user-owned jobs, assets, provenance, voices, localization and meeting state;
+- verify asset sizes and SHA-256 before copying;
+- preserve logical IDs and reject conflicting records/files rather than overwrite;
+- keep current setup/runtime/model state authoritative, because legacy runtime paths
+  are not portable into the managed Feature layout;
+- create a current-database backup and a durable migration receipt;
+- leave the legacy source untouched;
+- continue with the current usable data if validation/import fails.
+
+No arbitrary sibling directory is scanned. An operator may name one explicit legacy
+directory with `SONICFORGE_LEGACY_DATA_DIR` for a controlled migration.
+
 ## 4. Environment layering
 
 ### 4.1 Lightweight core environment

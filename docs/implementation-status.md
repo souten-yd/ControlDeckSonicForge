@@ -122,17 +122,26 @@ This file separates **code availability** from **executed evidence**. `IMPLEMENT
   3.559 respectively.
 - Style-Bert-VITS2 2.5.0 was measured in a separate venv with the
   `litagin/style_bert_vits2_jvnv` `jvnv-F1-jp_e160_s14000.safetensors` checkpoint
-  at revision `205830ca1d49e666ddfbf2a755f0108e9cade4dd`. Keeping BERT and VITS in fp32
-  resolved the observed Half-input/float-bias mismatch. Its third run generated
-  4.621 s of audio in 10.522 s, for a 0.439 realtime ratio. Peak allocated VRAM was
-  2,033,598,976 bytes; 106 samples had 100% median and maximum GPU use. Runs one
-  and two were 15.596 s / 4.574 s / 0.293 and 10.368 s / 4.505 s / 0.434. This
-  fp32 measurement does not satisfy the current plan's required bfloat16 comparison
-  and is invalid as an engine-performance conclusion; a bfloat16 remeasurement
-  remains NOT TESTED.
-- GPT-SoVITS independently exceeded the Qwen3-TTS comparison ratio of 0.56 and was
-  selected for the optional engine path. Style-Bert-VITS2 was not added to the
-  product runtime, but was not validly ruled out by the fp32 result. GPT-SoVITS now
+  at revision `205830ca1d49e666ddfbf2a755f0108e9cade4dd`. The corrected run used
+  bfloat16 for both BERT and VITS, including floating-point parameters and buffers,
+  and explicitly converted BERT/style inputs to the same dtype as the VITS weights.
+  The audit found 329,600,508 bfloat16 BERT elements, 73,250,993 bfloat16 VITS
+  elements and no Conv/Linear input-to-weight dtype mismatch. Runs one through three
+  were 11.593 s / 4.551 s / 0.393, 10.228 s / 4.598 s / 0.450 and 9.928 s /
+  4.505 s / 0.454 (generation / audio / realtime ratio). The selected third run
+  allocated a peak 1,070,458,880 bytes of VRAM; 635 `rocm-smi` samples had 100%
+  median and maximum GPU use. Its 397,356-byte final WAV is 4.504671 s, 44.1 kHz,
+  mono, with SHA-256
+  `8fba0ea2b51cbb61a347885e82a4f0ab46c481b1b34f424a59e2cf1d3590e750`.
+  The earlier fp32 0.439 result is superseded and is not used for the decision.
+- The exact GPT-SoVITS evaluation environment was also re-audited. Its pipeline
+  precision and every floating-point parameter/buffer in T2S (77,606,402 elements),
+  VITS (99,912,321), BERT (325,545,608), CNHuBERT (94,371,712) and SV (53,588,064)
+  were bfloat16. The existing 3.522 realtime-ratio measurement is therefore valid
+  and did not require rerunning.
+- GPT-SoVITS exceeded both the Qwen3-TTS comparison ratio of 0.56 and the corrected
+  Style-Bert-VITS2 ratio of 0.454, so it remains the selected optional engine.
+  Style-Bert-VITS2 was not added to the product runtime. GPT-SoVITS now
   has its own atomically provisioned `speech-gpt-sovits-rocm` venv and fixed,
   digest-checked upstream/model preparation. Advanced routing offers
   `tts.qwen3` and `tts.gpt-sovits`; automatic routing remains Qwen3-TTS so a

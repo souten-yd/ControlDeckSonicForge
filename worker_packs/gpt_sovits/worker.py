@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import gc
 from contextlib import redirect_stdout
 import json
 import os
@@ -14,6 +15,7 @@ ENGINE_VERSION = "48b1a0169a28582a8984402f82cf438d3bfa6aca"
 MODEL_ID = "lj1995/GPT-SoVITS"
 MODEL_REVISION = "336b2ec4e8d4ac74740798dd40af44e74659ecaf"
 _PIPELINE = None
+_PIPELINE_KEY: tuple[str, str] | None = None
 
 
 def _parent_death_guard() -> None:
@@ -30,7 +32,9 @@ def _parent_death_guard() -> None:
         os.kill(os.getpid(), signal.SIGTERM)
 
 
-def _emit(value: dict) -> None:
+def _emit(value: dict, request_id: str | None = None) -> None:
+    if request_id:
+        value = {"request_id": request_id, **value}
     print(json.dumps(value, ensure_ascii=False), flush=True)
 
 
@@ -44,10 +48,8 @@ def _root() -> Path:
     return root
 
 
-def _pipeline():
-    global _PIPELINE
-    if _PIPELINE is not None:
-        return _PIPELINE
+def _pipeline(pack: dict | None):
+    global _PIPELINE, _PIPELINE_KEY
     root = _root()
     source = root / "source"
     os.chdir(source)
@@ -57,13 +59,24 @@ def _pipeline():
         from GPT_SoVITS.TTS_infer_pack.TTS import TTS, TTS_Config
 
         pretrained = source / "GPT_SoVITS/pretrained_models"
+        t2s_weights = str(pack["t2s_weights"]) if pack else str(pretrained / "s1v3.ckpt")
+        vits_weights = str(pack["vits_weights"]) if pack else str(pretrained / "v2Pro/s2Gv2ProPlus.pth")
+        key = (t2s_weights, vits_weights)
+        if _PIPELINE is not None and _PIPELINE_KEY == key:
+            return _PIPELINE
+        if _PIPELINE is not None:
+            _PIPELINE = None
+            _PIPELINE_KEY = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         config = TTS_Config(
             {"custom": {
                 "device": "cuda:0" if torch.cuda.is_available() else "cpu",
                 "is_half": torch.cuda.is_available(),
                 "version": "v2ProPlus",
-                "t2s_weights_path": str(pretrained / "s1v3.ckpt"),
-                "vits_weights_path": str(pretrained / "v2Pro/s2Gv2ProPlus.pth"),
+                "t2s_weights_path": t2s_weights,
+                "vits_weights_path": vits_weights,
                 "cnhuhbert_base_path": str(pretrained / "chinese-hubert-base"),
                 "bert_base_path": str(pretrained / "chinese-roberta-wwm-ext-large"),
             }}
@@ -75,6 +88,7 @@ def _pipeline():
             if next(value.t2s_model.parameters()).dtype is not torch.bfloat16:
                 raise RuntimeError("GPT-SoVITS model is not bfloat16")
     _PIPELINE = value
+    _PIPELINE_KEY = key
     return value
 
 
@@ -87,23 +101,53 @@ def handle(payload: dict) -> None:
     if not text:
         raise ValueError("TTS input.text is required")
     voice = inp.get("_internal_voice")
-    if not isinstance(voice, dict) or voice.get("source_type") != "clone":
-        raise ValueError("GPT-SoVITS requires a reusable clone voice")
-    if not voice.get("rights_confirmed"):
+    pack = inp.get("_internal_model_pack")
+    voice = (
+        voice
+        if isinstance(voice, dict) and voice.get("source_type") == "clone"
+        else None
+    )
+    pack = pack if isinstance(pack, dict) else None
+    if not voice and not pack:
+        raise ValueError("GPT-SoVITS requires a reusable clone voice or model reference")
+    if not (
+        (voice and voice.get("rights_confirmed"))
+        or (pack and pack.get("rights_confirmed"))
+    ):
         raise ValueError("voice clone profile has no rights confirmation")
-    recipe = dict(voice.get("recipe") or {})
-    reference = recipe.get("reference_audio") or inp.get("_internal_reference_audio")
-    prompt = str(recipe.get("reference_text") or inp.get("reference_text") or "").strip()
+    recipe = dict(voice.get("recipe") or {}) if voice else {}
+    reference = (
+        recipe.get("reference_audio")
+        or inp.get("_internal_reference_audio")
+        or (pack or {}).get("reference_audio")
+    )
+    prompt = str(
+        recipe.get("reference_text")
+        or inp.get("reference_text")
+        or (pack or {}).get("reference_text")
+        or ""
+    ).strip()
     if not reference or not prompt:
         raise ValueError("GPT-SoVITS requires managed reference audio and reference_text")
     requested_model = request.get("routing", {}).get("model")
-    if requested_model not in {None, "", MODEL_ID}:
+    if requested_model not in {None, "", MODEL_ID, (pack or {}).get("id")}:
         raise ValueError("unsupported GPT-SoVITS model")
     language = request.get("content_language")
     lang = {"ja": "ja", "en": "en"}.get(language, "auto")
-    _emit({"type": "progress", "progress": 0.1, "message": "Loading GPT-SoVITS"})
-    pipeline = _pipeline()
-    _emit({"type": "progress", "progress": 0.55, "message": "Synthesizing cloned voice"})
+    request_id = payload.get("request_id")
+    _emit(
+        {"type": "progress", "progress": 0.1, "message": "Loading GPT-SoVITS"},
+        request_id,
+    )
+    pipeline = _pipeline(pack)
+    _emit(
+        {
+            "type": "progress",
+            "progress": 0.55,
+            "message": "Synthesizing cloned voice",
+        },
+        request_id,
+    )
     with redirect_stdout(sys.stderr):
         generation = {
             "text": text,
@@ -130,18 +174,18 @@ def handle(payload: dict) -> None:
         "type": "result",
         "engine_id": "tts.gpt-sovits",
         "engine_version": ENGINE_VERSION,
-        "model_id": MODEL_ID,
-        "model_revision": MODEL_REVISION,
-        "model_license_id": "MIT",
+        "model_id": (pack or {}).get("id", MODEL_ID),
+        "model_revision": (pack or {}).get("revision", MODEL_REVISION),
+        "model_license_id": (pack or {}).get("license_id", "MIT"),
         "output_path": str(output),
         "payload": {
             "language": language,
             "voice_mode": "clone",
-            "voice_id": voice.get("id"),
+            "voice_id": voice.get("id") if voice else None,
             "filename": "speech.wav",
             "warm_model_cache": True,
         },
-    })
+    }, request_id)
 
 
 def main() -> None:
@@ -152,13 +196,18 @@ def main() -> None:
             return
         if not raw.strip():
             continue
+        request_id = None
         try:
             value = json.loads(raw)
+            request_id = value.get("request_id") if isinstance(value, dict) else None
             if value.get("type") == "shutdown":
                 return
             handle(value)
         except Exception as exc:
-            _emit({"type": "error", "message": str(exc)})
+            _emit(
+                {"type": "error", "message": str(exc)},
+                request_id,
+            )
 
 
 if __name__ == "__main__":

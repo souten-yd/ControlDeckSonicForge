@@ -1,4 +1,4 @@
-import importlib, json, sys, time
+import importlib, io, json, sys, time, wave
 from fastapi.testclient import TestClient
 
 def load_app():
@@ -36,6 +36,51 @@ def test_embedded_frontend_routes(env):
         # モバイルの下端と、指で押せる大きさ。どちらも欠けると実機で使えなくなる。
         assert "safe-area-inset-bottom" in styles.text and _compact("min-height: 44px") in _compact(styles.text)
         assert _compact("--tabbar: 60px") in _compact(styles.text)
+
+def test_tts_engine_preference_and_gpt_sample_voice_are_persistent(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        assert c.get('/addon/v1/tts/preferences').json() == {
+            'engine_id': 'tts.qwen3',
+            'gpt_sovits_model_id': 'lj1995/GPT-SoVITS',
+        }
+        changed=c.put('/addon/v1/tts/preferences', json={
+            'engine_id': 'tts.gpt-sovits',
+            'gpt_sovits_model_id': 'lj1995/GPT-SoVITS',
+        })
+        assert changed.status_code == 200
+        assert c.get('/addon/v1/tts/preferences').json()['engine_id'] == 'tts.gpt-sovits'
+
+        audio=io.BytesIO()
+        with wave.open(audio, 'wb') as wav:
+            wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(16000)
+            wav.writeframes(b'\0\0' * 16000)
+        uploaded=c.post('/addon/v1/uploads', files={
+            'file': ('sample.wav', audio.getvalue(), 'audio/wav'),
+        })
+        assert uploaded.status_code == 200
+        voice=c.post('/addon/v1/voices', json={
+            'name': 'GPT sample',
+            'source_type': 'clone',
+            'languages': ['ja'],
+            'engine_id': 'tts.gpt-sovits',
+            'recipe': {
+                'reference_upload': uploaded.json()['upload_id'],
+                'reference_text': '参照音声です。',
+            },
+            'rights_confirmed': True,
+        })
+        assert voice.status_code == 200
+        assert voice.json()['engine_id'] == 'tts.gpt-sovits'
+        assert voice.json()['recipe']['reference_audio'].startswith('voices/')
+        assert c.delete(f"/addon/v1/voices/{voice.json()['id']}").status_code == 200
+
+        markup=c.get('/settings/').text
+        for element_id in ('tts-model-upload', 'gpt-sample-file', 'gpt-sample-add'):
+            assert f'id="{element_id}"' in markup
+        app_js=c.get('/app.js').text
+        assert 'saveTtsPreference' in app_js
+        assert 'engine_id: "tts.gpt-sovits"' in app_js
 
 def test_simple_and_advanced_modes_are_wired(env):
     """シンプル/詳細の切り替えと、詳細だけの断片が実際に存在すること。"""

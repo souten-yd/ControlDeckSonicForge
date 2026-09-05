@@ -17,6 +17,7 @@ from .events import EventBus
 from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
 from .host.files import commit_file
 from .workers import WorkerError, WorkerResult, execute, route
+from . import tts_models
 
 
 @dataclass
@@ -49,6 +50,7 @@ class JobManager:
         self.process_lock = asyncio.Semaphore(1)
 
     def create(self, request: dict, *, hosted: HostedExecution | None = None) -> Job:
+        request = self._apply_tts_preferences(request)
         job = Job(
             id=f"job:{uuid.uuid4()}",
             task=request["task"],
@@ -65,6 +67,21 @@ class JobManager:
             self._run(job.id), name=f"sonicforge-job-{job.id}"
         )
         return job
+
+    def _apply_tts_preferences(self, request: dict) -> dict:
+        if request.get("task") != "speech.tts.synthesize":
+            return request
+        request = dict(request)
+        routing = dict(request.get("routing") or {})
+        with self.session_factory() as session:
+            selected = tts_models.preferences(session)
+            engine = routing.get("engine") or selected["engine_id"]
+            routing["engine"] = engine
+            if engine == tts_models.GPT_SOVITS_ENGINE:
+                model_id = routing.get("model") or selected["gpt_sovits_model_id"]
+                routing["model"] = model_id
+        request["routing"] = routing
+        return request
 
     async def cancel(self, job_id: str) -> bool:
         with self.session_factory() as session:
@@ -371,6 +388,13 @@ class JobManager:
     def _resolve_voice(self, request: dict) -> dict:
         request = dict(request)
         inp = dict(request.get("input") or {})
+        routing = request.get("routing") or {}
+        if routing.get("engine") == tts_models.GPT_SOVITS_ENGINE:
+            model_id = routing.get("model") or tts_models.BASE_GPT_MODEL
+            with self.session_factory() as session:
+                pack = tts_models.worker_pack(self.settings, session, model_id)
+            if pack is not None:
+                inp["_internal_model_pack"] = pack
         voice_id = inp.get("voice_id")
         if not (isinstance(voice_id, str) and voice_id.startswith("voice:")):
             request["input"] = inp
@@ -567,6 +591,7 @@ class JobManager:
                     "voice_id": item["voice_id"],
                 },
             }
+            child_request = self._apply_tts_preferences(child_request)
             child_request = self._resolve_voice(child_request)
 
             async def child_progress(value: float, message: str) -> None:

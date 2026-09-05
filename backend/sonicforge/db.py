@@ -26,6 +26,27 @@ class SetupComponent(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class AppPreference(Base):
+    __tablename__ = "app_preferences"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class TtsModelPack(Base):
+    __tablename__ = "tts_model_packs"
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    engine_id: Mapped[str] = mapped_column(String(120), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    relative_path: Mapped[str] = mapped_column(String(400))
+    manifest: Mapped[dict] = mapped_column(JSON, default=dict)
+    archive_sha256: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Job(Base):
     __tablename__ = "jobs"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

@@ -14,6 +14,7 @@ UPSTREAM_COMMIT = "48b1a0169a28582a8984402f82cf438d3bfa6aca"
 UPSTREAM_SHA256 = "1c967e31777b2b88468af3e7481bcb770ac4d09dd854bdb9ee065d8c8c75fcb6"
 MODEL_REVISION = "336b2ec4e8d4ac74740798dd40af44e74659ecaf"
 LANG_ID_SHA256 = "7e69ec5451bc261cc7844e49e4792a85d7f09c06789ec800fc4a44aec362764e"
+PATCH_REVISION = 2
 MODEL_FILES = (
     "s1v3.ckpt",
     "v2Pro/s2Gv2ProPlus.pth",
@@ -66,6 +67,7 @@ def _patch_bfloat16(source: Path) -> None:
     )
     _replace(tts, "dtype=np.float16 if self.configs.is_half else np.float32", "dtype=np.float32", count=1)
     _replace(tts, "audio = audio.cpu().numpy()", "audio = audio.float().cpu().numpy()", count=2)
+    _replace(tts, "weights_only=False", "weights_only=True", count=3)
 
     sv = source / "GPT_SoVITS/sv.py"
     _replace(sv, "self.embedding_model = self.embedding_model.half().to(device)", "self.embedding_model = self.embedding_model.to(device=device, dtype=torch.bfloat16)", count=1)
@@ -76,6 +78,8 @@ def _patch_bfloat16(source: Path) -> None:
         "            if self.is_half:\n                feat = feat.to(torch.bfloat16)\n            sv_emb = self.embedding_model.forward3(feat)",
         count=1,
     )
+    checkpoint = source / "GPT_SoVITS/process_ckpt.py"
+    _replace(checkpoint, "weights_only=False", "weights_only=True", count=2)
 
 
 def main() -> None:
@@ -85,7 +89,11 @@ def main() -> None:
     manifest = target / "sonicforge-gpt-sovits.json"
     if manifest.is_file():
         value = json.loads(manifest.read_text(encoding="utf-8"))
-        if value.get("upstream_commit") == UPSTREAM_COMMIT and value.get("model_revision") == MODEL_REVISION:
+        if (
+            value.get("upstream_commit") == UPSTREAM_COMMIT
+            and value.get("model_revision") == MODEL_REVISION
+            and value.get("patch_revision") == PATCH_REVISION
+        ):
             print(json.dumps([value]))
             return
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -134,6 +142,7 @@ def main() -> None:
             "upstream": "RVC-Boss/GPT-SoVITS",
             "upstream_commit": UPSTREAM_COMMIT,
             "upstream_archive_sha256": UPSTREAM_SHA256,
+            "patch_revision": PATCH_REVISION,
             "license": "MIT",
             "path": str(target / "source"),
         }

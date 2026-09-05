@@ -206,6 +206,7 @@ class LiveTurnRunner:
     ) -> tuple[PipelineValue, dict[str, Any], WorkerResult, dict[str, Any]]:
         request = self.runtime._worker_request(stage, value)
         if stage.kind == "speech.tts":
+            request = self.jobs._apply_tts_preferences(request)
             request = self.jobs._resolve_voice(request)
 
         async def progress(fraction: float, message: str) -> None:
@@ -331,6 +332,7 @@ class LiveTurnRunner:
             request = self.runtime._worker_request(
                 tts_stage, PipelineValue(kind="text", text=text)
             )
+            request = self.jobs._apply_tts_preferences(request)
             request = self.jobs._resolve_voice(request)
 
             async def progress(fraction: float, message: str) -> None:
@@ -373,6 +375,7 @@ class LiveTurnRunner:
                 request = self.runtime._worker_request(
                     tts_stage, PipelineValue(kind="text", text=chunk)
                 )
+                request = self.jobs._apply_tts_preferences(request)
                 request = self.jobs._resolve_voice(request)
 
                 async def progress(fraction: float, message: str) -> None:

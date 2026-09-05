@@ -112,6 +112,9 @@
                 </button>
               </div>
               <textarea id="speech-text" maxlength="8000" rows="5" placeholder="こんにちは。今日はいい天気ですね。"></textarea>
+              <label class="field-label" for="speech-engine" data-i18n="ttsEngine">音声エンジン</label>
+              <select id="speech-engine"></select>
+              <p id="speech-engine-note" class="hint"></p>
               <div class="field-head">
                 <span class="field-label" data-i18n="voice">ボイス</span>
                 <button type="button" id="speech-voice-add" class="cta-secondary" data-i18n="voiceAdd">＋ ボイスを作る</button>
@@ -302,6 +305,55 @@
           </div>
           <div id="setup-rows" class="rows"></div>
           <p id="setup-error" class="error" role="alert" hidden></p>
+
+          <div class="settings-section">
+            <div class="view-head">
+              <p class="field-label" data-i18n="ttsModelsTitle">GPT-SoVITS モデル</p>
+              <label class="cta-secondary">
+                <span data-i18n="ttsModelUpload">ZIPを追加</span>
+                <input id="tts-model-upload" type="file" accept="application/zip,.zip" hidden>
+              </label>
+            </div>
+            <p class="hint" data-i18n="ttsModelsHint">manifest.json付きのモデルZIPを安全に展開し、切り替えて使えます。</p>
+            <details>
+              <summary data-i18n="ttsModelFormat">ZIP の manifest.json 形式</summary>
+              <pre>{
+  "id": "my-voice",
+  "name": "My voice",
+  "version": "v2ProPlus",
+  "license_id": "SPDX-or-license-name",
+  "source": "https://source.example/model",
+  "rights_confirmed": true,
+  "languages": ["ja"],
+  "t2s_weights": "weights/model.ckpt",
+  "vits_weights": "weights/model.pth",
+  "reference_audio": "reference.wav",
+  "reference_text": "音声の正確な書き起こし"
+}</pre>
+            </details>
+            <div id="tts-model-rows" class="rows"></div>
+            <p id="tts-model-error" class="error" role="alert" hidden></p>
+            <div class="form-row">
+              <label data-i18n="gptSampleName">サンプル音声名
+                <input id="gpt-sample-name" type="text" maxlength="120">
+              </label>
+              <label data-i18n="gptSampleLanguage">言語
+                <select id="gpt-sample-language"><option value="ja">日本語</option><option value="en">English</option></select>
+              </label>
+            </div>
+            <label data-i18n="gptSampleText">音声の正確な書き起こし
+              <textarea id="gpt-sample-text" maxlength="1000" rows="2"></textarea>
+            </label>
+            <label class="check">
+              <input id="gpt-sample-rights" type="checkbox">
+              <span data-i18n="voiceRights">この音声を利用・複製する権利があることを確認します</span>
+            </label>
+            <div class="form-row gpt-sample-file-row">
+              <input id="gpt-sample-file" type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg,.webm">
+              <button type="button" id="gpt-sample-add" class="cta-secondary" data-i18n="gptSampleAdd">サンプル音声を登録</button>
+            </div>
+            <p id="gpt-sample-error" class="error" role="alert" hidden></p>
+          </div>
 
           <details id="setup-plan-block" class="settings-section">
             <summary data-i18n="setupPlan">準備の内訳とハードウェア</summary>

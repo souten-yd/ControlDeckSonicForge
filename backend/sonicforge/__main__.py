@@ -11,7 +11,7 @@ from . import setup as setup_service
 
 
 SETUP_PROFILES = tuple(setup_service.PROFILE_COMPONENTS)
-SETUP_COMPONENTS = ("speech-essentials", "game-audio", "music")
+SETUP_COMPONENTS = ("speech-essentials", "gpt-sovits", "game-audio", "music")
 
 
 def _apply_arguments(parser: argparse.ArgumentParser, *, positional: bool) -> None:

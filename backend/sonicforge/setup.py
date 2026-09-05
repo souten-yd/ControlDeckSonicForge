@@ -20,9 +20,10 @@ from .db import SetupComponent
 
 PROFILE_COMPONENTS = {
     "speech-essentials": ["speech-essentials"],
+    "gpt-sovits": ["gpt-sovits"],
     "game-audio": ["game-audio"],
     "music": ["music"],
-    "full-studio": ["speech-essentials", "game-audio", "music"],
+    "full-studio": ["speech-essentials", "gpt-sovits", "game-audio", "music"],
     "cpu-essentials": ["speech-essentials"],
     "custom": [],
 }
@@ -226,25 +227,25 @@ def runtime_specs(
                 ),
             )
         )
-        if backend == "rocm":
-            specs.append(
-                RuntimeSpec(
-                    "speech-essentials",
-                    "speech-gpt-sovits-rocm",
-                    settings.repo_root
-                    / "runtimes"
-                    / "speech-gpt-sovits-rocm"
-                    / "requirements.txt",
-                    8_000_000_000,
-                    extra_install=("pyopenjtalk==0.4.1",),
-                    smoke_imports=("torch", "torchaudio", "soundfile"),
-                    engine_models=(GPT_SOVITS_MODEL,),
-                    model_preparer=settings.repo_root
-                    / "worker_packs"
-                    / "gpt_sovits"
-                    / "prepare.py",
-                )
+    if "gpt-sovits" in components and backend == "rocm":
+        specs.append(
+            RuntimeSpec(
+                "gpt-sovits",
+                "speech-gpt-sovits-rocm",
+                settings.repo_root
+                / "runtimes"
+                / "speech-gpt-sovits-rocm"
+                / "requirements.txt",
+                8_000_000_000,
+                extra_install=("pyopenjtalk==0.4.1",),
+                smoke_imports=("torch", "torchaudio", "soundfile"),
+                engine_models=(GPT_SOVITS_MODEL,),
+                model_preparer=settings.repo_root
+                / "worker_packs"
+                / "gpt_sovits"
+                / "prepare.py",
             )
+        )
 
     if "game-audio" in components:
         specs.append(
@@ -291,6 +292,8 @@ def _blockers(specs: list[RuntimeSpec]) -> list[str]:
             result.append(
                 "Music pack currently requires the experimental Linux ROCm route"
             )
+        if spec.component == "gpt-sovits" and detect_backend() != "rocm":
+            result.append("GPT-SoVITS currently requires the Linux ROCm route")
         if spec.component == "music" and not (3, 11) <= sys.version_info[:2] < (3, 13):
             result.append("ACE-Step runtime requires Python 3.11 or 3.12")
     return result
@@ -315,7 +318,7 @@ def status(session: Session) -> dict:
                 ),
                 "detail": rows[cid].detail if cid in rows else {},
             }
-            for cid in ["core", "speech-essentials", "game-audio", "music"]
+            for cid in ["core", "speech-essentials", "gpt-sovits", "game-audio", "music"]
         ],
     }
 
@@ -502,11 +505,14 @@ async def _prepare_engine_models(
             env=env,
             capture=True,
         )
-        try:
-            value = json.loads(raw.strip().splitlines()[-1])
-        except (json.JSONDecodeError, IndexError) as exc:
-            raise SetupError("GPT-SoVITS model preparation returned invalid metadata") from exc
-        return value if isinstance(value, list) else []
+        for line in reversed(raw.splitlines()):
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, list):
+                return value
+        raise SetupError("GPT-SoVITS model preparation returned invalid metadata")
     if spec.component != "music":
         raise SetupError(f"unsupported engine model preparation: {spec.component}")
     checkpoint_dir = settings.models_dir / "ace-step"

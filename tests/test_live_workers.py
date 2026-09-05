@@ -49,6 +49,13 @@ def tts_request(text: str):
     }
 
 
+def test_live_tts_script_follows_selected_engine(tmp_path):
+    pool = object.__new__(LiveWorkerPool)
+    pool.settings = settings(tmp_path)
+    assert pool._live_script("tts", "tts.qwen3").name == "live_worker.py"
+    assert pool._live_script("tts", "tts.gpt-sovits").name == "worker.py"
+
+
 def test_persistent_worker_process_is_reused_and_terminated_on_session_close(tmp_path):
     async def scenario():
         cfg = settings(tmp_path)

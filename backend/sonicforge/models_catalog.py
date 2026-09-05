@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from . import tts_models
 from .capabilities import _state
 from .config import Settings
 from .setup import (
@@ -73,6 +74,14 @@ def model_document(
                 and (settings.runtime_dir / "speech-gpt-sovits-rocm/bin/python").is_file()
                 and (settings.models_dir / "gpt-sovits/sonicforge-gpt-sovits.json").is_file()
             )
+            gpt_models = (
+                [
+                    {"id": item["id"], "installed": gpt_ready}
+                    for item in tts_models.model_document(settings, session)["models"]
+                ]
+                if settings
+                else [{"id": GPT_SOVITS_MODEL, "installed": gpt_ready}]
+            )
             entry["engines"] = [
                 {
                     "id": "tts.qwen3",
@@ -82,7 +91,7 @@ def model_document(
                 {
                     "id": "tts.gpt-sovits",
                     "installed": gpt_ready,
-                    "models": [{"id": GPT_SOVITS_MODEL, "installed": gpt_ready}],
+                    "models": gpt_models,
                 },
             ]
         tasks.append(entry)

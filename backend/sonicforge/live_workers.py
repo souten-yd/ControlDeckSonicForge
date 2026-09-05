@@ -62,6 +62,7 @@ async def _terminate(proc: asyncio.subprocess.Process) -> None:
 @dataclass
 class _PersistentWorker:
     key: str
+    engine_id: str
     proc: asyncio.subprocess.Process
     stderr_task: asyncio.Task
     lock: asyncio.Lock
@@ -101,6 +102,8 @@ class LiveWorkerPool:
         if key == "asr":
             return self.settings.repo_root / "worker_packs/whisper/live_worker.py"
         if key == "tts":
+            if engine_id == "tts.gpt-sovits":
+                return self.settings.repo_root / "worker_packs/gpt_sovits/worker.py"
             return self.settings.repo_root / "worker_packs/qwen_tts/live_worker.py"
         raise WorkerError(f"unsupported live worker key: {key}")
 
@@ -150,17 +153,19 @@ class LiveWorkerPool:
     ) -> _PersistentWorker:
         if self._closed:
             raise WorkerError("live worker pool is closed")
-        existing = self._workers.get(key)
-        if existing is not None and existing.proc.returncode is None:
-            return existing
-
-        await self._admit(key, request, fail_fast=fail_fast)
         engine_id, python, _script = route(
             self.settings,
             request["task"],
             request.get("content_language", "auto"),
             request.get("routing", {}).get("engine"),
         )
+        existing = self._workers.get(key)
+        if existing is not None:
+            if existing.proc.returncode is None and existing.engine_id == engine_id:
+                return existing
+            await self._evict(key)
+
+        await self._admit(key, request, fail_fast=fail_fast)
         live_script = self._live_script(key, engine_id)
         if not live_script.is_file():
             await self.host_session.release_worker_lease(key)
@@ -186,6 +191,7 @@ class LiveWorkerPool:
         assert proc.stdin is not None and proc.stdout is not None
         worker = _PersistentWorker(
             key=key,
+            engine_id=engine_id,
             proc=proc,
             stderr_task=asyncio.create_task(
                 _stderr_tail(proc.stderr),

@@ -176,6 +176,41 @@ async def _stderr_tail(stream: asyncio.StreamReader | None) -> bytes:
             del tail[:-MAX_STDERR_TAIL_BYTES]
 
 
+
+# モデルを載せたままの worker。engine ごとに 1 本だけ持つ。
+#
+# worker は _MODELS / _PIPELINES で読み込んだモデルを持ち続ける作りなのに、
+# 呼び出し側が要求ごとに stdin を閉じてプロセスを捨てていたため、毎回読み直して
+# いた。実測（2026-09-05、Qwen3-TTS 0.6B CustomVoice）: 生成そのものは温まって
+# 11〜18 秒だが、プロセスを起こし直すと 40 秒級になる。
+#
+# 常駐させるのは speech（TTS / ASR）だけにする。音楽と効果音は 1 回が数分かかる
+# 上に大きく、抱えたままにする利点が無い。
+_WARM_ENGINES = frozenset({"tts.qwen3", "asr.whisper"})
+_warm: dict[tuple, asyncio.subprocess.Process] = {}
+
+
+def _warm_key(engine_id: str, argv: list[str], env: dict[str, str]) -> tuple:
+    return (engine_id, tuple(argv), json.dumps(sorted(env.items()), separators=(",", ":")))
+
+
+async def retire_warm_workers() -> None:
+    """常駐している worker を終わらせる。stdin を閉じれば main() の loop が抜ける。"""
+    for key in list(_warm):
+        proc = _warm.pop(key, None)
+        if proc is None or proc.returncode is not None:
+            continue
+        try:
+            if proc.stdin is not None and not proc.stdin.is_closing():
+                proc.stdin.close()
+            await asyncio.wait_for(proc.wait(), timeout=5)
+        except (TimeoutError, asyncio.TimeoutError, ConnectionResetError, BrokenPipeError):
+            await _terminate(proc)
+        except Exception:  # noqa: BLE001 - 後片付けで job を落とさない
+            await _terminate(proc)
+        _close_process_transport(proc)
+
+
 async def execute(
     settings: Settings,
     request: dict,
@@ -196,14 +231,23 @@ async def execute(
     else:
         argv = [str(python), str(script)]
     env = _worker_environment(settings, engine_id)
-    proc = await asyncio.create_subprocess_exec(
-        *argv,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-        start_new_session=os.name != "nt",
-    )
+    key = _warm_key(engine_id, argv, env)
+    keep = engine_id in _WARM_ENGINES
+    proc = _warm.get(key) if keep else None
+    if proc is not None and proc.returncode is not None:
+        _warm.pop(key, None)
+        proc = None
+    if proc is None:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            start_new_session=os.name != "nt",
+        )
+        if keep:
+            _warm[key] = proc
     assert proc.stdin and proc.stdout
     stderr_task = asyncio.create_task(
         _stderr_tail(proc.stderr), name=f"sonicforge-worker-stderr-{proc.pid}"
@@ -211,8 +255,10 @@ async def execute(
     try:
         proc.stdin.write((json.dumps(payload, ensure_ascii=False) + "\n").encode())
         await proc.stdin.drain()
-        proc.stdin.close()
-        await proc.stdin.wait_closed()
+        if not keep:
+            # 使い捨ての engine は従来どおり stdin を閉じて EOF で終わらせる。
+            proc.stdin.close()
+            await proc.stdin.wait_closed()
         final = None
         while True:
             line = await proc.stdout.readline()
@@ -232,21 +278,34 @@ async def execute(
             elif event.get("type") == "result":
                 final = event
             elif event.get("type") == "error":
+                # 失敗した worker は状態が分からないので使い回さない。
+                _warm.pop(key, None)
                 raise WorkerError(str(event.get("message", "worker failed"))[:1000])
-        code = await proc.wait()
-        stderr = await stderr_task
-        _close_process_transport(proc)
+            if keep and final is not None:
+                # 常駐は EOF を待たない。1 要求 1 結果で切り上げ、次の要求へ残す。
+                break
+        if keep and final is not None:
+            stderr_task.cancel()
+            await asyncio.gather(stderr_task, return_exceptions=True)
+            code, stderr = 0, b""
+        else:
+            _warm.pop(key, None)
+            code = await proc.wait()
+            stderr = await stderr_task
+            _close_process_transport(proc)
         if code != 0 or final is None:
             raise WorkerError(
                 stderr.decode(errors="replace")[-1000:] or f"worker exited {code}"
             )
     except asyncio.CancelledError:
+        _warm.pop(key, None)
         await _terminate(proc)
         stderr_task.cancel()
         await asyncio.gather(stderr_task, return_exceptions=True)
         _close_process_transport(proc)
         raise
     except BaseException:
+        _warm.pop(key, None)
         await _terminate(proc)
         stderr_task.cancel()
         await asyncio.gather(stderr_task, return_exceptions=True)

@@ -193,3 +193,28 @@ def test_speech_runs_in_bfloat16():
         source = path.read_text(encoding="utf-8")
         assert "torch.bfloat16" in source, path.name
         assert "torch.float16" not in source, path.name
+
+
+def test_speech_workers_read_one_line_at_a_time():
+    """`for raw in sys.stdin` は先読みバッファが埋まるか EOF まで 1 行目を返さない。
+
+    stdin を開いたまま次の要求を待つ使い方（モデルを載せたままの常駐）では、
+    その形だと最初の要求で止まる。MediaForge で同じ罠を踏んだ。
+    """
+    from pathlib import Path
+
+    root = Path(__file__).parents[1] / "worker_packs"
+    for path in (root / "qwen_tts" / "worker.py", root / "whisper" / "worker.py"):
+        # コメントで言及することはあるので、実行される行だけを見る。
+        code = [line for line in path.read_text(encoding="utf-8").splitlines()
+                if not line.lstrip().startswith("#")]
+        source = "\n".join(code)
+        assert "sys.stdin.readline()" in source, path.name
+        assert "for raw in sys.stdin" not in source, path.name
+
+
+def test_only_speech_engines_are_kept_loaded():
+    """音楽と効果音は 1 回が数分かかる上に大きい。抱えたままにする利点が無い。"""
+    from sonicforge.workers import _WARM_ENGINES
+
+    assert _WARM_ENGINES == {"tts.qwen3", "asr.whisper"}

@@ -191,7 +191,13 @@ def handle(payload: dict) -> None:
 
 
 def main() -> None:
-    for raw in sys.stdin:
+    # readline を使う。`for raw in sys.stdin` は先読みバッファが埋まるか EOF まで
+    # 1 行目を返さないので、stdin を開いたまま次の要求を待つ使い方（モデルを
+    # 載せたままの常駐）だと止まる。
+    while True:
+        raw = sys.stdin.readline()
+        if not raw:
+            return
         if not raw.strip():
             continue
         try:

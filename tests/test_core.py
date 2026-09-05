@@ -32,6 +32,9 @@ def test_embedded_frontend_routes(env):
         assert "X-Control-Deck-Bridge-Session" in app_js.text and _compact("credentials = 'include'") in _compact(app_js.text)
         assert "control-deck-bridge.${state.nonce}" in app_js.text
         assert "#shell-nav button" in app_js.text and "loadActiveJobs" in app_js.text
+        assert "jobsLoaded" in app_js.text and "assetsLoaded" in app_js.text
+        assert "setupLoaded" in app_js.text and 'state.setupError ? "unavailable" : "checking"' in app_js.text
+        assert 'id="activity-error"' in root.text
         styles=c.get('/styles.css'); assert styles.status_code==200
         # モバイルの下端と、指で押せる大きさ。どちらも欠けると実機で使えなくなる。
         assert "safe-area-inset-bottom" in styles.text and _compact("min-height: 44px") in _compact(styles.text)

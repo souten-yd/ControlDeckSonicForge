@@ -554,3 +554,47 @@ def test_setup_apply_cli_reports_setup_error_without_traceback(
         "ok": False,
         "error": "terms_required:stability-ai-community-license",
     }
+
+
+def test_assets_are_paged_and_filtered_on_the_server(env):
+    """一覧は少しずつ返す。
+
+    以前は limit だけで、画面側は 200 件を一度に取っていた。件数に比例して待ち
+    時間が伸びるうえ、200 件を超えると超えたぶんが黙って出なくなる。絞り込みも
+    画面側で行っていたため、読み込み済みのぶんに該当が無いと「0 件」に見えた。
+    """
+    m = load_app()
+    with TestClient(m.app) as c:
+        for index in range(5):
+            req = {"task": "speech.tts.synthesize", "input": {"text": f"おと{index}"},
+                   "profile": "default", "quality": "balanced", "content_language": "ja"}
+            jid = c.post('/addon/v1/tasks', json=req).json()['job_id']
+            for _ in range(100):
+                job = c.get('/addon/v1/jobs/' + jid.replace(':', '%3A')).json()
+                if job['state'] not in {'queued', 'running'}:
+                    break
+                time.sleep(.03)
+            assert job['state'] == 'succeeded', job
+
+        first = c.get('/addon/v1/assets?limit=2').json()
+        assert len(first['assets']) == 2
+        assert first['next_before'], "続きがあるのに位置を返していない"
+
+        second = c.get('/addon/v1/assets?limit=2&before=' + first['next_before']).json()
+        assert len(second['assets']) == 2
+        # 境目で取りこぼしも重複もしないこと
+        seen = [item['id'] for item in first['assets']] + [item['id'] for item in second['assets']]
+        assert len(seen) == len(set(seen)), seen
+
+        everything = c.get('/addon/v1/assets?limit=500').json()
+        assert everything['next_before'] is None, "全部返したのに続きがあることになっている"
+        assert [item['id'] for item in everything['assets']][:4] == seen
+
+        # 種類での絞り込みはサーバが行う。手元にある分だけ絞る形にしない。
+        speech = c.get('/addon/v1/assets?limit=500&task=speech.tts.synthesize').json()
+        speech_ids = {item['id'] for item in speech['assets']}
+        assert speech_ids and speech_ids <= {item['id'] for item in everything['assets']}
+        music = c.get('/addon/v1/assets?limit=500&task=music.generate').json()
+        assert music['assets'] == []
+
+        assert c.get('/addon/v1/assets?before=not-a-time').status_code == 422

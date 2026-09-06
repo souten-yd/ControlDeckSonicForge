@@ -154,6 +154,7 @@ const I18N = {
     recentEmpty: "まだ何もありません。作りたいものを書いて「作る」を押してください。",
     noJobs: "実行中・完了した処理はありません。",
     libraryEmpty: "まだ音声がありません。",
+    loadMore: "もっと見る",
 
     exportTitle: "音声を書き出す",
     exportProfile: "書き出しプロファイル",
@@ -543,6 +544,7 @@ const I18N = {
     recentEmpty: "Nothing yet. Describe what you want and press Create.",
     noJobs: "No running or finished work yet.",
     libraryEmpty: "No audio yet.",
+    loadMore: "Load more",
 
     exportTitle: "Export audio",
     exportProfile: "Delivery profile",
@@ -933,6 +935,8 @@ const state = {
   jobsError: "",
   assets: [],
   assetsLoaded: false,
+  assetsLoading: false,
+  libraryCursor: null,
   assetsError: "",
   voices: [],
   capabilities: null,
@@ -2268,19 +2272,40 @@ const LIBRARY_FILTERS = [
   {id: "music.generate", label: "taskMusic"},
 ];
 
-async function loadAssets() {
+const LIBRARY_PAGE_SIZE = 20;
+
+/* 絞り込みはサーバへ渡す。手元にある分だけ絞ると、続きに該当があっても
+   「0 件」に見えてしまう。「効果音」は audio. で始まる task をまとめて指す。 */
+function libraryTaskQuery() {
+  if (state.libraryFilter === "all") return "";
+  if (state.libraryFilter === "audio.sfx.generate") return "audio.";
+  return state.libraryFilter;
+}
+
+async function loadAssets({append = false} = {}) {
+  if (state.assetsLoading) return;
+  state.assetsLoading = true;
+  if (!append) {
+    state.assets = [];
+    state.libraryCursor = null;
+    state.assetsLoaded = false;
+  }
+  const params = new URLSearchParams({limit: String(LIBRARY_PAGE_SIZE)});
+  const task = libraryTaskQuery();
+  if (task) params.set("task", task);
+  if (append && state.libraryCursor) params.set("before", state.libraryCursor);
   try {
-    const data = await api("/assets?limit=200");
-    state.assets = data.assets || [];
+    const data = await api(`/assets?${params}`);
+    state.assets = append ? state.assets.concat(data.assets || []) : (data.assets || []);
+    state.libraryCursor = data.next_before || null;
     state.assetsLoaded = true;
     state.assetsError = "";
     showError("library-error", "");
   } catch (error) {
     state.assetsError = errorText(error);
     showError("library-error", `${t("loadFailed")} ${state.assetsError}`);
-    renderLibrary();
-    renderRecent();
-    return;
+  } finally {
+    state.assetsLoading = false;
   }
   renderLibrary();
   renderRecent();
@@ -2297,18 +2322,27 @@ function renderLibrary() {
   renderChips(byId("library-filter"), LIBRARY_FILTERS.map((item) => ({
     id: item.id,
     text: item.id === "all" ? (state.locale === "ja" ? "すべて" : "All") : t(item.label),
-  })), state.libraryFilter, (value) => { state.libraryFilter = value; renderLibrary(); });
-
-  const items = state.assets.filter((asset) => {
-    if (state.libraryFilter === "all") return true;
-    const task = assetTask(asset);
-    if (state.libraryFilter === "audio.sfx.generate") return task.startsWith("audio.");
-    return task === state.libraryFilter;
+  })), state.libraryFilter, (value) => {
+    state.libraryFilter = value;
+    void loadAssets();
   });
+
+  const items = state.assets;
   const unavailable = !state.assetsLoaded || Boolean(state.assetsError);
   byId("library-count").textContent = state.assetsLoaded
-    ? `${items.length}${t("itemCount")}` : (state.assetsError ? "" : t("loadingState"));
+    ? `${items.length}${t("itemCount")}${state.libraryCursor ? "＋" : ""}`
+    : (state.assetsError ? "" : t("loadingState"));
   byId("library-empty").hidden = unavailable || items.length > 0;
+  const more = byId("library-more");
+  if (more) {
+    more.hidden = unavailable || !state.libraryCursor;
+    more.disabled = state.assetsLoading;
+    more.textContent = t("loadMore");
+    if (!more.dataset.bound) {
+      more.dataset.bound = "1";
+      more.addEventListener("click", () => { void loadAssets({append: true}); });
+    }
+  }
   grid.replaceChildren(...items.map((asset) => {
     const card = document.createElement("div");
     card.className = "card";

@@ -6,12 +6,14 @@ import shutil
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import selectinload
 
 from .capabilities import capability_document
@@ -360,9 +362,44 @@ async def cancel_job(job_id: str):
 
 
 @app.get("/addon/v1/assets")
-async def list_assets(limit: int = 100):
+async def list_assets(limit: int = 100, before: str | None = None, task: str | None = None):
+    """新しい順に、要求されたぶんだけ返す。
+
+    一覧は以前 limit だけで、画面側は 200 件を一度に取っていた。件数に比例して
+    待ち時間が伸びるうえ、200 件を超えると超えたぶんが黙って出なくなる。
+    続きの位置を返して、少しずつ取れるようにする。
+
+    位置は created_at と id の組で持つ。created_at だけだと、同じ時刻の素材が
+    あったときに境目で取りこぼす。種類での絞り込みは Job.task を見るので、
+    画面側で読み込み済みのぶんだけ絞る形にならずに済む。
+    """
     limit = min(max(limit, 1), 500)
-    with session_factory() as session: return {"assets": [_asset_dict(row) for row in session.query(Asset).order_by(Asset.created_at.desc()).limit(limit).all()]}
+    with session_factory() as session:
+        query = session.query(Asset)
+        if task:
+            # 画面の「効果音」は audio. で始まる task をまとめて指す。前方一致で受ける。
+            query = query.join(Job, Asset.job_id == Job.id).filter(
+                Job.task.like(task.replace("%", "") + "%")
+            )
+        if before:
+            created, _, marker = before.partition("|")
+            try:
+                moment = datetime.fromisoformat(created)
+            except ValueError:
+                raise HTTPException(status_code=422, detail={"code": "invalid_cursor"}) from None
+            query = query.filter(
+                or_(
+                    Asset.created_at < moment,
+                    and_(Asset.created_at == moment, Asset.id < marker),
+                )
+            )
+        rows = query.order_by(Asset.created_at.desc(), Asset.id.desc()).limit(limit + 1).all()
+        more = len(rows) > limit
+        rows = rows[:limit]
+        return {
+            "assets": [_asset_dict(row) for row in rows],
+            "next_before": f"{rows[-1].created_at.isoformat()}|{rows[-1].id}" if more and rows else None,
+        }
 
 
 @app.get("/addon/v1/assets/{asset_id}")

@@ -598,3 +598,26 @@ def test_assets_are_paged_and_filtered_on_the_server(env):
         assert music['assets'] == []
 
         assert c.get('/addon/v1/assets?before=not-a-time').status_code == 422
+
+
+def test_library_does_not_fetch_audio_until_play_is_pressed(env):
+    """一覧を開いただけで音声を取りに行かない。
+
+    preload="none" は「取らない」の保証にならない。iOS の Safari は指定を
+    尊重しないことがあり、一覧を開いた時点で全件を取りに行く。1 件 238KB
+    なので携帯回線では数 MB になり、ライブラリが出るまで待たされる。
+    src を最初から持たせなければ、どのブラウザでも取りようがない。
+    """
+    m = load_app()
+    with TestClient(m.app) as c:
+        app_js = c.get('/app.js').text
+        # src を渡すのは 1 箇所だけで、それは押されたときのハンドラの中にある
+        assert app_js.count("player.src = apiUrl") == 1
+        handler = app_js[app_js.index("play.onclick"):]
+        handler = handler[:handler.index("};")]
+        assert "player.src = apiUrl" in handler, "押す前に src を渡している"
+        assert "player.play()" in handler
+        # 作った直後は src を持たない
+        made = app_js[app_js.index('const player = document.createElement("audio")'):]
+        made = made[:made.index("play.onclick")]
+        assert "player.src" not in made, "作った時点で src を持たせている"

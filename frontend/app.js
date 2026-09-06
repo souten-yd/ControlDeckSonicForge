@@ -154,6 +154,7 @@ const I18N = {
     recentEmpty: "まだ何もありません。作りたいものを書いて「作る」を押してください。",
     noJobs: "実行中・完了した処理はありません。",
     libraryEmpty: "まだ音声がありません。",
+    playAsset: "再生",
     loadMore: "もっと見る",
 
     exportTitle: "音声を書き出す",
@@ -544,6 +545,7 @@ const I18N = {
     recentEmpty: "Nothing yet. Describe what you want and press Create.",
     noJobs: "No running or finished work yet.",
     libraryEmpty: "No audio yet.",
+    playAsset: "Play",
     loadMore: "Load more",
 
     exportTitle: "Export audio",
@@ -2403,10 +2405,27 @@ function renderLibrary() {
       tag.textContent = value;
       tags.append(tag);
     }
+    // 音声は押されるまで取りに行かない。
+    //
+    // preload="none" を付けていたが、これは「取らない」の保証にならない。
+    // iOS の Safari は preload の指定を尊重しないことがあり、一覧を開いただけで
+    // 20 件ぶんを取りに行く。1 件 238KB なので携帯回線では数 MB になり、
+    // ライブラリが出るまで待たされる。src を最初から持たせなければ、
+    // どのブラウザでも取りようがない。
     const player = document.createElement("audio");
     player.controls = true;
     player.preload = "none";
-    player.src = apiUrl(`/assets/${encodeURIComponent(asset.id)}/content`);
+    player.hidden = true;
+    const play = document.createElement("button");
+    play.type = "button";
+    play.className = "play";
+    play.textContent = `▶ ${t("playAsset")}`;
+    play.onclick = () => {
+      play.hidden = true;
+      player.hidden = false;
+      player.src = apiUrl(`/assets/${encodeURIComponent(asset.id)}/content`);
+      void player.play().catch(() => { /* 端末が自動再生を断ることがある */ });
+    };
     const meta = document.createElement("div");
     meta.className = "meta";
     meta.textContent = asset.created_at ? new Date(asset.created_at).toLocaleString() : "";
@@ -2421,7 +2440,7 @@ function renderLibrary() {
     detailButton.textContent = t("details");
     detailButton.onclick = () => openAssetDetail(asset.id);
     actions.append(exportButton, detailButton);
-    card.append(heading, tags, player, meta, actions);
+    card.append(heading, tags, play, player, meta, actions);
     return card;
   }));
 }

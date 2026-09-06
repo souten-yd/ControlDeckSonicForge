@@ -893,3 +893,12 @@ dialog::backdrop { background: rgba(10, 13, 24, .68); }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+/* 一覧の再生ボタン。押されるまで音声を取りに行かないので、
+   native の再生器はこのボタンを押してから現れる。 */
+.card button.play {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+}

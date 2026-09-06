@@ -1142,11 +1142,50 @@ const jsonPost = (path, body) => api(path, {
 
 function socketOpen() { return state.socket && state.socket.readyState === WebSocket.OPEN; }
 
+/* 携帯の切断はたいてい一瞬なので、最初はすぐ試す。上限も低く保つ。上限が高いと
+   回線が戻っているのに待たされる。判断と間隔は ControlDeck 本体の
+   src/lib/liveConnection.ts に合わせてある。 */
+const RETURN_GRACE_MS = 11_000;
+const REVIVE_THROTTLE_MS = 3_000;
+let lastSocketMessageAt = Date.now();
+let lastReviveAt = 0;
+
+function reconnectDelay(attempt) {
+  if (attempt <= 0) return 300;
+  return Math.min(8000, 1000 * 2 ** (attempt - 1));
+}
+
 function scheduleReconnect() {
   clearTimeout(state.reconnectTimer);
   if (document.hidden) return;
-  const delay = Math.min(30000, 1000 * 2 ** Math.min(state.reconnectAttempt++, 5));
-  state.reconnectTimer = setTimeout(connect, delay);
+  state.reconnectTimer = setTimeout(connect, reconnectDelay(state.reconnectAttempt++));
+}
+
+/* 別のアプリへ移って戻ると、OS が経路を切っても socket は OPEN のまま残る。
+   生きていると見なすと、次に何か届くまで気づけない。戻ってきた時点で
+   確かめ、怪しければ捨てて張り直す。 */
+function reviveSocket() {
+  if (document.visibilityState !== "visible") return;
+  const now = Date.now();
+  if (now - lastReviveAt < REVIVE_THROTTLE_MS) return;
+  lastReviveAt = now;
+  const socket = state.socket;
+  if (socket && socket.readyState === WebSocket.CONNECTING) return;
+  if (socket && socket.readyState === WebSocket.OPEN
+      && now - lastSocketMessageAt < RETURN_GRACE_MS) return;
+  if (socket) {
+    socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
+    try { socket.close(); } catch { /* 既に閉じている */ }
+  }
+  state.socket = null;
+  clearTimeout(state.reconnectTimer);
+  state.reconnectAttempt = 0;
+  connect();
+}
+
+for (const signal of ["visibilitychange", "pageshow", "online", "focus"]) {
+  const target = signal === "visibilitychange" ? document : window;
+  target.addEventListener(signal, reviveSocket);
 }
 
 function connect() {
@@ -1156,8 +1195,9 @@ function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const url = `${proto}://${location.host}${API}/events`;
   state.socket = proxyRoot ? new WebSocket(url, [`control-deck-bridge.${state.nonce}`]) : new WebSocket(url);
-  state.socket.onopen = () => { state.reconnectAttempt = 0; void reloadAuthoritative(); };
+  state.socket.onopen = () => { state.reconnectAttempt = 0; lastSocketMessageAt = Date.now(); void reloadAuthoritative(); };
   state.socket.onmessage = (event) => {
+    lastSocketMessageAt = Date.now();
     let value;
     try { value = JSON.parse(event.data); } catch { return; }
     if (value.type === "job" && value.job_id) {

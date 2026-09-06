@@ -1166,6 +1166,10 @@ function scheduleReconnect() {
    確かめ、怪しければ捨てて張り直す。 */
 function reviveSocket() {
   if (document.visibilityState !== "visible") return;
+  // host の frame の中では、親から nonce が届くまで繋げない。読み込み直後は
+  // pageshow と focus が先に来るので、ここで待たないと生きている socket を
+  // 捨てたうえで張り直せない状態になる。
+  if (proxyRoot && !state.nonce) return;
   const now = Date.now();
   if (now - lastReviveAt < REVIVE_THROTTLE_MS) return;
   lastReviveAt = now;

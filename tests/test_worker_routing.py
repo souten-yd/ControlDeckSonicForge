@@ -83,3 +83,26 @@ def test_gpt_sovits_uses_its_own_runtime(env, monkeypatch):
     assert executable == runtime_python
     assert script.name == "worker.py"
     assert script.parent.name == "gpt_sovits"
+
+
+def test_music_worker_is_told_how_much_vram_it_may_use(env):
+    """ACE-Step はカード全体の容量だけを見て構成を決める。
+
+    31.86 GiB を見ると「独占できる」と判じ、オフロードも量子化も切って青天井で
+    使う。他のプロセスが載っていることは考慮されない。実測（2026-09-06、R9700、
+    GPU 単独占有、30 秒の生成）で 19,663 MiB まで伸びた。上限を渡すと 16,600 MiB。
+    """
+    settings = load_settings()
+
+    worker_env = _worker_environment(settings, "music.ace-step-1.5")
+
+    assert worker_env["MAX_CUDA_VRAM"] == "20"
+
+
+def test_speech_workers_are_not_capped(env):
+    """音声は 1.5〜4 GiB で収まる。上限を渡す理由が無いうえ、渡すと ACE-Step 以外の
+    経路にも影響しかねない。"""
+    settings = load_settings()
+
+    for engine in ("tts.gpt-sovits", "audio.stable-audio-3"):
+        assert "MAX_CUDA_VRAM" not in _worker_environment(settings, engine), engine

@@ -136,10 +136,15 @@ def test_a_job_shares_the_device_with_a_resident_llm(env):
     settings = load_settings()
     ensure_directories(settings)
     manager = JobManager(settings, make_session_factory(settings), EventBus())
-    for task in ("speech.tts.synthesize", "speech.asr.transcribe",
-                 "audio.master", "music.compose"):
+    for task in ("speech.tts.synthesize", "speech.asr.transcribe", "audio.master"):
         estimate = manager._resource_estimate({"task": task}, "job_1")
         assert estimate["compute_mode"] == "shared-safe", task
+
+    # 音楽だけは別。20 GiB を要るので LLM と同居できず、単独で走る。
+    # broker が exclusive で塞がれた要求を「置けない」と数えるようになったので、
+    # 常駐の LLM へ退去を頼めるようになった（使用中なら断られて待つ）。
+    music = manager._resource_estimate({"task": "music.compose"}, "job_1")
+    assert music["compute_mode"] == "exclusive-preferred"
 
 
 def test_the_declared_vram_matches_what_the_engines_measured(env):
@@ -150,6 +155,11 @@ def test_the_declared_vram_matches_what_the_engines_measured(env):
         speech.asr.transcribe   1.84 GiB   whisper-large-v3-turbo、5 秒の音声
         speech.tts.synthesize   2.49 GiB   Qwen3-TTS CustomVoice、bfloat16
         music.*                11.78 GiB   ACE-Step DiT の読み込み
+
+    音楽は 2026-09-06 に測り直した。GPU を単独で占有し、30 秒の生成で
+    ピーク 19,663 MiB（MAX_CUDA_VRAM=20 を渡すと 16,600 MiB）。DiT の読み込みだけを
+    見ていた 11.78 GiB は約 7 GB 過小で、broker は「入る」と判じて部分的な予算を
+    貸していた。ACE-Step は貸された枠を見ずに読み込むので、そのまま OOM で落ちる。
 
     LLM 21.42 GiB が載っているときの残りは 10.44 GiB なので、実測値なら ASR も
     TTS も共存できる。以前の申告（5 / 8 / 18 GB）では全部弾かれていた。
@@ -165,7 +175,7 @@ def test_the_declared_vram_matches_what_the_engines_measured(env):
     expected = {
         "speech.asr.transcribe": 3 * 1024**3,
         "speech.tts.synthesize": 4 * 1024**3,
-        "music.compose": 13 * 1024**3,
+        "music.compose": 20 * 1024**3,
     }
     for task, peak in expected.items():
         estimate = manager._resource_estimate({"task": task}, "job_1")

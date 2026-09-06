@@ -219,6 +219,8 @@ class JobManager:
         # LLM が載っている間は空きがあっても弾かれる。実測+余裕にとどめる。
         task = request["task"]
         engine = request.get("routing", {}).get("engine")
+        # 音楽だけが GPU を占有する。他は同居する。
+        is_music = not (task.startswith(("speech.", "audio.")))
         if task == "speech.tts.synthesize" and engine == "tts.gpt-sovits":
             # 実測 1,612,531,200 bytes（R9700 / gfx1201、3 回目）。
             peak = 1_612_531_200
@@ -237,7 +239,13 @@ class JobManager:
             runtime = 180
             residency = "sonicforge:stable-audio-3"
         else:
-            peak = 13 * 1024**3         # 実測 11.78 GiB（ACE-Step DiT 読み込み）
+            # 実測（2026-09-06、gfx1201 / R9700、GPU 単独占有、30 秒の生成）:
+            #   上限なし              19,663 MiB（2 分 46 秒）
+            #   MAX_CUDA_VRAM=20      16,600 MiB
+            # 以前の 13 GiB は約 7 GB 過小で、broker は「入る」と判じて部分的な
+            # 予算を貸していた。ACE-Step は貸された枠を見ずに読み込むので、
+            # そのまま OOM で落ちる。申告は実測に合わせる。
+            peak = 20 * 1024**3
             runtime = 300
             residency = "sonicforge:ace-step-1.5"
         return {
@@ -250,14 +258,15 @@ class JobManager:
                 "headroom_bytes": 512 * 1024**2,
                 "confidence": "low",
             },
-            # LLM と場所を分け合う。exclusive は「その device に他の lease も
-            # provider 予約も無いこと」を求めるので、LLM が載っている間は VRAM の
-            # 空きに関係なく device_busy_exclusive で断られる。実測（2026-09-05、
-            # 31.86GiB のカードに 21.42GiB の LLM 常駐、空き 10.4GiB）:
-            #   exclusive-preferred → 通らない
-            #   shared-safe         → 通る
-            # バイトの勘定は broker の admitted_free_bytes が見ている。
-            "compute_mode": "shared-safe",
+            # 音楽だけ device を占有する。20 GiB を要るので、LLM が載ったままでは
+            # そもそも同居できない。以前 exclusive を諦めて shared-safe にしていたのは、
+            # broker が exclusive で塞がれた要求を「置けない」と数えず、常駐の LLM へ
+            # 退去を頼まないまま待たせていたためである（ControlDeck 側で修正済み）。
+            # いまは頼みが届き、使っていない LLM は降りる。使用中なら断られて待つ。
+            #
+            # 音声（ASR / TTS）は 1.5〜4 GiB で LLM と無理なく同居できる。こちらまで
+            # 占有にすると、文字起こしのたびに LLM を降ろすことになって割に合わない。
+            "compute_mode": "exclusive-preferred" if is_music else "shared-safe",
             "priority": 20,
             "class": "interactive",
             "residency_key": residency,

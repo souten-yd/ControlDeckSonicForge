@@ -164,6 +164,18 @@ def _worker_environment(
         "XDG_CACHE_HOME": str(settings.cache_dir),
         "SONICFORGE_GPT_SOVITS_ROOT": str(settings.models_dir / "gpt-sovits"),
     }
+    if engine_id == "music.ace-step-1.5":
+        # ACE-Step はカード全体の容量だけを見て構成を決める。31.86 GiB を見ると
+        # 「独占できる」と判じ、オフロードも量子化も切って青天井で使う。他の
+        # プロセスが載っていることは考慮されない。
+        #
+        # 実測（2026-09-06、R9700、GPU 単独占有、30 秒の生成）:
+        #   未設定（tier=unlimited）  19,663 MiB / 2 分 46 秒
+        #   MAX_CUDA_VRAM=20（tier6b）16,600 MiB / 1 分 40 秒
+        #   MAX_CUDA_VRAM=16（tier6a）16,602 MiB ← INT8 量子化が入るが減らない
+        # 16 は量子化のぶん音質を損なうだけで VRAM は 2 MiB しか変わらないので
+        # 選ばない。20 は量子化なし（bf16 のまま）で約 3 GB 減り、速度も上がる。
+        env["MAX_CUDA_VRAM"] = "20"
     if engine_id in {"audio.stable-audio-3", "tts.gpt-sovits"}:
         # Provisioning downloads complete snapshots before atomic activation.
         # Generation is cache-only so metadata probes cannot turn an installed

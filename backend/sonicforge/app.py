@@ -104,7 +104,7 @@ async def _prepare_task(
         if "jobs.write" not in identity.granted_capabilities: raise HTTPException(status_code=403, detail={"code": "capability_not_granted", "message": "jobs.write is required"})
         created = await host_client.create_or_attach_job(identity, title=f"SonicForge: {body.task}", detached=detached_host_job); identity = await host_client.identity_from_job_response(identity, created, required=detached_host_job); host_job = created.get("job") if isinstance(created, dict) else None; host_job_id = host_job.get("id") if isinstance(host_job, dict) else None
         if not isinstance(host_job_id, str) or not host_job_id: raise HTTPException(status_code=502, detail={"code": "invalid_host_response", "message": "ControlDeck did not return a Host Job"})
-        hosted = HostedExecution(identity=identity, host_job_id=host_job_id); inp = payload.setdefault("input", {})
+        hosted = HostedExecution(identity=identity, host_job_id=host_job_id, owns_terminal=bool(isinstance(created, dict) and created.get("created") is True)); inp = payload.setdefault("input", {})
         if body.task == "speech.asr.transcribe":
             grant_id = inp.get("audio_grant") or inp.get("grant_id")
             if grant_id: inp["_internal_staged_input"] = await _stage_read_grant(identity, str(grant_id), max_bytes=1024 * 1024 * 1024, suffix=".wav")

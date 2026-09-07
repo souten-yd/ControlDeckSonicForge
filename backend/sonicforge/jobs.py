@@ -24,6 +24,13 @@ from . import tts_models
 class HostedExecution:
     identity: HostIdentity
     host_job_id: str
+    # その Host Job を自分が作ったか。ぶら下がっただけなら終端は名乗らない。
+    #
+    # agent tool の job へぶら下がったとき、こちらが「succeeded」を送ると tool
+    # 呼び出しそのものが終わったことになり、結果も上書きされる（実機で MCP の
+    # 応答が Add-on の返した形ではなく job の result になっていた）。終わりを
+    # 決めるのは、その Host Job を作った側である。
+    owns_terminal: bool = True
     resource_request_id: str | None = None
     lease_id: str | None = None
     last_host_progress_at: float = 0.0
@@ -187,7 +194,10 @@ class JobManager:
         message = result.get("message") if isinstance(result, dict) else None
         if message:
             payload["message"] = str(message)[:300]
-        if terminal:
+        if terminal and not execution.owns_terminal:
+            # 進捗だけ伝えて終わりは名乗らない。作った側が終わらせる。
+            payload["progress"] = {"completed": 1000, "total": 1000}
+        elif terminal:
             payload["status"] = {
                 "succeeded": "succeeded",
                 "failed": "failed",

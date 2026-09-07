@@ -124,6 +124,9 @@ class RuntimeSpec:
     estimated_bytes: int
     extra_install: tuple[str, ...] = ()
     smoke_imports: tuple[str, ...] = ()
+    # そのランタイムが要る NLTK の資源。pip では入らず、初回の実行時に
+    # 取りに行こうとして落ちる。整備の時点で揃えておく。
+    nltk_resources: tuple[str, ...] = ()
     prefetch_models: tuple[str, ...] = ()
     engine_models: tuple[str, ...] = ()
     required_terms: tuple[str, ...] = ()
@@ -239,6 +242,12 @@ def runtime_specs(
                 8_000_000_000,
                 extra_install=("pyopenjtalk==0.4.1",),
                 smoke_imports=("torch", "torchaudio", "soundfile"),
+                # 英語の読み付けは g2p_en を通り、そこが NLTK の品詞タグと
+                # 発音辞書を要る。入っていないと日本語だけ通って英語が
+                # worker_failed で落ちる（実機で起きた。NLTK 3.8.2 で
+                # averaged_perceptron_tagger が _eng へ改名されており、旧名
+                # だけがある機械では見つからない）。
+                nltk_resources=("averaged_perceptron_tagger_eng", "cmudict"),
                 engine_models=(GPT_SOVITS_MODEL,),
                 model_preparer=settings.repo_root
                 / "worker_packs"
@@ -455,6 +464,32 @@ def _runtime_bootstrap_python() -> str:
     return executable
 
 
+async def _fetch_nltk_resources(
+    python: Path, spec: RuntimeSpec, env: dict[str, str]
+) -> None:
+    """そのランタイムが要る NLTK の資源を、整備の時点で置く。
+
+    置き場所はランタイムの中（`<venv>/share/nltk_data`）にする。NLTK は
+    `sys.prefix` の下を探すので、実行時に環境変数を足さなくても見つかる。
+    利用者の home へ書かないのは、アドオンの整備が home を汚さないためと、
+    ランタイムを捨てたときに一緒に消えるためである。
+    """
+    if not spec.nltk_resources:
+        return
+    code = (
+        "import sys, nltk\n"
+        "target = sys.argv[1]\n"
+        "for name in sys.argv[2:]:\n"
+        "    if not nltk.download(name, download_dir=target, quiet=True):\n"
+        "        raise SystemExit(f'nltk resource could not be fetched: {name}')\n"
+    )
+    target = python.parent.parent / "share" / "nltk_data"
+    target.mkdir(parents=True, exist_ok=True)
+    await _run_process(
+        [str(python), "-c", code, str(target), *spec.nltk_resources], env=env
+    )
+
+
 async def _prefetch_models(
     settings: Settings,
     python: Path,
@@ -597,6 +632,7 @@ async def _build_runtime(settings: Settings, spec: RuntimeSpec) -> dict:
         if spec.smoke_imports:
             code = "import importlib,sys; [importlib.import_module(x) for x in sys.argv[1:]]"
             await _run_process([str(python), "-c", code, *spec.smoke_imports], env=env)
+        await _fetch_nltk_resources(python, spec, env)
         try:
             models = await _prefetch_models(settings, python, spec, env)
         except SetupError as exc:

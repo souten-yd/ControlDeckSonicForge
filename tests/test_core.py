@@ -691,3 +691,42 @@ def test_library_does_not_fetch_audio_until_play_is_pressed(env):
         made = app_js[app_js.index('const player = document.createElement("audio")'):]
         made = made[:made.index("play.onclick")]
         assert "player.src" not in made, "作った時点で src を持たせている"
+
+def test_gpt_sovits_provisioning_fetches_the_english_g2p_resources(env):
+    """英語の読み付けは g2p_en を通り、そこが NLTK の品詞タグと発音辞書を要る。
+    pip では入らないので、整備の時点で揃えないと日本語だけ通って英語が
+    worker_failed で落ちる（実機で起きた）。"""
+    from sonicforge import setup as setup_module
+    from sonicforge.config import load_settings
+
+    specs=setup_module.runtime_specs(load_settings(),"speech-essentials",["gpt-sovits"])
+    if not specs:  # ROCm の無い機械では gpt-sovits の spec 自体が立たない
+        return
+    spec=specs[0]
+    assert spec.runtime_id=="speech-gpt-sovits-rocm",spec
+    assert "averaged_perceptron_tagger_eng" in spec.nltk_resources,spec.nltk_resources
+    assert "cmudict" in spec.nltk_resources,spec.nltk_resources
+
+def test_nltk_resources_land_inside_the_runtime(env,monkeypatch):
+    """利用者の home へ書かない。ランタイムを捨てたときに一緒に消える場所へ置く。"""
+    import asyncio
+    from pathlib import Path
+    from sonicforge import setup as setup_module
+
+    calls=[]
+
+    async def fake_run(command,env=None,**kwargs):
+        calls.append(command); return ""
+
+    monkeypatch.setattr(setup_module,"_run_process",fake_run)
+    spec=setup_module.RuntimeSpec("x","x",Path("/tmp/req.txt"),1,nltk_resources=("cmudict",))
+    python=Path(env["runtime"] if isinstance(env,dict) and "runtime" in env else "/tmp/sf-runtime")/"bin"/"python"
+    python.parent.mkdir(parents=True,exist_ok=True)
+    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+        setup_module._fetch_nltk_resources(python,spec,{})
+    )
+    assert calls,"取りに行っていない"
+    target=calls[0][3]
+    assert target.endswith("share/nltk_data"),target
+    assert str(Path.home()) not in target or target.startswith(str(python.parent.parent)),target
+    assert Path(target).is_dir()

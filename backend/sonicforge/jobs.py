@@ -87,6 +87,31 @@ class JobManager:
         request["routing"] = routing
         return request
 
+    async def wait(self, job_id: str, *, poll_sec: float = 0.05) -> Job | None:
+        """job が終わるまで待つ。時計では切らない。
+
+        MCP から呼ぶ側にとって、投げっぱなしは楽ではない。状態を見るたびに
+        往復が要り、その往復ごとに Host は言語モデルを降ろして載せ直し、会話の
+        文脈を読み直す（実測で 40〜350 秒）。実際 20 秒の音楽 1 曲に 30 回の
+        確認が要っていた。ここで待てば往復は 1 回で済む。
+
+        待ちの上限をここに置かないのは、上限を決めるのが呼び出し側と Host だ
+        からである。Host は「進捗が止まったら」で打ち切り、進んでいる限り待つ。
+        job 自身の失敗は job が名乗る。
+        """
+        task = self.tasks.get(job_id)
+        if task is not None:
+            await asyncio.gather(task, return_exceptions=True)
+        while True:
+            with self.session_factory() as session:
+                job = session.get(Job, job_id)
+                if job is None:
+                    return None
+                if job.state not in {"queued", "running"}:
+                    session.expunge(job)
+                    return job
+            await asyncio.sleep(poll_sec)
+
     async def cancel(self, job_id: str) -> bool:
         with self.session_factory() as session:
             job = session.get(Job, job_id)

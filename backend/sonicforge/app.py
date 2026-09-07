@@ -509,8 +509,22 @@ async def _workflow_submit(
     value: dict[str, Any] | None = None,
     *,
     detached_host_job: bool = False,
+    wait: bool = False,
 ) -> dict[str, Any]:
-    raw = value if value is not None else await request.json(); body = _workflow_body(task, raw if isinstance(raw, dict) else {}); payload, hosted = await _prepare_task(request, body, detached_host_job=detached_host_job); job = jobs.create(payload, hosted=hosted); return {"job_id": job.id, "host_job_id": hosted.host_job_id if hosted else None}
+    raw = value if value is not None else await request.json(); body = _workflow_body(task, raw if isinstance(raw, dict) else {}); payload, hosted = await _prepare_task(request, body, detached_host_job=detached_host_job); job = jobs.create(payload, hosted=hosted)
+    if not wait:
+        return {"job_id": job.id, "host_job_id": hosted.host_job_id if hosted else None}
+    finished = await jobs.wait(job.id)
+    result: dict[str, Any] = {
+        "job_id": job.id,
+        "host_job_id": hosted.host_job_id if hosted else None,
+        "state": finished.state if finished is not None else "unknown",
+        "result": finished.result if finished is not None else None,
+        "asset_id": (finished.result or {}).get("asset_id") if finished is not None and isinstance(finished.result, dict) else None,
+    }
+    if finished is not None and finished.error_code:
+        result["error"] = {"code": finished.error_code, "message": finished.error_message}
+    return result
 
 
 @app.post("/addon/v1/workflow/speech/synthesize")
@@ -525,12 +539,21 @@ async def workflow_music(request: Request): return await _workflow_submit("music
 async def agent_capabilities(): return await capabilities()
 
 
+# Agent 経路は終わるまで待って結果を返す。投げっぱなしにすると、呼び出し側は
+# 状態を見るために何度も往復し、その往復ごとに Host は言語モデルを降ろして
+# 載せ直し、会話の文脈を読み直す（実測で 40〜350 秒）。20 秒の音楽 1 曲に 30 回
+# の確認が要っていた。
+#
+# Host job は切り離さず、agent tool の job へぶら下げる。進捗がそこへ流れる
+# ことで、Host は「進んでいる」と分かる——Host が打ち切るのは進捗が止まった
+# ときだけなので、長い生成もそのまま待てる（ControlDeck の
+# wait_agent_tool_job）。
 @app.post("/addon/v1/agent/generate")
 async def agent_generate(request: Request):
-    value = _agent_arguments(await request.json()); return await _workflow_submit(str(value.get("task") or "speech.tts.synthesize"), request, value, detached_host_job=True)
+    value = _agent_arguments(await request.json()); return await _workflow_submit(str(value.get("task") or "speech.tts.synthesize"), request, value, wait=True)
 @app.post("/addon/v1/agent/transcribe")
 async def agent_transcribe(request: Request):
-    value = _agent_arguments(await request.json()); return await _workflow_submit("speech.asr.transcribe", request, value, detached_host_job=True)
+    value = _agent_arguments(await request.json()); return await _workflow_submit("speech.asr.transcribe", request, value, wait=True)
 
 
 @app.post("/addon/v1/agent/inspect")

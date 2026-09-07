@@ -366,6 +366,44 @@ def test_agent_generate_unwraps_control_deck_envelope(env):
             time.sleep(.03)
         assert job['state']=='succeeded',job
 
+def test_agent_generate_returns_the_finished_result_in_one_call(env):
+    """投げっぱなしにすると、呼び出し側は状態を見るために何度も往復する。その
+    往復ごとに Host は言語モデルを降ろして載せ直し、会話の文脈を読み直す
+    （実測 40〜350 秒）。20 秒の音楽 1 曲に 30 回の確認が要っていた。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/generate',json={
+            "input":{"task":"speech.tts.synthesize","input":{"text":"one call"},"routing":{"engine":"fake","model":None,"device":"auto"}},
+            "correlation":{"job_id":"host-job"},
+        })
+        assert response.status_code==200,response.text
+        body=response.json()
+        # 確認の往復なしで、そのまま使える。
+        assert body['state']=='succeeded',body
+        assert body['asset_id'],body
+        asset=c.get('/addon/v1/assets/'+body['asset_id'].replace(':','%3A'))
+        assert asset.status_code==200,asset.text
+
+def test_agent_generate_reports_a_failure_instead_of_raising(env, monkeypatch):
+    """失敗も 1 回で返す。呼び出し側から見て、失敗は結果の一種である。"""
+    m=load_app()
+
+    from sonicforge import jobs as jobs_module
+
+    async def explode(*_args, **_kwargs):
+        raise jobs_module.WorkerError("worker exploded")
+
+    monkeypatch.setattr(jobs_module, "execute", explode)
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/generate',json={
+            "input":{"task":"speech.tts.synthesize","input":{"text":"boom"},"routing":{"engine":"fake","model":None,"device":"auto"}},
+            "correlation":{"job_id":"host-job"},
+        })
+        assert response.status_code==200,response.text
+        body=response.json()
+        assert body['state']=='failed',body
+        assert body['error']['code'],body
+
 def test_agent_inspect_accepts_job_or_asset_reference(env):
     m=load_app()
     with TestClient(m.app) as c:

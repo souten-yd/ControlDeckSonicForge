@@ -404,6 +404,38 @@ def test_agent_generate_reports_a_failure_instead_of_raising(env, monkeypatch):
         assert body['state']=='failed',body
         assert body['error']['code'],body
 
+def test_an_attached_host_job_is_not_terminated_by_the_addon(env,monkeypatch):
+    """agent tool の job へぶら下がったとき、こちらが succeeded を送ると tool
+    呼び出しそのものが終わったことになり、結果も上書きされる。終わりを決める
+    のは、その Host Job を作った側である。"""
+    from sonicforge.jobs import HostedExecution
+    load_app()
+    import sonicforge.app as app_module
+    sent=[]
+
+    class Client:
+        async def update_job(self,identity,host_job_id,payload):
+            sent.append(payload); return {}
+
+    manager=app_module.jobs
+    previous=manager.host_client
+    manager.host_client=Client()
+    execution=HostedExecution(identity=object(),host_job_id="host-job",owns_terminal=False)
+    manager.hosted["job:attached"]=execution
+    try:
+        import asyncio
+        asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+            manager._report_host("job:attached",{"state":"succeeded","progress":1.0,"result":{"asset_id":"asset:1"}})
+        )
+    finally:
+        manager.host_client=previous
+        manager.hosted.pop("job:attached",None)
+
+    assert sent,"進捗すら送っていない"
+    assert "status" not in sent[-1],sent[-1]
+    assert "result" not in sent[-1],sent[-1]
+    assert sent[-1]["progress"]=={"completed":1000,"total":1000},sent[-1]
+
 def test_agent_inspect_accepts_job_or_asset_reference(env):
     m=load_app()
     with TestClient(m.app) as c:

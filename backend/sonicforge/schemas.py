@@ -118,7 +118,40 @@ class TaskRequest(BaseModel):
             self.input.get("prompt") or self.input.get("description") or ""
         ).strip():
             raise ValueError("generation requires input.prompt or input.description")
+        known = INPUT_FIELDS.get(self.task)
+        if known is not None:
+            # 読まない項目は黙って捨てない。duration_seconds と書いた要求が
+            # duration_sec と読まれずに既定の 30 秒で作られ、頼んだ側からは
+            # 20 秒を頼んだのに 30 秒が返ったようにしか見えなかった。
+            unknown = sorted(
+                key for key in self.input
+                if key not in known and not key.startswith("_internal_")
+            )
+            if unknown:
+                raise ValueError(
+                    f"{self.task} does not read these input fields: {', '.join(unknown)}"
+                )
         return self
+
+
+# task ごとに worker が実際に読む input の項目。
+#
+# 一覧にしておくのは、読まないものを黙って受け取らないためである。名前を
+# 間違えた要求は既定値で作られ、頼んだ側からは「頼んだとおりに作られなかった」
+# ようにしか見えない（実測: duration_seconds と書いた 20 秒の依頼が 30 秒で
+# 返った）。schemas/generate-request.json の説明文と対になっている。
+INPUT_FIELDS: dict[str, frozenset[str]] = {
+    "speech.tts.synthesize": frozenset({
+        "text", "voice_id", "speaker", "style", "reference_text",
+        "reference_grant", "upload_id",
+    }),
+    "speech.asr.transcribe": frozenset({"audio_grant", "grant_id", "upload_id"}),
+    "audio.sfx.generate": frozenset({"prompt", "description", "duration_sec"}),
+    "audio.ambience.generate": frozenset({"prompt", "description", "duration_sec"}),
+    "music.generate": frozenset({
+        "prompt", "description", "duration_sec", "bpm", "instrumental",
+    }),
+}
 
 
 class SetupApplyRequest(BaseModel):

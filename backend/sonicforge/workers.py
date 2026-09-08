@@ -6,9 +6,10 @@ import os
 import shlex
 import signal
 import sys
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import AsyncIterator, Awaitable, Callable
 
 from .config import Settings
 
@@ -210,16 +211,49 @@ async def _stderr_tail(stream: asyncio.StreamReader | None) -> bytes:
 # 常駐させるのは speech（TTS / ASR）だけにする。音楽と効果音は 1 回が数分かかる
 # 上に大きく、抱えたままにする利点が無い。
 _WARM_ENGINES = frozenset({"tts.qwen3", "tts.gpt-sovits", "asr.whisper"})
+# batch のあいだだけ抱える engine。ここに載せてよいのは、1 要求 1 応答で次を待つ
+# ように書かれた worker だけである。`external` は運用者が差し替える任意の
+# コマンドで、次の要求を待つ保証が無いので入れない（待てば応答が来ないまま
+# 止まる）。
+_BATCH_WARM_ENGINES = frozenset({"audio.stable-audio-3", "music.ace-step-1.5", "fake"})
 _warm: dict[tuple, asyncio.subprocess.Process] = {}
+# batch のあいだだけ、使い捨ての engine も抱えておく回数券。
+#
+# 音楽と効果音を 1 回ずつ作るなら抱える利点は無いが、続けて何本も作ると分かって
+# いる間は話が別で、1 本ごとにモデルを読み直すぶんがそのまま待ち時間になる。
+_hold_all_warm = 0
+
+
+@asynccontextmanager
+async def keep_engines_warm() -> AsyncIterator[None]:
+    """続けて作ると分かっている間、engine を降ろさない。
+
+    普段は speech（TTS / ASR）だけを常駐させ、音楽と効果音は 1 件ごとに起こして
+    捨てている。1 件が数分かかるうえモデルが大きいので、1 件だけなら抱える意味が
+    無いからである。batch は「続きがある」と分かっているので、その間だけ全部を
+    抱える。
+
+    抜けるときは、batch のあいだだけ抱えていたぶんを自分で降ろす。抱えたまま
+    「終わった」と言うと、次に来た要求は空いていない GPU を待つ——MediaForge で
+    画像 worker が 19.4GB を抱えたまま残り、音楽生成が 300 秒待って期限切れに
+    なったのと同じことが起きる。常駐が本業の speech はそのまま残す。
+    """
+    global _hold_all_warm
+    _hold_all_warm += 1
+    try:
+        yield
+    finally:
+        _hold_all_warm = max(0, _hold_all_warm - 1)
+        if _hold_all_warm == 0:
+            await retire_transient_workers()
 
 
 def _warm_key(engine_id: str, argv: list[str], env: dict[str, str]) -> tuple:
     return (engine_id, tuple(argv), json.dumps(sorted(env.items()), separators=(",", ":")))
 
 
-async def retire_warm_workers() -> None:
-    """常駐している worker を終わらせる。stdin を閉じれば main() の loop が抜ける。"""
-    for key in list(_warm):
+async def _retire(keys: list[tuple]) -> None:
+    for key in keys:
         proc = _warm.pop(key, None)
         if proc is None or proc.returncode is not None:
             continue
@@ -232,6 +266,16 @@ async def retire_warm_workers() -> None:
         except Exception:  # noqa: BLE001 - 後片付けで job を落とさない
             await _terminate(proc)
         _close_process_transport(proc)
+
+
+async def retire_warm_workers() -> None:
+    """常駐している worker を終わらせる。stdin を閉じれば main() の loop が抜ける。"""
+    await _retire(list(_warm))
+
+
+async def retire_transient_workers() -> None:
+    """batch のあいだだけ抱えていた engine を降ろす。常駐が本業のものは残す。"""
+    await _retire([key for key in _warm if key[0] not in _WARM_ENGINES])
 
 
 async def execute(
@@ -255,7 +299,9 @@ async def execute(
         argv = [str(python), str(script)]
     env = _worker_environment(settings, engine_id)
     key = _warm_key(engine_id, argv, env)
-    keep = engine_id in _WARM_ENGINES
+    keep = engine_id in _WARM_ENGINES or (
+        _hold_all_warm > 0 and engine_id in _BATCH_WARM_ENGINES
+    )
     proc = _warm.get(key) if keep else None
     if proc is not None and proc.returncode is not None:
         _warm.pop(key, None)

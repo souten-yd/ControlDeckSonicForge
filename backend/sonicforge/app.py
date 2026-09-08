@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import selectinload
 
@@ -23,9 +24,10 @@ from .db import Asset, Job, LocalizationBatch, LocalizationLine, Provenance, Voi
 from .events import EventBus
 from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
 from .host.files import read_grant
-from .jobs import HostedExecution, JobManager
+from .jobs import HostedExecution, JobManager, ProgressGate
 from .legacy_data import LegacyDataError, migrate_discovered_legacy_data
 from .schemas import LocalizationBatchCreate, SetupApplyRequest, SetupCredentials, TaskRequest, TtsPreferenceUpdate, TtsSampleInstall, VoiceCreate
+from .workers import keep_engines_warm, retire_warm_workers
 from . import uploads
 from . import setup as setup_service
 from . import tts_models
@@ -165,6 +167,9 @@ async def lifespan(app: FastAPI):
     for task in list(setup_tasks.values()): task.cancel()
     if setup_tasks: await asyncio.gather(*setup_tasks.values(), return_exceptions=True)
     await jobs.shutdown()
+    # 常駐させた worker は自分で終わらせる。プロセスを残したまま抜けると、
+    # 載せたモデルもそのまま残る。
+    await retire_warm_workers()
     await host_client.close()
 
 
@@ -503,15 +508,22 @@ def _workflow_body(task: str, value: dict[str, Any]) -> TaskRequest:
     body = dict(value); body["task"] = task; body.setdefault("input", {}); body.setdefault("profile", "default"); body.setdefault("quality", "balanced"); body.setdefault("content_language", "auto"); body.setdefault("output", {"format": "wav", "sample_rate": None, "channels": None}); body.setdefault("routing", {"engine": None, "model": None, "device": "auto"}); body.setdefault("seed", None); body.setdefault("project_output_grant", None); return TaskRequest.model_validate(body)
 
 
-async def _workflow_submit(
-    task: str,
+async def _run_task(
+    body: TaskRequest,
     request: Request,
-    value: dict[str, Any] | None = None,
     *,
     detached_host_job: bool = False,
     wait: bool = False,
+    gate: ProgressGate | None = None,
+    progress_window: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
-    raw = value if value is not None else await request.json(); body = _workflow_body(task, raw if isinstance(raw, dict) else {}); payload, hosted = await _prepare_task(request, body, detached_host_job=detached_host_job); job = jobs.create(payload, hosted=hosted)
+    payload, hosted = await _prepare_task(request, body, detached_host_job=detached_host_job)
+    if hosted is not None:
+        if gate is not None:
+            hosted.gate = gate
+        if progress_window is not None:
+            hosted.progress_offset, hosted.progress_span = progress_window
+    job = jobs.create(payload, hosted=hosted)
     if not wait:
         return {"job_id": job.id, "host_job_id": hosted.host_job_id if hosted else None}
     finished = await jobs.wait(job.id)
@@ -525,6 +537,18 @@ async def _workflow_submit(
     if finished is not None and finished.error_code:
         result["error"] = {"code": finished.error_code, "message": finished.error_message}
     return result
+
+
+async def _workflow_submit(
+    task: str,
+    request: Request,
+    value: dict[str, Any] | None = None,
+    *,
+    detached_host_job: bool = False,
+    wait: bool = False,
+) -> dict[str, Any]:
+    raw = value if value is not None else await request.json(); body = _workflow_body(task, raw if isinstance(raw, dict) else {})
+    return await _run_task(body, request, detached_host_job=detached_host_job, wait=wait)
 
 
 @app.post("/addon/v1/workflow/speech/synthesize")
@@ -551,6 +575,113 @@ async def agent_capabilities(): return await capabilities()
 @app.post("/addon/v1/agent/generate")
 async def agent_generate(request: Request):
     value = _agent_arguments(await request.json()); return await _workflow_submit(str(value.get("task") or "speech.tts.synthesize"), request, value, wait=True)
+# batch で受ける task。生成だけを並べる。書き起こしは元の音があるかどうかで
+# 話が変わるので sonic.transcribe に残し、ローカライズ一括は自前の入口を持つ。
+BATCH_TASKS = frozenset({
+    "speech.tts.synthesize",
+    "audio.sfx.generate",
+    "audio.ambience.generate",
+    "music.generate",
+})
+# 1 コールで受ける件数の上限。MediaForge と揃える。
+BATCH_MAX_ITEMS = 50
+
+
+def _batch_bodies(value: object) -> list[TaskRequest]:
+    """batch の中身を、1 件も走らせる前に全部読む。
+
+    読めない指示を混ぜたまま半分だけ実行しない。走り出してからの失敗（資源が
+    取れない、worker が落ちる）だけを件ごとに扱う。
+    """
+    value = _agent_arguments(value)
+    items = value.get("items") if isinstance(value, dict) else None
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=422, detail={"code": "invalid_generation_batch", "message": "items must be a non-empty array"})
+    if len(items) > BATCH_MAX_ITEMS:
+        raise HTTPException(status_code=422, detail={"code": "too_many_items", "message": f"a batch accepts at most {BATCH_MAX_ITEMS} items"})
+    bodies: list[TaskRequest] = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=422, detail={"code": "invalid_generation_batch", "message": f"item {index} is not an object"})
+        task = str(item.get("task") or "speech.tts.synthesize")
+        if task not in BATCH_TASKS:
+            raise HTTPException(status_code=422, detail={"code": "unsupported_task", "message": f"item {index}: {task} cannot be batched"})
+        try:
+            bodies.append(_workflow_body(task, item))
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail={"code": "invalid_generation_batch", "message": f"item {index}: {exc.errors()[0].get('msg', 'invalid item')}"}) from exc
+    return bodies
+
+
+@app.post("/addon/v1/agent/generate/batch")
+async def agent_generate_batch(request: Request):
+    """N 件を 1 コールで順に作る。
+
+    1 件ずつ呼ぶと、その都度 Host は言語モデルを降ろして載せ直し、会話の文脈を
+    丸ごと読み直す。実測では 12 万トークンの会話の読み直しに 6 分かかる一方、
+    音声 1 本は 5.5 秒、効果音は 8.7 秒である。往復の回数そのものを減らすために
+    この入口がある。
+
+    走る順は 1 件ずつで変わらない。GPU も worker も 1 つなので、並べても速く
+    ならない。並べれば 1 つの worker プロセスへ同時に書き込むことになる。
+
+    時計での打ち切りは置かない。何件だろうと、生成が進んでいる限り進める。
+
+    1 件の失敗で残りを捨てない。結果は件ごとに返し、全部か無かではないことを
+    応答自身が名乗る。
+    """
+    bodies = _batch_bodies(await request.json())
+    span = 1.0 / len(bodies)
+    # 進捗の門は batch で 1 つにする。件ごとに作ると、前の件の最後の報告と次の件
+    # の最初の報告が同じ 0.5 秒に入り、Host の間隔制限に掛かる。
+    gate = ProgressGate()
+    outcomes: list[dict[str, Any]] = []
+    # batch の間は engine を降ろさない。抜けるときに、そのために抱えていたぶんは
+    # keep_engines_warm 自身が降ろす——「終わった」と言う前に降ろす順序である。
+    async with keep_engines_warm():
+        for index, body in enumerate(bodies):
+            try:
+                finished = await _run_task(
+                    body,
+                    request,
+                    wait=True,
+                    gate=gate,
+                    progress_window=(index * span, span),
+                )
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                outcomes.append({
+                    "index": index,
+                    "task": body.task,
+                    "status": "failed",
+                    "asset_id": None,
+                    "error": {"code": str(detail.get("code") or "job_failed"), "message": str(detail.get("message") or "")[:500]},
+                })
+                continue
+            state = str(finished.get("state") or "unknown")
+            outcome: dict[str, Any] = {
+                "index": index,
+                "task": body.task,
+                "status": state,
+                "job_id": finished.get("job_id"),
+                "asset_id": finished.get("asset_id"),
+                "result": finished.get("result"),
+            }
+            if state != "succeeded":
+                error = finished.get("error") or {}
+                outcome["error"] = {"code": str(error.get("code") or "job_failed"), "message": str(error.get("message") or "")[:500]}
+            outcomes.append(outcome)
+    succeeded = sum(1 for item in outcomes if item["status"] == "succeeded")
+    return {
+        "items": outcomes,
+        "succeeded_count": succeeded,
+        "requested_count": len(bodies),
+        "partial": succeeded != len(bodies),
+        # 1 件ずつ独立した job である。全部か無かではない。
+        "atomic": False,
+    }
+
+
 @app.post("/addon/v1/agent/transcribe")
 async def agent_transcribe(request: Request):
     value = _agent_arguments(await request.json()); return await _workflow_submit("speech.asr.transcribe", request, value, wait=True)

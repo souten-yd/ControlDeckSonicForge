@@ -150,6 +150,7 @@ Localization Studio is an application workflow/capability and does not require a
 ```text
 sonic.capabilities
 sonic.generate
+sonic.generate.batch
 sonic.transcribe
 sonic.inspect
 sonic.pack

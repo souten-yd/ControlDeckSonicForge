@@ -544,6 +544,7 @@ Initial stable set:
 ```text
 sonic.capabilities
 sonic.generate
+sonic.generate.batch
 sonic.transcribe
 sonic.inspect
 sonic.pack
@@ -551,6 +552,12 @@ sonic.pack
 
 Agents can request language/task/profile without knowing model IDs.
 No tool accepts arbitrary Host paths.
+
+`sonic.generate.batch` は 2 件以上のときの入口である。1 件ずつ呼ぶと、その都度
+ホストが言語モデルを降ろして載せ直し、会話の文脈を読み直す（実測で 12 万
+トークンの読み直しに 6 分。音声 1 本は 5.5 秒、効果音は 8.7 秒）。1 コールに
+まとめれば読み直しは 1 回で済み、音のモデルも通しで載ったままになる。上限は
+50 件、走る順は 1 件ずつ、1 件の失敗で残りは捨てない。
 
 ## 20. Error model
 

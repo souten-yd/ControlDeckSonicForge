@@ -730,3 +730,176 @@ def test_nltk_resources_land_inside_the_runtime(env,monkeypatch):
     assert target.endswith("share/nltk_data"),target
     assert str(Path.home()) not in target or target.startswith(str(python.parent.parent)),target
     assert Path(target).is_dir()
+
+def test_agent_batch_generates_every_kind_in_one_call(env):
+    """1 件ずつ呼ぶと、その都度 Host は言語モデルを降ろして載せ直し、会話の文脈を
+    読み直す（実測で 12 万トークンの読み直しに 6 分）。台詞も効果音も曲も、まとめて
+    1 回で受ける。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/generate/batch',json={
+            "input":{"items":[
+                {"task":"speech.tts.synthesize","input":{"text":"はじめまして"},"routing":{"engine":"fake","model":None,"device":"auto"}},
+                {"task":"audio.sfx.generate","input":{"prompt":"扉が閉まる音","duration_sec":2},"routing":{"engine":"fake","model":None,"device":"auto"}},
+                {"task":"audio.ambience.generate","input":{"prompt":"雨だれ","duration_sec":4},"routing":{"engine":"fake","model":None,"device":"auto"}},
+                {"task":"music.generate","input":{"prompt":"宿屋のテーマ","duration_sec":5,"bpm":90},"routing":{"engine":"fake","model":None,"device":"auto"}},
+            ]},
+            "correlation":{"job_id":"host-job"},
+        })
+        assert response.status_code==200,response.text
+        body=response.json()
+        assert body['requested_count']==4 and body['succeeded_count']==4,body
+        assert body['partial'] is False and body['atomic'] is False,body
+        assert [item['index'] for item in body['items']]==[0,1,2,3],body
+        assert [item['task'] for item in body['items']]==[
+            'speech.tts.synthesize','audio.sfx.generate','audio.ambience.generate','music.generate'],body
+        for item in body['items']:
+            assert item['status']=='succeeded',item
+            # 確認の往復なしで、そのまま使える。
+            assert c.get('/addon/v1/assets/'+item['asset_id'].replace(':','%3A')).status_code==200,item
+
+def test_agent_batch_refuses_a_malformed_item_before_running_anything(env):
+    """読めない指示を混ぜたまま半分だけ実行しない。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        before=len(c.get('/addon/v1/assets').json()['assets'])
+        response=c.post('/addon/v1/agent/generate/batch',json={"items":[
+            {"task":"speech.tts.synthesize","input":{"text":"ちゃんとした依頼"},"routing":{"engine":"fake","model":None,"device":"auto"}},
+            {"task":"music.generate","input":{"prompt":"曲","duration_seconds":20}},
+        ]})
+        assert response.status_code==422,response.text
+        assert response.json()['detail']['code']=='invalid_generation_batch',response.text
+        # duration_seconds は読まない項目である。1 件目も走らせずに断っている。
+        assert len(c.get('/addon/v1/assets').json()['assets'])==before
+
+def test_agent_batch_refuses_a_task_it_cannot_batch(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/generate/batch',json={"items":[
+            {"task":"speech.asr.transcribe","input":{}},
+        ]})
+        assert response.status_code==422,response.text
+        assert response.json()['detail']['code']=='unsupported_task',response.text
+
+def test_agent_batch_accepts_up_to_fifty_items(env):
+    import sonicforge.app as app_module
+    m=load_app()
+    with TestClient(m.app) as c:
+        item={"task":"speech.tts.synthesize","input":{"text":"多い"},"routing":{"engine":"fake","model":None,"device":"auto"}}
+        assert app_module.BATCH_MAX_ITEMS==50
+        response=c.post('/addon/v1/agent/generate/batch',json={"items":[item]*51})
+        assert response.status_code==422,response.text
+        assert response.json()['detail']['code']=='too_many_items',response.text
+
+def test_agent_batch_keeps_going_after_one_item_fails(env,monkeypatch):
+    """1 件の失敗で残りを捨てない。結果は件ごとに返る。"""
+    m=load_app()
+    from sonicforge import jobs as jobs_module
+    real=jobs_module.execute
+    calls={"n":0}
+
+    async def flaky(settings,request,work_dir,progress):
+        calls["n"]+=1
+        if calls["n"]==2:
+            raise jobs_module.WorkerError("worker exploded")
+        return await real(settings,request,work_dir,progress)
+
+    monkeypatch.setattr(jobs_module,"execute",flaky)
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/generate/batch',json={"items":[
+            {"task":"speech.tts.synthesize","input":{"text":"一つめ"},"routing":{"engine":"fake","model":None,"device":"auto"}},
+            {"task":"speech.tts.synthesize","input":{"text":"二つめ"},"routing":{"engine":"fake","model":None,"device":"auto"}},
+            {"task":"speech.tts.synthesize","input":{"text":"三つめ"},"routing":{"engine":"fake","model":None,"device":"auto"}},
+        ]})
+        assert response.status_code==200,response.text
+        body=response.json()
+        assert [item['status'] for item in body['items']]==['succeeded','failed','succeeded'],body
+        assert body['succeeded_count']==2 and body['partial'] is True,body
+        assert body['items'][1]['error']['code'],body['items'][1]
+
+def test_batch_progress_is_monotonic_and_does_not_claim_completion_midway(env):
+    """N 件を 1 つの Host Job にぶら下げる。件ごとに 0 から報告し直すと後戻りに
+    なり、途中で complete と名乗ると次の件が始まった途端に phase が戻る。"""
+    from sonicforge.jobs import HostedExecution, ProgressGate
+    load_app()
+    import sonicforge.app as app_module
+    import asyncio
+    sent=[]
+
+    class Client:
+        async def update_job(self,identity,host_job_id,payload):
+            sent.append(payload); return {}
+
+    manager=app_module.jobs
+    previous=manager.host_client
+    manager.host_client=Client()
+    gate=ProgressGate()
+    loop=asyncio.get_event_loop_policy().new_event_loop()
+    try:
+        for index in range(3):
+            job_id=f"job:batch-{index}"
+            manager.hosted[job_id]=HostedExecution(
+                identity=object(),host_job_id="host-job",owns_terminal=False,
+                gate=gate,progress_offset=index/3,progress_span=1/3)
+            for values in ({"state":"running","progress":0.01},{"state":"succeeded","progress":1.0}):
+                gate.last_sent_at=0.0  # 間隔ではなく順序だけを見る
+                loop.run_until_complete(manager._report_host(job_id,values))
+            manager.hosted.pop(job_id,None)
+    finally:
+        manager.host_client=previous
+        loop.close()
+
+    completed=[payload["progress"]["completed"] for payload in sent]
+    assert completed==sorted(completed),completed
+    assert completed[-1]==1000,completed
+    # 最後の 1 件が終わるまで complete とは名乗らない。
+    phases=[payload["phase"] for payload in sent]
+    assert "complete" not in phases[:-1],phases
+
+def test_batch_keeps_the_audio_engine_loaded_and_drops_it_before_reporting_done(env,monkeypatch):
+    """batch の間はモデルを降ろさない。抜けるときは、抱えていたぶんを自分で降ろす
+    ——抱えたまま「終わった」と言うと、次に来た要求は空いていない GPU を待つ。"""
+    m=load_app()
+    from sonicforge import jobs as jobs_module
+    from sonicforge import workers
+    real=jobs_module.execute
+    resident=[]
+
+    async def watched(settings,request,work_dir,progress):
+        result=await real(settings,request,work_dir,progress)
+        resident.append(len(workers._warm))
+        return result
+
+    monkeypatch.setattr(jobs_module,"execute",watched)
+    with TestClient(m.app) as c:
+        item={"task":"audio.sfx.generate","input":{"prompt":"足音","duration_sec":1},"routing":{"engine":"fake","model":None,"device":"auto"}}
+        response=c.post('/addon/v1/agent/generate/batch',json={"items":[item,item,item]})
+        assert response.status_code==200,response.text
+        assert response.json()['succeeded_count']==3,response.text
+    # 3 件とも同じ 1 本を使い回している。
+    assert resident==[1,1,1],resident
+    # 終わったら降ろしてから申告する。
+    assert workers._warm=={},workers._warm
+
+def test_a_single_call_does_not_leave_a_transient_engine_loaded(env,monkeypatch):
+    """1 件だけなら抱える利点が無い。batch のときだけ抱える。"""
+    m=load_app()
+    from sonicforge import jobs as jobs_module
+    from sonicforge import workers
+    real=jobs_module.execute
+    resident=[]
+
+    async def watched(settings,request,work_dir,progress):
+        result=await real(settings,request,work_dir,progress)
+        resident.append(len(workers._warm))
+        return result
+
+    monkeypatch.setattr(jobs_module,"execute",watched)
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/generate',json={
+            "input":{"task":"audio.sfx.generate","input":{"prompt":"足音","duration_sec":1},"routing":{"engine":"fake","model":None,"device":"auto"}},
+            "correlation":{"job_id":"host-job"},
+        })
+        assert response.status_code==200,response.text
+        assert response.json()['state']=='succeeded',response.text
+    assert resident==[0],resident

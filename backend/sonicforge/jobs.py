@@ -6,7 +6,7 @@ import json
 import shutil
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,33 @@ from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
 from .host.files import commit_file
 from .workers import WorkerError, WorkerResult, execute, route
 from . import tts_models
+
+
+# Host が進捗を受け取る条件。2Hz を超えず、後戻りしないこと。
+HOST_PROGRESS_INTERVAL_SEC = 0.65
+
+
+@dataclass
+class ProgressGate:
+    """Host へ送ってよいかを決める門。
+
+    Host は間隔と単調増加を要求する。既定では job ごとに 1 つ持つが、batch は
+    N 件を 1 つの Host Job にぶら下げるので、件ごとに持つと前の件の最後の報告と
+    次の件の最初の報告が同じ 0.5 秒に入り、間隔制限に掛かる。batch は 1 つを
+    共有する。
+    """
+
+    last_progress: float = 0.0
+    last_sent_at: float = 0.0
+
+    def accept(self, progress: float, *, terminal: bool, now: float) -> bool:
+        if progress < self.last_progress:
+            return False
+        if not terminal and now - self.last_sent_at < HOST_PROGRESS_INTERVAL_SEC:
+            return False
+        self.last_progress = progress
+        self.last_sent_at = now
+        return True
 
 
 @dataclass
@@ -33,8 +60,16 @@ class HostedExecution:
     owns_terminal: bool = True
     resource_request_id: str | None = None
     lease_id: str | None = None
-    last_host_progress_at: float = 0.0
-    last_host_progress: float = 0.0
+    # 進捗の門。batch は全件で 1 つを共有する。
+    gate: ProgressGate = field(default_factory=ProgressGate)
+    # この job が Host Job 全体のどこを占めるか。batch の N 件目は
+    # (index/N, 1/N) を受け取り、0〜1 の進捗をその区間へ写して報告する。
+    # 件ごとに 0 から報告し直すと後戻りになり、門に弾かれる。
+    progress_offset: float = 0.0
+    progress_span: float = 1.0
+
+    def scaled(self, progress: float) -> float:
+        return min(1.0, self.progress_offset + self.progress_span * max(0.0, min(1.0, progress)))
 
 
 class JobManager:
@@ -179,15 +214,21 @@ class JobManager:
         execution = self.hosted.get(job_id)
         if execution is None or self.host_client is None:
             return
-        progress = float(values.get("progress", execution.last_host_progress))
+        raw = values.get("progress")
+        progress = execution.scaled(float(raw)) if raw is not None else execution.gate.last_progress
         now = time.monotonic()
         state = values.get("state")
         terminal = state in {"succeeded", "failed", "canceled"}
-        if not terminal and now - execution.last_host_progress_at < 0.65:
+        # batch の途中の件が終わっても Host Job は終わらない。門から見れば
+        # 「区間の終わり」でしかないので、間隔の免除は最後の件にだけ与える。
+        final = terminal and execution.progress_offset + execution.progress_span >= 1.0
+        if not execution.gate.accept(progress, terminal=final, now=now):
             return
-        progress = max(progress, execution.last_host_progress)
+        progress = execution.gate.last_progress
         payload: dict[str, Any] = {
-            "phase": self._phase(values, state),
+            # batch の途中の件が終わっても Host Job は終わっていない。そこで
+            # 「complete」と名乗ると、次の件が始まった途端に phase が戻る。
+            "phase": self._phase(values, None if terminal and not final else state),
             "progress": {"completed": round(progress * 1000), "total": 1000},
         }
         result = values.get("result")
@@ -196,7 +237,10 @@ class JobManager:
             payload["message"] = str(message)[:300]
         if terminal and not execution.owns_terminal:
             # 進捗だけ伝えて終わりは名乗らない。作った側が終わらせる。
-            payload["progress"] = {"completed": 1000, "total": 1000}
+            payload["progress"] = {
+                "completed": round(execution.scaled(1.0) * 1000),
+                "total": 1000,
+            }
         elif terminal:
             payload["status"] = {
                 "succeeded": "succeeded",
@@ -229,8 +273,6 @@ class JobManager:
         except HostApiError as exc:
             if exc.status_code not in {409, 429}:
                 raise
-        execution.last_host_progress = progress
-        execution.last_host_progress_at = now
 
     @staticmethod
     def _phase(values: dict[str, Any], state: Any) -> str:

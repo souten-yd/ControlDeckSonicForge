@@ -6,27 +6,45 @@ import sys
 from contextlib import redirect_stdout
 from pathlib import Path
 
-payload = json.loads(sys.stdin.readline())
-request = payload["request"]
-work = Path(payload["work_dir"])
-work.mkdir(parents=True, exist_ok=True)
-print(
-    json.dumps(
+# 読み込んだモデルを持ち続ける。効果音を続けて何本も作るとき、1 本ごとに
+# プロセスを起こし直すと毎回読み直すことになる。呼び出し側が stdin を開いた
+# ままにしている間は、ここで抱えたものを使い回す。
+_MODELS: dict[tuple[str, str], object] = {}
+
+
+def _emit(event: dict) -> None:
+    print(json.dumps(event, ensure_ascii=False), flush=True)
+
+
+def _model(model_name: str, device: str):
+    key = (model_name, device)
+    cached = _MODELS.get(key)
+    if cached is not None:
+        return cached
+    from stable_audio_3 import StableAudioModel
+
+    with redirect_stdout(sys.stderr):
+        value = StableAudioModel.from_pretrained(model_name, device=device)
+    _MODELS[key] = value
+    return value
+
+
+def handle(payload: dict) -> None:
+    request = payload["request"]
+    work = Path(payload["work_dir"])
+    work.mkdir(parents=True, exist_ok=True)
+    _emit(
         {
             "type": "progress",
             "progress": 0.08,
             "message": "Loading Stable Audio 3 Small-SFX",
         }
-    ),
-    flush=True,
-)
+    )
 
-try:
     # Upstream emits optional-acceleration diagnostics on stdout. Stdout is the
     # SonicForge JSON-lines protocol, so isolate all upstream chatter on stderr.
     with redirect_stdout(sys.stderr):
         import soundfile as sf
-        from stable_audio_3 import StableAudioModel
 
     inp = request.get("input", {})
     user_prompt = str(inp.get("prompt") or inp.get("description") or "").strip()
@@ -52,17 +70,13 @@ try:
         raise ValueError(
             "GPU Small-SFX is experimental; use CPU or explicitly enable the experimental route"
         )
-    with redirect_stdout(sys.stderr):
-        model = StableAudioModel.from_pretrained(model_name, device=device)
-    print(
-        json.dumps(
-            {
-                "type": "progress",
-                "progress": 0.5,
-                "message": "Generating sound effect",
-            }
-        ),
-        flush=True,
+    model = _model(model_name, device)
+    _emit(
+        {
+            "type": "progress",
+            "progress": 0.5,
+            "message": "Generating sound effect",
+        }
     )
     with redirect_stdout(sys.stderr):
         audio = model.generate(
@@ -95,24 +109,37 @@ try:
     }
     if isinstance(normalization, dict):
         result_payload["prompt_normalization"] = normalization
-    print(
-        json.dumps(
-            {
-                "type": "result",
-                "engine_id": "audio.stable-audio-3",
-                "engine_version": "0.1.0",
-                "model_id": model_name,
-                "model_license_id": "Stability-AI-Community",
-                "output_path": str(out),
-                "payload": result_payload,
-            },
-            ensure_ascii=False,
-        ),
-        flush=True,
+    _emit(
+        {
+            "type": "result",
+            "engine_id": "audio.stable-audio-3",
+            "engine_version": "0.1.0",
+            "model_id": model_name,
+            "model_license_id": "Stability-AI-Community",
+            "output_path": str(out),
+            "payload": result_payload,
+        }
     )
-except Exception as exc:
-    print(
-        json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False),
-        flush=True,
-    )
-    raise
+
+
+def main() -> None:
+    # readline を使う。`for raw in sys.stdin` は先読みバッファが埋まるか EOF まで
+    # 1 行目を返さないので、stdin を開いたまま次の要求を待つ使い方（モデルを
+    # 載せたままの常駐）だと止まる。
+    while True:
+        raw = sys.stdin.readline()
+        if not raw:
+            return
+        if not raw.strip():
+            continue
+        try:
+            payload = json.loads(raw)
+            if payload.get("type") == "shutdown":
+                return
+            handle(payload)
+        except Exception as exc:
+            _emit({"type": "error", "message": str(exc)[:2000]})
+
+
+if __name__ == "__main__":
+    main()

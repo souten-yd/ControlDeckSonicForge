@@ -21,9 +21,11 @@ def _model(model_name: str, device: str):
     cached = _MODELS.get(key)
     if cached is not None:
         return cached
-    from stable_audio_3 import StableAudioModel
-
+    # import そのものが stdout へ書く（flash_attn が無いときの案内など）。
+    # stdout は JSON-lines の通信路なので、import ごと stderr へ寄せる。
     with redirect_stdout(sys.stderr):
+        from stable_audio_3 import StableAudioModel
+
         value = StableAudioModel.from_pretrained(model_name, device=device)
     _MODELS[key] = value
     return value

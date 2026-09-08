@@ -25,10 +25,12 @@ def _handlers(project_root: str, checkpoints: str, device: str, dit_model: str, 
     if cached is not None:
         return cached
 
-    from acestep.handler import AceStepHandler
-    from acestep.llm_inference import LLMHandler
-
+    # import そのものが stdout へ書くことがある。stdout は JSON-lines の通信路
+    # なので、import ごと stderr へ寄せる。
     with redirect_stdout(sys.stderr):
+        from acestep.handler import AceStepHandler
+        from acestep.llm_inference import LLMHandler
+
         dit = AceStepHandler()
         status, ok = dit.initialize_service(
             project_root=project_root,

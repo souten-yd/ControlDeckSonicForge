@@ -27,7 +27,12 @@ from .host.files import read_grant
 from .jobs import HostedExecution, JobManager, ProgressGate
 from .legacy_data import LegacyDataError, migrate_discovered_legacy_data
 from .schemas import LocalizationBatchCreate, SetupApplyRequest, SetupCredentials, TaskRequest, TtsPreferenceUpdate, TtsSampleInstall, VoiceCreate
-from .workers import keep_engines_warm, retire_warm_workers
+from .workers import (
+    keep_engines_warm,
+    retire_warm_workers,
+    start_idle_sweeper,
+    stop_idle_sweeper,
+)
 from . import uploads
 from . import setup as setup_service
 from . import tts_models
@@ -163,7 +168,11 @@ async def lifespan(app: FastAPI):
     with session_factory() as session:
         for row in session.query(Job).filter(Job.state.in_(["queued", "running"])).all(): row.state = "failed"; row.error_code = "service_restarted"; row.error_message = "Service restarted before the job completed"
         session.commit()
+    # 使われなくなった常駐を降ろす見張り。抱えたままにすると、31.9GiB の
+    # カードでは画像や音楽の枠を削る。
+    start_idle_sweeper()
     yield
+    await stop_idle_sweeper()
     for task in list(setup_tasks.values()): task.cancel()
     if setup_tasks: await asyncio.gather(*setup_tasks.values(), return_exceptions=True)
     await jobs.shutdown()

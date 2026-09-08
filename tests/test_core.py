@@ -903,3 +903,47 @@ def test_a_single_call_does_not_leave_a_transient_engine_loaded(env,monkeypatch)
         assert response.status_code==200,response.text
         assert response.json()['state']=='succeeded',response.text
     assert resident==[0],resident
+
+def test_a_worker_nobody_is_using_is_put_down(monkeypatch):
+    """常駐が効くのは「続けて話させる」間だけである。そのあとも抱えていると、
+    31.9GiB のカードでは画像や音楽の枠を削る。実機では GPT-SoVITS が 2.2GB を
+    抱えたまま、画像生成が GPU を空けられず 21 件連続で落ちた。"""
+    import asyncio, time
+
+    from sonicforge import workers
+
+    class Ended:
+        """終わっている process。_retire は表から外すだけで済む。"""
+        returncode = 0
+
+    monkeypatch.setattr(workers, "WARM_IDLE_SEC", 60.0)
+    key = ("tts.qwen3", ("python",), "{}")
+    now = time.monotonic()
+    workers._warm[key] = Ended()
+    workers._warm_used_at[key] = now
+    try:
+        # まだ使われた直後。降ろさない。
+        assert asyncio.run(workers.retire_idle_workers(now)) == []
+        assert key in workers._warm, "使った直後に降ろされた"
+        # 誰も使わないまま間が空いたら降ろす。
+        assert asyncio.run(workers.retire_idle_workers(now + 61)) == ["tts.qwen3"]
+        assert key not in workers._warm
+        assert key not in workers._warm_used_at
+    finally:
+        workers._warm.pop(key, None)
+        workers._warm_used_at.pop(key, None)
+
+
+def test_a_batch_keeps_its_workers_even_while_idle(env,monkeypatch):
+    """続きがあると宣言されている間は、間が空いていても抱えたままにする。"""
+    import asyncio, time
+    load_app()
+    from sonicforge import workers
+    monkeypatch.setattr(workers, "WARM_IDLE_SEC", 0.0)
+    monkeypatch.setattr(workers, "_hold_all_warm", 1)
+    workers._warm[("fake",)]=object()
+    try:
+        assert asyncio.run(workers.retire_idle_workers(time.monotonic()+9999))==[]
+        assert workers._warm, "batch の最中に降ろされた"
+    finally:
+        workers._warm.clear()

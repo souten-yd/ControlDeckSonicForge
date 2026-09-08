@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
+import time
 import shlex
 import signal
 import sys
@@ -12,6 +14,8 @@ from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable
 
 from .config import Settings
+
+logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[float, str], Awaitable[None]]
 MAX_WORKER_OUTPUT_BYTES = 1024 * 1024 * 1024
@@ -217,6 +221,18 @@ _WARM_ENGINES = frozenset({"tts.qwen3", "tts.gpt-sovits", "asr.whisper"})
 # 止まる）。
 _BATCH_WARM_ENGINES = frozenset({"audio.stable-audio-3", "music.ace-step-1.5", "fake"})
 _warm: dict[tuple, asyncio.subprocess.Process] = {}
+# 常駐を抱えたままにする長さ。過ぎたら降ろす。
+#
+# 常駐は続けて話させるときに効く（実測: 温まって 11〜18 秒、起こし直すと 40 秒）。
+# 効くのは「続けて」の間だけで、そのあとも抱えていると 31.9GiB のカードでは
+# 画像や音楽の枠を削るだけになる。実機で GPT-SoVITS が 2.2GB を抱えたまま、
+# 画像生成が GPU を空けられず 21 件連続で落ちた（2026-09-08）。
+#
+# 時間で決めているのは「いつ降ろすか」であって「いつ諦めるか」ではない。誰も
+# 使っていないものを抱え続ける理由が無いだけで、走っている処理は切らない。
+WARM_IDLE_SEC = float(os.environ.get("SONICFORGE_WARM_IDLE_SEC", "180"))
+_warm_used_at: dict[tuple, float] = {}
+_idle_sweeper: asyncio.Task | None = None
 # batch のあいだだけ、使い捨ての engine も抱えておく回数券。
 #
 # 音楽と効果音を 1 回ずつ作るなら抱える利点は無いが、続けて何本も作ると分かって
@@ -278,6 +294,52 @@ async def retire_transient_workers() -> None:
     await _retire([key for key in _warm if key[0] not in _WARM_ENGINES])
 
 
+async def retire_idle_workers(now: float | None = None) -> list[str]:
+    """しばらく使われていない常駐を降ろす。降ろした engine を返す。
+
+    batch の最中は触らない。続きがあると宣言されている間は、間が空いていても
+    抱えたままにする。
+    """
+    if _hold_all_warm:
+        return []
+    current = time.monotonic() if now is None else now
+    stale = [
+        key for key in _warm
+        if current - _warm_used_at.get(key, current) >= WARM_IDLE_SEC
+    ]
+    if stale:
+        await _retire(stale)
+        for key in stale:
+            _warm_used_at.pop(key, None)
+    return [key[0] for key in stale]
+
+
+async def _idle_loop() -> None:
+    while True:
+        await asyncio.sleep(min(30.0, max(5.0, WARM_IDLE_SEC / 4)))
+        try:
+            retired = await retire_idle_workers()
+        except Exception:  # noqa: BLE001 - 後片付けで service を落とさない
+            continue
+        if retired:
+            logger.info("idle worker retired: %s", ", ".join(sorted(set(retired))))
+
+
+def start_idle_sweeper() -> None:
+    """使われなくなった常駐を降ろす見張りを起こす。"""
+    global _idle_sweeper
+    if _idle_sweeper is None or _idle_sweeper.done():
+        _idle_sweeper = asyncio.create_task(_idle_loop(), name="sonicforge-warm-idle")
+
+
+async def stop_idle_sweeper() -> None:
+    global _idle_sweeper
+    task, _idle_sweeper = _idle_sweeper, None
+    if task is not None:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 async def execute(
     settings: Settings,
     request: dict,
@@ -317,6 +379,8 @@ async def execute(
         )
         if keep:
             _warm[key] = proc
+    if keep:
+        _warm_used_at[key] = time.monotonic()
     assert proc.stdin and proc.stdout
     stderr_task = asyncio.create_task(
         _stderr_tail(proc.stderr), name=f"sonicforge-worker-stderr-{proc.pid}"

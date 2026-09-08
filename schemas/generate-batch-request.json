@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonic-forge.local/schemas/generate-batch-request.json",
+  "title": "SonicForge batch audio generation",
+  "type": "object",
+  "required": [
+    "items"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "description": "作るものを並べる。上から順に作る。1 件が失敗しても残りは作り、結果は件ごとに返る。",
+      "items": {
+        "type": "object",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "enum": [
+              "speech.tts.synthesize",
+              "audio.sfx.generate",
+              "audio.ambience.generate",
+              "music.generate"
+            ],
+            "description": "speech.tts.synthesize は文章を読み上げる。audio.sfx.generate は単発の効果音、audio.ambience.generate は環境音、music.generate は楽曲を作る。"
+          },
+          "input": {
+            "type": "object",
+            "description": "作るものの中身。task ごとに読む項目が違う。長さや速さを指定しないとモデル既定（効果音 3 秒 / 音楽 30 秒）になる。",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "speech.tts.synthesize: 読み上げる文。この task では必須。"
+              },
+              "voice_id": {
+                "type": "string",
+                "description": "speech.tts.synthesize: 使う声。省略すると利用者が選んでいる声になる。"
+              },
+              "speaker": {
+                "type": "string",
+                "description": "speech.tts.synthesize: 話者名（エンジンが対応する場合）。"
+              },
+              "style": {
+                "type": "string",
+                "description": "speech.tts.synthesize: 話し方の指定（エンジンが対応する場合）。"
+              },
+              "reference_text": {
+                "type": "string",
+                "description": "speech.tts.synthesize: 参照音声に対応する読み。声の複製で使う。"
+              },
+              "reference_grant": {
+                "type": "string",
+                "description": "speech.tts.synthesize: 参照音声の grant。"
+              },
+              "upload_id": {
+                "type": "string",
+                "description": "取り込み済み音声の識別子。"
+              },
+              "prompt": {
+                "type": "string",
+                "description": "audio.sfx.generate / audio.ambience.generate / music.generate: 作るものの説明。音楽なら曲調・楽器・雰囲気・場面をここに書く（例: 8-bit の宿屋のテーマ、穏やかで温かい、木管とチェレスタ）。この 3 つの task では必須。"
+              },
+              "description": {
+                "type": "string",
+                "description": "prompt の別名。どちらか一方でよい。"
+              },
+              "duration_sec": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 300,
+                "description": "作る長さ（秒）。省略すると効果音は 3 秒、音楽は 30 秒になる。"
+              },
+              "bpm": {
+                "type": "number",
+                "minimum": 30,
+                "maximum": 300,
+                "description": "music.generate: テンポ。省略するとモデルが曲調から決める。"
+              },
+              "instrumental": {
+                "type": "boolean",
+                "description": "music.generate: 歌を入れないか。既定は true（インスト）。"
+              }
+            },
+            "additionalProperties": false
+          },
+          "profile": {
+            "type": "string",
+            "description": "省略してよい。"
+          },
+          "quality": {
+            "enum": [
+              "fast",
+              "balanced",
+              "quality"
+            ],
+            "description": "速さと出来の釣り合い。特に理由が無ければ balanced のままにする。"
+          },
+          "content_language": {
+            "enum": [
+              "auto",
+              "ja",
+              "en"
+            ]
+          },
+          "routing": {
+            "type": "object",
+            "description": "エンジンの指定。省略してよい。",
+            "properties": {
+              "engine": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "model": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "device": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "output": {
+            "type": "object",
+            "description": "出力の形。省略すると wav になる。",
+            "properties": {
+              "format": {
+                "enum": [
+                  "wav",
+                  "flac",
+                  "mp3",
+                  "ogg"
+                ]
+              },
+              "sample_rate": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 8000,
+                "maximum": 192000
+              },
+              "channels": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "maximum": 2
+              }
+            },
+            "additionalProperties": false
+          },
+          "seed": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "同じ入力から同じ結果を出したいときに指定する。"
+          },
+          "project_output_grant": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "出来たものを書き出す先の grant。"
+          }
+        },
+        "additionalProperties": false,
+        "description": "作るもの 1 件。単発の sonic.generate と同じ形。"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "description": "音声・効果音・環境音・音楽を 1 コールでまとめて作る。2 件以上が要るときは必ずこちらを使う。1 件ずつ呼ぶと、その都度ホストが言語モデルを降ろして載せ直し、会話の文脈を読み直す。実測でその読み直しは 6 分かかる一方、音声 1 本は 5.5 秒、効果音は 8.7 秒である。1 コールにまとめれば読み直しは1 回で済み、音のモデルも通しで載ったままになる。種類の違うもの（台詞と効果音と BGM）を混ぜてよい。"
+}

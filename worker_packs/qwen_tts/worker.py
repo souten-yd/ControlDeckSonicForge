@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ctypes
+import gc
+from collections import OrderedDict
 from contextlib import redirect_stdout
 import json
 import os
@@ -25,7 +27,37 @@ def _parent_death_guard() -> None:
 
 
 _parent_death_guard()
-_MODELS: dict[tuple[str, str], object] = {}
+# 載せたモデルの置き場。**上限を設けて古いものから降ろす。**
+#
+# Qwen3-TTS は用途ごとにモデルが分かれている（声を注文する VoiceDesign 1.7B、
+# 複製する Base 0.6B、公式話者で読む CustomVoice 0.6B）。上限が無いと、
+# キャラクターの声を作ってから喋らせるだけで 3 つが同時に載ったままになり、
+# worker が idle で降ろされるまで VRAM を握り続ける。実機の VRAM は 34GB 中
+# 24.8GB が既に使われていた。
+#
+# 2 にしてあるのは、台詞ごとに載せ替えないためである。preset の声と design の
+# 声が混ざった batch は CustomVoice と Base を交互に使うので、1 にすると台詞
+# ごとに載せ直すことになる。VoiceDesign は声を作るときにしか要らないので、
+# 生成が始まれば最も古いものとして降りる。
+_MODEL_CACHE_MAX = max(1, int(os.environ.get("SONICFORGE_QWEN_TTS_MAX_MODELS", "2")))
+_MODELS: "OrderedDict[tuple[str, str], object]" = OrderedDict()
+
+
+def make_room(cache: "OrderedDict", limit: int, release) -> int:
+    """置き場に空きを作る。降ろした数を返す。
+
+    載せたものを黙って持ち続けない。Qwen3-TTS は用途ごとにモデルが分かれて
+    いるので、上限が無いと声を作って喋らせるだけで 3 つが同時に載る。降ろす
+    のは最も長く使っていないもので、preset と design が混ざった batch でも
+    台詞ごとの載せ替えにならないようにする。
+    """
+    dropped = 0
+    while len(cache) >= limit:
+        cache.popitem(last=False)
+        dropped += 1
+    if dropped:
+        release()
+    return dropped
 
 
 def _emit(value: dict) -> None:
@@ -42,7 +74,15 @@ def _model(model_id: str):
     key = (model_id, device)
     cached = _MODELS.get(key)
     if cached is not None:
+        _MODELS.move_to_end(key)
         return cached
+    def release() -> None:
+        with redirect_stdout(sys.stderr):
+            gc.collect()
+            if device.startswith("cuda"):
+                torch.cuda.empty_cache()
+
+    make_room(_MODELS, _MODEL_CACHE_MAX, release)
     _emit({"type": "progress", "progress": 0.1, "message": "Loading Qwen3-TTS"})
     with redirect_stdout(sys.stderr):
         value = Qwen3TTSModel.from_pretrained(

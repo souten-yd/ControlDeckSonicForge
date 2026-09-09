@@ -1067,6 +1067,38 @@ def test_a_designed_voice_is_pinned_to_the_sample_it_produced(env):
         assert mine['anchored'] is True and mine['method']=='design'
         assert mine['description']=="落ち着いた三十代の男性。低めの声。"
 
+def test_the_worker_does_not_hold_every_model_it_ever_loaded():
+    """載せたものを黙って持ち続けない。
+
+    Qwen3-TTS は用途ごとにモデルが分かれている（声を注文する VoiceDesign 1.7B、
+    複製する Base 0.6B、公式話者で読む CustomVoice 0.6B）。上限が無いと、
+    キャラクターの声を作ってから喋らせるだけで 3 つが同時に載ったままになり、
+    worker が idle で降ろされるまで VRAM を握り続ける。GPT-SoVITS 側は 1 つだけ
+    持って載せ替え時に解放しており、ここだけが例外だった。
+
+    降ろすのは最も長く使っていないもの。preset の声と design の声が混ざった
+    batch は 2 つのモデルを交互に使うので、そこで台詞ごとに載せ替えると遅い。
+    """
+    from collections import OrderedDict
+    from worker_packs.qwen_tts.worker import make_room
+
+    freed = []
+    cache = OrderedDict([("design", 1), ("base", 2)])
+    # 上限に達していれば、次を載せる前に最も古いものが降りる。
+    assert make_room(cache, 2, lambda: freed.append(True)) == 1
+    assert list(cache) == ["base"]
+    # 降ろしたときだけ解放を呼ぶ。空きがあるのに毎回呼ばない。
+    assert freed == [True]
+    assert make_room(cache, 2, lambda: freed.append(True)) == 0
+    assert freed == [True]
+    # 使ったものは新しい側へ回る（_model が move_to_end する）ので、直前に使った
+    # ものは残り、長く使っていないほうが降りる。
+    cache = OrderedDict([("base", 1), ("custom", 2)])
+    cache.move_to_end("base")
+    make_room(cache, 2, lambda: None)
+    assert list(cache) == ["base"]
+
+
 def test_a_named_voice_is_spoken_by_the_engine_that_made_it(env):
     """声を指名したら、その声を作った engine で喋る。
 

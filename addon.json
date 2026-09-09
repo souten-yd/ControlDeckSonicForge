@@ -120,42 +120,42 @@
     "agent_tools": [
       {
         "id": "sonic.capabilities",
-        "label": "Inspect SonicForge capabilities. Start here: reports what is installed, and how to give a character a voice that stays the same across lines.",
+        "label": "Inspect SonicForge capabilities and how to give a character a voice",
         "endpoint": "/addon/v1/agent/capabilities",
         "schema_path": "/schemas/empty-input.json",
         "permission": "workflows.run"
       },
       {
         "id": "sonic.generate",
-        "label": "Generate speech, sound or music. For a character's dialogue pass input.voice_id from sonic.voice.list — without one, every line can be read by a different voice.",
+        "label": "Generate one line of speech, a sound or music",
         "endpoint": "/addon/v1/agent/generate",
         "schema_path": "/schemas/generate-request.json",
         "permission": "workflows.run"
       },
       {
         "id": "sonic.generate.batch",
-        "label": "Generate several audio assets in one call. Prefer this over repeated sonic.generate: the model is loaded once. Speech, sound effects and music can be mixed, each item with its own voice_id and emotion.",
+        "label": "Generate several audio assets in one call",
         "endpoint": "/addon/v1/agent/generate/batch",
         "schema_path": "/schemas/generate-batch-request.json",
         "permission": "workflows.run"
       },
       {
         "id": "sonic.voice.create",
-        "label": "Create a character voice. Do this once per character, before generating any line: the voice holds both the identity that keeps every line sounding like one person and the emotion samples input.emotion picks from.",
+        "label": "Create a character voice, once per character before any line",
         "endpoint": "/addon/v1/agent/voice/create",
         "schema_path": "/schemas/voice-create-request.json",
         "permission": "workflows.run"
       },
       {
         "id": "sonic.voice.list",
-        "label": "List voices and built-in speakers. Call before generating speech: returns each voice_id, whether input.emotion works (supports_emotion) and which emotions it can produce (emotion_choices).",
+        "label": "List voices, their emotions and the built-in speakers",
         "endpoint": "/addon/v1/agent/voice/list",
         "schema_path": "/schemas/voice-list-request.json",
         "permission": "workflows.run"
       },
       {
         "id": "sonic.voice.delete",
-        "label": "Delete a character voice. The lines already generated with it are kept, but the character cannot be given new lines in that voice afterwards.",
+        "label": "Delete a character voice",
         "endpoint": "/addon/v1/agent/voice/delete",
         "schema_path": "/schemas/voice-delete-request.json",
         "permission": "workflows.run"

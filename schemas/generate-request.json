@@ -24,7 +24,7 @@
         },
         "voice_id": {
           "type": "string",
-          "description": "speech.tts.synthesize: 使う声。省略すると利用者が選んでいる声になる。"
+          "description": "speech.tts.synthesize: 使う声。sonic.voice.create で作った voice_id を渡すと、そのキャラクターの声で喋る。同じ台詞群には同じ voice_id を使うこと——省略すると利用者が選んでいる声になり、台詞ごとに変わりうる。"
         },
         "speaker": {
           "type": "string",
@@ -32,7 +32,7 @@
         },
         "style": {
           "type": "string",
-          "description": "speech.tts.synthesize: 話し方の指定（エンジンが対応する場合）。"
+          "description": "emotion の別名（旧称）。emotion を使うこと。"
         },
         "reference_text": {
           "type": "string",
@@ -69,6 +69,11 @@
         "instrumental": {
           "type": "boolean",
           "description": "music.generate: 歌を入れないか。既定は true（インスト）。"
+        },
+        "emotion": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "speech.tts.synthesize: 言い方を自然文で指定する（例: 強い怒りをこめて / 囁くように / 弾んだ調子で）。**preset で作った声にだけ効く。** design や clone で作った声は複製経路を通り、そこは言い方の指示を受け付けない——その場合の言い方は、台詞の書き方と見本の喋り方で決まる。"
         }
       },
       "additionalProperties": false

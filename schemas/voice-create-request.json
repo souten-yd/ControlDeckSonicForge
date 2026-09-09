@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonic-forge.local/schemas/voice-create-request.json",
+  "title": "SonicForge character voice",
+  "type": "object",
+  "required": [
+    "name",
+    "method"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "キャラクター名。あとで voice_id を探すときの手がかりになる。"
+    },
+    "method": {
+      "enum": [
+        "preset",
+        "design",
+        "clone"
+      ],
+      "description": "preset は公式の名前つき話者をそのまま使う（9人、日本語の母語話者は女性1人だけ）。design は声を文章で注文する。clone は手元の音声から複製する。迷ったら design を選ぶ——声の自由度が高く、同じ声で喋り続けられる。"
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "zh",
+          "en",
+          "ja",
+          "ko",
+          "de",
+          "fr",
+          "ru",
+          "pt",
+          "es",
+          "it"
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 4,
+      "description": "この声で喋らせる言語。母語で使うのが最も良いと公式が書いている。"
+    },
+    "speaker": {
+      "enum": [
+        "Vivian",
+        "Serena",
+        "Uncle_Fu",
+        "Dylan",
+        "Eric",
+        "Ryan",
+        "Aiden",
+        "Ono_Anna",
+        "Sohee"
+      ],
+      "description": "method が preset のときの話者名。sonic.voice.list の built_in_speakers に性別と言語が載っている。"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "description": "method が design のときの声の注文。性別・年齢・声質・訛り・話し方を文章で書く（例: 落ち着いた三十代の男性。低めで少ししゃがれた声。淡々と話す）。ここに感情は書かない——感情は台詞ごとに指定する。"
+    },
+    "sample_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "description": "method が design のとき、声を確定させるために一度読ませる文。省略すると言語ごとの既定文を使う。感情の乗らない文にする——見本が怒っていると、その怒りごと固定される。"
+    },
+    "reference_grant": {
+      "type": "string",
+      "description": "method が clone のときの参照音声。control_deck.project_input_grant で作った grant を渡す。"
+    },
+    "upload_id": {
+      "type": "string",
+      "description": "method が clone のとき、取り込み済み音声の識別子。"
+    },
+    "reference_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "description": "method が clone のとき、参照音声で実際に喋っている文。必須。省くと話者埋め込みだけの複製になり、声質が落ちると公式が書いている。"
+    },
+    "rights_confirmed": {
+      "type": "boolean",
+      "description": "method が clone のとき必須。その声を複製してよい権利を確認したという申告。"
+    }
+  },
+  "description": "キャラクターの声を作る。返る voice_id を sonic.generate の input.voice_id に渡すと、以後その声で喋る。design で作った声は、その場で一度喋らせた見本を参照として保存し、以降はその見本からの複製で再生する——Qwen3-TTS の voice design には再現性の保証も seed も無いため、注文文から作り直すと台詞ごとに別人になりうる。見本を固定することで同じ声が続く。"
+}

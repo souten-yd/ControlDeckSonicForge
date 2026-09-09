@@ -947,3 +947,113 @@ def test_a_batch_keeps_its_workers_even_while_idle(env,monkeypatch):
         assert workers._warm, "batch の最中に降ろされた"
     finally:
         workers._warm.clear()
+
+# ── キャラクターの声 ────────────────────────────────────────────────────
+#
+# Qwen3-TTS の voice design には再現性の保証も seed も無い。同じ注文文で呼び
+# 直しても同じ声が出るとは限らないので、台詞ごとに design を呼ぶ作りにすると
+# キャラが台詞ごとに別人になりうる。注文した声を一度喋らせて見本を掴み、以後は
+# その見本からの複製で回す。identity は見本の波形そのものになる。
+
+def test_the_voice_list_shows_what_can_be_chosen(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/list',json={})
+        assert response.status_code==200,response.text
+        body=response.json()
+        names={item['speaker'] for item in body['built_in_speakers']}
+        # 名前を知らないまま preset を選ばせない。性別と言語も添える。
+        assert {'Ono_Anna','Ryan','Vivian'} <= names
+        assert all({'speaker','language','gender','description'} <= set(item)
+                   for item in body['built_in_speakers'])
+        assert 'ja' in body['languages']
+
+def test_a_preset_voice_needs_a_speaker_that_exists(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        bad=c.post('/addon/v1/agent/voice/create',json={
+            "name":"勇者","method":"preset","speaker":"NotAPerson","languages":["ja"]})
+        assert bad.status_code==422,bad.text
+        assert bad.json()['detail']['code']=='unknown_speaker'
+        ok=c.post('/addon/v1/agent/voice/create',json={
+            "name":"勇者","method":"preset","speaker":"Ono_Anna","languages":["ja"]})
+        assert ok.status_code==200,ok.text
+        body=ok.json()
+        assert body['voice_id'].startswith('voice:')
+        assert body['method']=='preset' and body['speaker']=='Ono_Anna'
+        # preset だけが言い方の指示を受け付ける。
+        assert body['supports_emotion'] is True
+        listed=c.post('/addon/v1/agent/voice/list',json={}).json()['voices']
+        assert body['voice_id'] in {item['voice_id'] for item in listed}
+
+def test_cloning_a_person_needs_the_right_to_do_it(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/create',json={
+            "name":"語り手","method":"clone","languages":["ja"],
+            "reference_text":"こんにちは","upload_id":"upload:"+"0"*32})
+        assert response.status_code==422,response.text
+        assert response.json()['detail']['code']=='voice_rights_confirmation_required'
+
+def test_cloning_needs_the_transcript_of_the_reference(env):
+    """書き起こしを省くと話者埋め込みだけの複製になり、声質が落ちると公式が書いている。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/create',json={
+            "name":"語り手","method":"clone","languages":["ja"],
+            "rights_confirmed":True,"upload_id":"upload:"+"0"*32})
+        assert response.status_code==422,response.text
+        assert response.json()['detail']['code']=='reference_text_required'
+
+def test_designing_a_voice_needs_a_description(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/create',json={
+            "name":"勇者","method":"design","languages":["ja"]})
+        assert response.status_code==422,response.text
+        assert response.json()['detail']['code']=='description_required'
+
+def test_an_unknown_method_or_language_is_refused(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        assert c.post('/addon/v1/agent/voice/create',json={
+            "name":"x","method":"summon"}).status_code==422
+        assert c.post('/addon/v1/agent/voice/create',json={
+            "name":"x","method":"preset","speaker":"Ryan",
+            "languages":["klingon"]}).status_code==422
+
+def test_a_designed_voice_is_pinned_to_the_sample_it_produced(env):
+    """design を呼び直さない。呼び直した時点で別人になりうる。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/create',json={
+            "input":{"name":"勇者","method":"design","languages":["ja"],
+                     "description":"落ち着いた三十代の男性。低めの声。",
+                     "sample_text":"はじめまして。"},
+            "correlation":{"job_id":"host-job"}})
+        assert response.status_code==200,response.text
+        body=response.json()
+        assert body['method']=='design'
+        # 見本が保存され、以後はその複製で回る。
+        assert body['anchored'] is True
+        assert body['sample_asset_id']
+        # 見本を掴んだあとは複製で回る。複製経路は言い方の指示を受けないので、
+        # そのことが声の情報として出ている必要がある。
+        assert body['supports_emotion'] is False
+        listed=c.post('/addon/v1/agent/voice/list',json={}).json()['voices']
+        mine=next(item for item in listed if item['voice_id']==body['voice_id'])
+        assert mine['anchored'] is True and mine['method']=='design'
+        assert mine['description']=="落ち着いた三十代の男性。低めの声。"
+
+def test_a_voice_can_be_removed_from_opencode(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        created=c.post('/addon/v1/agent/voice/create',json={
+            "name":"端役","method":"preset","speaker":"Ryan","languages":["en"]}).json()
+        gone=c.post('/addon/v1/agent/voice/delete',json={"voice_id":created['voice_id']})
+        assert gone.status_code==200 and gone.json()['deleted'] is True
+        remaining={item['voice_id'] for item in
+                   c.post('/addon/v1/agent/voice/list',json={}).json()['voices']}
+        assert created['voice_id'] not in remaining
+        assert c.post('/addon/v1/agent/voice/delete',
+                      json={"voice_id":created['voice_id']}).status_code==404

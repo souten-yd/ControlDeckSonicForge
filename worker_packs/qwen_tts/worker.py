@@ -92,13 +92,16 @@ def handle(payload: dict) -> None:
     recipe = dict(voice.get("recipe") or {}) if voice else {}
     source_type = str(voice.get("source_type") or "built-in") if voice else "built-in"
     requested_model = request.get("routing", {}).get("model")
-    style = inp.get("style") or {}
-    instruct = str(
-        style.get("instruction")
-        or style.get("preset")
-        or recipe.get("instruct")
-        or ""
-    )
+    # 感情や言い方の指示。Qwen3-TTS は自然文を取る（"用特别愤怒的语气说" が公式の
+    # 例）。`emotion` を正とし、`style` は以前の形（辞書、または素の文字列）も
+    # 受ける——契約では文字列と書いてあったのに実装は辞書しか読めておらず、
+    # 文字列を渡すと落ちていた。
+    style = inp.get("style")
+    if isinstance(style, dict):
+        style_text = str(style.get("instruction") or style.get("preset") or "")
+    else:
+        style_text = str(style or "")
+    instruct = str(inp.get("emotion") or "").strip() or style_text or str(recipe.get("instruct") or "")
 
     if source_type == "clone":
         if not voice.get("rights_confirmed"):
@@ -117,6 +120,9 @@ def handle(payload: dict) -> None:
             raise ValueError("voice clone requires a SonicForge-managed reference audio")
         tts = _model(model_id)
         _emit({"type": "progress", "progress": 0.55, "message": "Synthesizing cloned voice"})
+        # clone は instruct を取らない（上流の generate_voice_clone は
+        # _build_instruct_text を通らない）。渡すと生成の引数として解釈され、
+        # 効かないか落ちる。言い方は参照音声の喋り方と本文の中身が決める。
         kwargs = {"text": text, "language": language, "ref_audio": ref_audio}
         if ref_text:
             kwargs["ref_text"] = str(ref_text)

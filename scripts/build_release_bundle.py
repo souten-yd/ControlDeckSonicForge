@@ -37,6 +37,53 @@ def _pyinstaller_argv(requested: Path | None) -> list[str]:
     return [sys.executable, "-m", "PyInstaller"]
 
 
+# 出来上がりが小さすぎたら、途中で終わっている。
+#
+# 実際に起きた: PyInstaller が OOM killer に落とされ、それでも exit code は 0 で
+# 返り、2.4MB の tar.gz ができた（正常なら 30MB）。署名はマニフェストと実物が
+# 一致するかしか見ないので、そのまま署名すれば**壊れた状態が正しいと証明される**。
+# 気づかなければ公開して、適用時に壊れる。
+#
+# 数字は「明らかにおかしい」を弾くためのもので、正常値に張り付けない。
+MIN_EXECUTABLE_BYTES = 10 * 1024 * 1024
+MIN_ARTIFACT_BYTES = 10 * 1024 * 1024
+
+
+def _check_executable(path: Path) -> None:
+    """出来上がった実行ファイルが、大きさを持ち、実際に起動することを確かめる。
+
+    大きさだけでは足りない。ビルド環境を取り違えると、大きさはあっても依存が
+    欠けたものができる（実際に起きた: 別の venv で建てて `No module named
+    'pydantic'` になった）。起動させるのが最も確かで、smoke は依存を全部踏む。
+    """
+    size = path.stat().st_size
+    if size < MIN_EXECUTABLE_BYTES:
+        raise SystemExit(
+            f"built executable is only {size} bytes; the build did not finish"
+        )
+    smoke = [str(path), *_feature_manifest("0.0.0")["smoke_args"]]
+    finished = subprocess.run(smoke, capture_output=True, timeout=300)
+    if finished.returncode != 0:
+        tail = finished.stderr.decode("utf-8", "replace")[-2000:]
+        raise SystemExit(f"built executable failed its smoke run:\n{tail}")
+
+
+def _check_artifact(path: Path, name: str) -> None:
+    size = path.stat().st_size
+    if size < MIN_ARTIFACT_BYTES:
+        raise SystemExit(f"archive is only {size} bytes; the build did not finish")
+    with tarfile.open(path, "r:gz") as archive:
+        members = set(archive.getnames())
+    required = {
+        f"{name}/bin/sonicforge-core",
+        f"{name}/control-deck-addon.json",
+        f"{name}/control-deck-feature.json",
+    }
+    missing = sorted(required - members)
+    if missing:
+        raise SystemExit(f"archive is missing: {', '.join(missing)}")
+
+
 def _feature_manifest(version: str) -> dict[str, object]:
     """Use the generic Release Bundle lifecycle shared with MediaForge.
 
@@ -77,11 +124,13 @@ def main() -> int:
         command = [*pyinstaller_argv, "--noconfirm", "--clean", "--onefile", "--name", "sonicforge-core", "--paths", str(ROOT / "backend"), "--collect-submodules", "sonicforge", "--collect-submodules", "python_multipart", "--distpath", str(dist), "--workpath", str(work / "build"), "--specpath", str(work), "--add-data", f"{ROOT / 'frontend'}:frontend", "--add-data", f"{ROOT / 'schemas'}:schemas", "--add-data", f"{ROOT / 'worker_packs'}:worker_packs", "--add-data", f"{ROOT / 'runtimes'}:runtimes", str(ROOT / "scripts/bundle_entrypoint.py")]
         subprocess.run(command, check=True, cwd=ROOT)
         bundle = work / name; _copy(dist / "sonicforge-core", bundle / "bin/sonicforge-core", 0o755)
+        _check_executable(bundle / "bin/sonicforge-core")
         (bundle / "control-deck-addon.json").write_text(json.dumps(addon, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         feature = _feature_manifest(args.version)
         (bundle / "control-deck-feature.json").write_text(json.dumps(feature, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         artifact = args.output_dir / f"{name}.tar.gz"
         with tarfile.open(artifact, "w:gz", compresslevel=9) as archive: archive.add(bundle, arcname=name, recursive=True)
+        _check_artifact(artifact, name)
         digest = _sha256(artifact); checksum = artifact.with_name(artifact.name + ".sha256"); checksum.write_text(f"{digest}  {artifact.name}\n", encoding="ascii")
         print(json.dumps({"artifact": str(artifact), "sha256": digest, "bytes": artifact.stat().st_size}))
     return 0

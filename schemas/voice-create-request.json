@@ -61,13 +61,13 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 1000,
-      "description": "method が design のときの声の注文。性別・年齢・声質・訛り・話し方を文章で書く（例: 落ち着いた三十代の男性。低めで少ししゃがれた声。淡々と話す）。ここに感情は書かない——感情は台詞ごとに指定する。"
+      "description": "method が design のときの声の注文。性別・年齢・声質・訛り・話し方を文章で書く（例: 落ち着いた三十代の男性。低めで少ししゃがれた声。淡々と話す）。**感情はここに書かない。** 注文文を変えると別の人物になる（実測: 同じ注文文で呼び直しただけでも耳で聞いて完全に別人だった）。感情は台詞の書き方で表す。"
     },
     "sample_text": {
       "type": "string",
       "minLength": 1,
       "maxLength": 300,
-      "description": "method が design のとき、声を確定させるために一度読ませる文。省略すると言語ごとの既定文を使う。感情の乗らない文にする——見本が怒っていると、その怒りごと固定される。"
+      "description": "method が design のとき、声を確定させるために一度読ませる文。省略すると言語ごとの既定文を使う。感情の乗らない文にすること——この一本が以後の声そのものになるので、見本が怒っていれば以後ずっと怒った声になる。"
     },
     "reference_grant": {
       "type": "string",
@@ -88,5 +88,5 @@
       "description": "method が clone のとき必須。その声を複製してよい権利を確認したという申告。"
     }
   },
-  "description": "キャラクターの声を作る。返る voice_id を sonic.generate の input.voice_id に渡すと、以後その声で喋る。design で作った声は、その場で一度喋らせた見本を参照として保存し、以降はその見本からの複製で再生する——Qwen3-TTS の voice design には再現性の保証も seed も無いため、注文文から作り直すと台詞ごとに別人になりうる。見本を固定することで同じ声が続く。"
+  "description": "キャラクターの声を作る。返る voice_id を sonic.generate の input.voice_id に渡すと、以後その声で喋る。\n\ndesign で作った声は、その場で一度喋らせた見本を参照として保存し、以降はその見本からの複製で再生する。Qwen3-TTS の voice design には再現性の保証も seed も無く、実測では同じ注文文で呼び直すと完全に別人になった。見本を固定することで初めて同じ声が続く。\n\n感情の指示（sonic.generate の input.emotion）が効くのは preset で作った声だけである。design と clone は複製経路を通り、そこは言い方の指示を受け付けない。これらの声で感情を出すには、台詞の書き方でそれを表す（モデルは本文の意味からも口調を決める）。sonic.voice.list が声ごとに supports_emotion を返すので、それを見て使い分ける。"
 }

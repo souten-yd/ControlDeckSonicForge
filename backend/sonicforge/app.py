@@ -34,6 +34,7 @@ from .workers import (
     stop_idle_sweeper,
 )
 from . import uploads
+from . import voice_catalog
 from . import setup as setup_service
 from . import tts_models
 from . import tts_samples
@@ -689,6 +690,337 @@ async def agent_generate_batch(request: Request):
         # 1 件ずつ独立した job である。全部か無かではない。
         "atomic": False,
     }
+
+
+VOICE_METHODS = frozenset({"preset", "design", "clone"})
+
+
+def _voice_summary(voice: Voice) -> dict[str, Any]:
+    """agent へ返す声の姿。recipe の中身（file 経路など）は出さない。"""
+    recipe = voice.recipe or {}
+    method = str(recipe.get("method") or (
+        "preset" if voice.source_type == "built-in" else
+        "design" if recipe.get("design_instruction") else "clone"
+    ))
+    return {
+        "voice_id": voice.id,
+        "name": voice.name,
+        "method": method,
+        "languages": voice.languages or [],
+        "speaker": recipe.get("speaker"),
+        "description": recipe.get("design_instruction"),
+        "anchored": bool(recipe.get("reference_audio")),
+        # この声で出せる感情。preset は instruct に何でも書けるので空で、
+        # design と clone は「持っている見本の分だけ」しか出せない。
+        "emotion_choices": sorted(recipe.get("references") or {}),
+        # 感情の指示（input.emotion）が効くかどうか。効き方は二通りある。
+        #
+        # preset は複製経路を通らないので言い方を自然文で書ける。感情を指定しても
+        # 同じ人物のままであることは実測で確かめた（台詞を固定して指示だけ振り、
+        # 耳で判定）。ここが崩れていたら、感情を指定した途端にキャラが別人になる。
+        #
+        # design と clone は複製経路を通り、そこは指示を受け付けない。代わりに
+        # 感情別の見本を持たせてあり、そこから選ぶ形で効く。見本が平静の 1 本
+        # しか無い声（感情別に作る前のもの、持ち込みの複製）は、指定しても何も
+        # 起きないので効かないと言う。
+        "supports_emotion": (
+            voice.source_type == "built-in" or len(recipe.get("references") or {}) > 1
+        ),
+        "created_at": voice.created_at.isoformat() if voice.created_at else None,
+    }
+
+
+async def _store_voice_reference(source: Path, suffix: str = ".wav") -> str:
+    """参照音声を SonicForge の持ち物にする。data_dir からの相対で返す。"""
+    voices_dir = settings.data_dir / "voices"
+    voices_dir.mkdir(parents=True, exist_ok=True)
+    target = voices_dir / f"{uuid.uuid4().hex}{suffix or '.wav'}"
+    shutil.copyfile(source, target)
+    return str(target.relative_to(settings.data_dir))
+
+
+def _save_voice(name: str, source_type: str, languages: list[str],
+                recipe: dict[str, Any], *, rights_confirmed: bool) -> Voice:
+    row = Voice(
+        id=f"voice:{uuid.uuid4()}", name=name, source_type=source_type,
+        languages=languages, engine_id=tts_models.QWEN_ENGINE,
+        recipe=recipe, rights_confirmed=rights_confirmed,
+    )
+    with session_factory() as session:
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        session.expunge(row)
+    return row
+
+
+async def _create_voice(
+    method: str, name: str, languages: list[str],
+    value: dict[str, Any], request: Request, identity: HostIdentity | None,
+) -> dict[str, Any]:
+    if method == "preset":
+        speaker = str(value.get("speaker") or "")
+        if speaker not in voice_catalog.SPEAKER_NAMES:
+            raise HTTPException(status_code=422, detail={
+                "code": "unknown_speaker",
+                "message": "speaker は sonic.voice.list の built_in_speakers から選びます",
+            })
+        row = _save_voice(name, "built-in", languages,
+                          {"method": "preset", "speaker": speaker}, rights_confirmed=False)
+        return _voice_summary(row)
+
+    if method == "clone":
+        if not bool(value.get("rights_confirmed")):
+            raise HTTPException(status_code=422, detail={
+                "code": "voice_rights_confirmation_required",
+                "message": "人の声を複製するには rights_confirmed が要ります",
+            })
+        reference_text = str(value.get("reference_text") or "").strip()
+        if not reference_text:
+            raise HTTPException(status_code=422, detail={
+                "code": "reference_text_required",
+                "message": "参照音声の書き起こしが要ります。無いと声質が落ちます",
+            })
+        grant_id = value.get("reference_grant")
+        upload_id = value.get("upload_id")
+        if grant_id:
+            if identity is None:
+                raise HTTPException(status_code=401, detail={"code": "host_authentication_required"})
+            staged = await _stage_read_grant(
+                identity, str(grant_id), max_bytes=256 * 1024 * 1024, suffix=".wav")
+            stored = await _store_voice_reference(Path(staged), Path(staged).suffix)
+            Path(staged).unlink(missing_ok=True)
+        elif upload_id:
+            try:
+                source = uploads.resolve(settings, str(upload_id))
+            except uploads.UploadError as exc:
+                raise HTTPException(status_code=400, detail={"code": "invalid_upload"}) from exc
+            stored = await _store_voice_reference(Path(source))
+        else:
+            raise HTTPException(status_code=422, detail={
+                "code": "reference_audio_required",
+                "message": "reference_grant か upload_id で参照音声を渡します",
+            })
+        row = _save_voice(name, "clone", languages, {
+            "method": "clone", "reference_audio": stored,
+            "reference_text": reference_text, "rights_basis": "user_confirmed",
+        }, rights_confirmed=True)
+        return _voice_summary(row)
+
+    description = str(value.get("description") or "").strip()
+    if not description:
+        raise HTTPException(status_code=422, detail={
+            "code": "description_required",
+            "message": "design には声の説明（性別・年齢・声質・訛りなど）が要ります",
+        })
+    language = languages[0] if languages else None
+    emotions = _resolve_emotions(value.get("emotions"))
+    sample_text = str(value.get("sample_text") or "").strip() or voice_catalog.emotion_anchor_text(
+        language, "neutral")
+    sample_texts = [
+        sample_text if label == "neutral" else voice_catalog.emotion_anchor_text(language, label)
+        for label in emotions
+    ]
+    # 注文どおりの声で、感情別の見本をまとめて喋らせる。**1 回の呼び出しで作る**の
+    # が肝心で、design は呼び直すと別人になるため、感情ごとに呼び分けると感情ごとに
+    # 別のキャラができる。この見本が以後の identity になる。
+    # 見本文は下書きの声に載せて運ぶ。`_internal_*` は外から渡せない決まりで、
+    # ここは外向きの入口と同じ検証を通るためである。
+    draft = _save_voice(name, "design", languages, {
+        "method": "design", "design_instruction": description,
+        "sample_texts": sample_texts,
+    }, rights_confirmed=False)
+    try:
+        finished = await _run_task(
+            _workflow_body("speech.tts.synthesize", {
+                "input": {"text": sample_text, "voice_id": draft.id},
+                "content_language": languages[0] if languages else "auto",
+            }),
+            request, wait=True,
+        )
+    except HTTPException:
+        _drop_voice(draft.id)
+        raise
+    if finished.get("state") != "succeeded" or not finished.get("asset_id"):
+        _drop_voice(draft.id)
+        error = finished.get("error") or {}
+        raise HTTPException(status_code=502, detail={
+            "code": str(error.get("code") or "voice_design_failed"),
+            "message": str(error.get("message") or "声を作れませんでした")[:300],
+        })
+    with session_factory() as session:
+        asset = session.get(Asset, str(finished["asset_id"]))
+        if asset is None:
+            _drop_voice(draft.id)
+            raise HTTPException(status_code=502, detail={"code": "voice_sample_missing"})
+        sample_path = (settings.data_dir / asset.relative_path).resolve()
+        segments = list((asset.metadata_json or {}).get("segments") or [])
+    # 見本は 1 本に繋がって返る（仕事の出力は 1 ファイルという約束のため）。
+    # どこで切るかは worker が標本位置で添えてくるので、無音を探さずに切れる。
+    try:
+        cuts = _split_wav(sample_path, segments) if len(segments) > 1 else [sample_path]
+    except Exception:
+        _drop_voice(draft.id)
+        raise HTTPException(status_code=502, detail={"code": "voice_sample_unreadable"})
+    references: dict[str, dict[str, str]] = {}
+    for label, piece, spoken in zip(emotions, cuts, sample_texts):
+        references[label] = {
+            "audio": await _store_voice_reference(piece),
+            "text": spoken,
+        }
+        if piece != sample_path:
+            piece.unlink(missing_ok=True)
+    # 見本が取れたので、以後は複製で回す。design を呼び直さない——同じ注文文でも
+    # 同じ声が出る保証が無いため、呼び直した時点で別人になりうる。
+    with session_factory() as session:
+        row = session.get(Voice, draft.id)
+        row.source_type = "clone"
+        row.rights_confirmed = True
+        row.recipe = {
+            "method": "design",
+            "design_instruction": description,
+            # 単一の参照しか見ない古い経路のために、平静の見本を今までの場所にも置く。
+            "reference_audio": references["neutral"]["audio"],
+            "reference_text": references["neutral"]["text"],
+            "references": references,
+            # 参照はこちらが作った音で、実在の人の声ではない。何を根拠に
+            # 複製してよいと判じたかを残す。
+            "rights_basis": "synthetic",
+        }
+        session.commit()
+        session.refresh(row)
+        session.expunge(row)
+    return {**_voice_summary(row), "sample_asset_id": finished["asset_id"]}
+
+
+def _resolve_emotions(requested: Any) -> list[str]:
+    """どの感情の見本を作るかを決める。
+
+    neutral は必ず入れる——identity の基準であり、当たらなかった指定の落とし先
+    でもある。知らない名前は受け流さずに断る。見本は 1 回の呼び出しでまとめて
+    作るのであとから足せず、黙って平静で作ると、使う側は「怒りの見本がある」と
+    思ったまま進んでしまう。
+    """
+    if requested is None:
+        return list(voice_catalog.EMOTIONS)
+    if not isinstance(requested, list) or not requested:
+        raise HTTPException(status_code=422, detail={
+            "code": "invalid_emotions",
+            "message": f"emotions は {', '.join(voice_catalog.EMOTIONS)} から選びます",
+        })
+    unknown = [item for item in requested if item not in voice_catalog.EMOTIONS]
+    if unknown:
+        raise HTTPException(status_code=422, detail={
+            "code": "invalid_emotions",
+            "message": f"知らない感情です: {', '.join(str(item) for item in unknown)}",
+        })
+    return ["neutral"] + [item for item in requested if item != "neutral"]
+
+
+def _split_wav(source: Path, segments: list[dict]) -> list[Path]:
+    """繋がった見本を、worker が添えた切れ目で切り分ける。
+
+    無音を探して切る作りにはしない。探すとずれ、ずれると書き起こしと音が食い
+    違って複製の質が落ちる。切れ目は作った側が正確に知っている。
+    """
+    import wave
+
+    pieces: list[Path] = []
+    with wave.open(str(source), "rb") as handle:
+        params = handle.getparams()
+        frames = handle.readframes(params.nframes)
+    width = params.sampwidth * params.nchannels
+    for index, segment in enumerate(segments):
+        start = int(segment.get("start") or 0)
+        end = int(segment.get("end") or 0)
+        if end <= start:
+            raise ValueError("segment boundaries are not usable")
+        target = source.parent / f"{source.stem}.part{index}.wav"
+        with wave.open(str(target), "wb") as out:
+            out.setparams(params)
+            out.writeframes(frames[start * width:end * width])
+        pieces.append(target)
+    return pieces
+
+
+def _drop_voice(voice_id: str) -> None:
+    with session_factory() as session:
+        row = session.get(Voice, voice_id)
+        if row is not None:
+            session.delete(row)
+            session.commit()
+
+
+@app.post("/addon/v1/agent/voice/list")
+async def agent_voice_list(request: Request):
+    """作った声と、選べる内蔵話者を返す。
+
+    内蔵話者も返すのは、`preset` を選ぶのに名前を知っている必要があるからで
+    ある。名前を知らないまま `speaker` を書かせると、当たるまで試すことになる。
+    """
+    del request
+    with session_factory() as session:
+        rows = session.query(Voice).order_by(Voice.created_at.desc()).all()
+        voices = [_voice_summary(row) for row in rows]
+    return {
+        "voices": voices,
+        "built_in_speakers": voice_catalog.catalog(),
+        "built_in_speakers_note": voice_catalog.NON_NATIVE_NOTE,
+        "languages": list(voice_catalog.SUPPORTED_LANGUAGES),
+    }
+
+
+@app.post("/addon/v1/agent/voice/delete")
+async def agent_voice_delete(request: Request):
+    value = _agent_arguments(await request.json())
+    voice_id = str(value.get("voice_id") or "")
+    with session_factory() as session:
+        row = session.get(Voice, voice_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail={"code": "voice_not_found"})
+        reference = (row.recipe or {}).get("reference_audio")
+        session.delete(row)
+        session.commit()
+    if isinstance(reference, str):
+        target = (settings.data_dir / reference).resolve()
+        if target.is_relative_to((settings.data_dir / "voices").resolve()):
+            target.unlink(missing_ok=True)
+    return {"voice_id": voice_id, "deleted": True}
+
+
+@app.post("/addon/v1/agent/voice/create")
+async def agent_voice_create(request: Request):
+    """キャラクターの声を作る。以後その声で喋らせる。
+
+    `design` は自然文で声を注文できるが、Qwen3-TTS の voice design には**再現性の
+    保証が無く seed も無い**。同じ注文文で呼び直しても同じ声が出るとは限らない。
+    そこで、注文した声をその場で一度喋らせて見本を掴み、以後はその見本からの
+    複製（voice clone）で回す。identity は見本の波形そのものになる。
+
+    この作りは品質の上でも良い。clone は参照音声と書き起こしが合っているほど
+    良く、書き起こしを省くと品質が落ちると公式が書いている。こちらが喋らせた
+    見本なら書き起こしが完全に一致する。
+    """
+    identity = await _host_identity(request)
+    value = _agent_arguments(await request.json())
+    method = str(value.get("method") or "")
+    if method not in VOICE_METHODS:
+        raise HTTPException(status_code=422, detail={
+            "code": "invalid_voice_method",
+            "message": f"method は {', '.join(sorted(VOICE_METHODS))} のいずれかです",
+        })
+    name = str(value.get("name") or "").strip()
+    if not name or len(name) > 120:
+        raise HTTPException(status_code=422, detail={"code": "invalid_voice_name"})
+    languages = value.get("languages") or ["ja"]
+    if not isinstance(languages, list) or not all(
+        isinstance(item, str) and item in voice_catalog.SUPPORTED_LANGUAGES for item in languages
+    ):
+        raise HTTPException(status_code=422, detail={
+            "code": "unsupported_language",
+            "message": f"languages は {', '.join(voice_catalog.SUPPORTED_LANGUAGES)} から選びます",
+        })
+    return await _create_voice(method, name, languages, value, request, identity)
 
 
 @app.post("/addon/v1/agent/transcribe")

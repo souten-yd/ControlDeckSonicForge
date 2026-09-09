@@ -12,6 +12,7 @@ from typing import Any
 
 from .audio import inspect_wav
 from .config import Settings
+from . import voice_catalog
 from .db import Asset, Job, LocalizationBatch, LocalizationLine, Provenance, Voice
 from .events import EventBus
 from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
@@ -117,7 +118,17 @@ class JobManager:
         routing = dict(request.get("routing") or {})
         with self.session_factory() as session:
             selected = tts_models.preferences(session)
-            engine = routing.get("engine") or selected["engine_id"]
+            # 声を指名しているなら、その声を作った engine で喋る。声は engine ごとに
+            # 作り方が違い、別の engine には渡せない。画面の既定は画面の都合で
+            # 決まっているので、それに引きずられると、MCP から作った声が既定の
+            # engine に回されて「その engine では作れない声だ」と断られる。
+            voice_engine = None
+            voice_id = (request.get("input") or {}).get("voice_id")
+            if isinstance(voice_id, str) and voice_id.startswith("voice:"):
+                voice = session.get(Voice, voice_id)
+                if voice is not None:
+                    voice_engine = voice.engine_id
+            engine = routing.get("engine") or voice_engine or selected["engine_id"]
             routing["engine"] = engine
             if engine == tts_models.GPT_SOVITS_ENGINE:
                 model_id = routing.get("model") or selected["gpt_sovits_model_id"]
@@ -506,6 +517,27 @@ class JobManager:
                         "Voice reference audio is missing or outside SonicForge storage"
                     )
                 recipe["reference_audio"] = str(candidate)
+            # 感情ごとの見本も同じ確認を通す。data_dir からの相対で持っているので、
+            # worker に渡す前に絶対パスへ直し、SonicForge の持ち物の中かを見る。
+            references = recipe.get("references")
+            if isinstance(references, dict):
+                resolved: dict[str, dict] = {}
+                voices_root = (self.settings.data_dir / "voices").resolve()
+                for label, entry in references.items():
+                    if not isinstance(entry, dict):
+                        continue
+                    candidate = (self.settings.data_dir / str(entry.get("audio") or "")).resolve()
+                    if not candidate.is_relative_to(voices_root) or not candidate.is_file():
+                        raise WorkerError(
+                            "Voice reference audio is missing or outside SonicForge storage"
+                        )
+                    resolved[str(label)] = {**entry, "audio": str(candidate)}
+                recipe["references"] = resolved
+                # 書かれた言い方を、持っている見本の名前に寄せる。当たらなければ
+                # 平静で読む——黙って別の感情を出すより素直である。
+                inp["_internal_emotion_label"] = voice_catalog.normalize_emotion(
+                    inp.get("emotion") or inp.get("style"), sorted(resolved)
+                )
             inp["_internal_voice"] = {
                 "id": voice.id,
                 "name": voice.name,

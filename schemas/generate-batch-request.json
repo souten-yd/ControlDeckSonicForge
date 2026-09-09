@@ -11,7 +11,7 @@
       "type": "array",
       "minItems": 1,
       "maxItems": 50,
-      "description": "作るものを並べる。上から順に作る。1 件が失敗しても残りは作り、結果は件ごとに返る。",
+      "description": "作るものを並べる。上から順に作る。1 件が失敗しても残りは作り、結果は件ごとに返る。台詞・効果音・音楽を混ぜてよい。同じキャラクターの台詞には同じ input.voice_id を渡すこと——声はまとめて作っても項目ごとに決まる。",
       "items": {
         "type": "object",
         "required": [
@@ -37,7 +37,7 @@
               },
               "voice_id": {
                 "type": "string",
-                "description": "speech.tts.synthesize: 使う声。省略すると利用者が選んでいる声になる。"
+                "description": "speech.tts.synthesize: 使う声。sonic.voice.create で作った voice_id を渡すと、そのキャラクターの声で喋る。同じ台詞群には同じ voice_id を使うこと——省略すると利用者が選んでいる声になり、台詞ごとに変わりうる。"
               },
               "speaker": {
                 "type": "string",
@@ -45,7 +45,7 @@
               },
               "style": {
                 "type": "string",
-                "description": "speech.tts.synthesize: 話し方の指定（エンジンが対応する場合）。"
+                "description": "emotion の別名（旧称）。emotion を使うこと。"
               },
               "reference_text": {
                 "type": "string",
@@ -82,6 +82,11 @@
               "instrumental": {
                 "type": "boolean",
                 "description": "music.generate: 歌を入れないか。既定は true（インスト）。"
+              },
+              "emotion": {
+                "type": "string",
+                "maxLength": 300,
+                "description": "speech.tts.synthesize: 言い方の指定。\n\npreset の声は自然文で書ける（例: 強い怒りをこめて / 囁くように）。\n\ndesign と clone の声は、作るときに用意した感情別の見本から選ぶ形になる。sonic.voice.list の emotion_choices にその声が持っている名前が載っている（neutral / joy / anger / sorrow）。近い言い方を書けば寄せるが、当たらなければ平静で読む。\n\n**台詞の書き方も感情に揃える。** 実測で、怒った見本に怒った台詞を渡したものが最も自然で、怒った見本に中立の台詞、中立の見本に怒った台詞と食い違わせると抑揚が崩れた。感情を出すなら emotion と台詞の両方を揃える。"
               }
             },
             "additionalProperties": false

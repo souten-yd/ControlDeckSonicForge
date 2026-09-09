@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonic-forge.local/schemas/voice-list-request.json",
+  "title": "SonicForge voices",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false,
+  "description": "作ってある声と、preset で選べる公式話者の一覧を返す。声を使う前にこれを見て voice_id を選ぶ。"
+}

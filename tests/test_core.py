@@ -947,3 +947,241 @@ def test_a_batch_keeps_its_workers_even_while_idle(env,monkeypatch):
         assert workers._warm, "batch の最中に降ろされた"
     finally:
         workers._warm.clear()
+
+# ── キャラクターの声 ────────────────────────────────────────────────────
+#
+# Qwen3-TTS の voice design には再現性の保証も seed も無い。同じ注文文で呼び
+# 直しても同じ声が出るとは限らないので、台詞ごとに design を呼ぶ作りにすると
+# キャラが台詞ごとに別人になりうる。注文した声を一度喋らせて見本を掴み、以後は
+# その見本からの複製で回す。identity は見本の波形そのものになる。
+
+def test_the_voice_list_shows_what_can_be_chosen(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/list',json={})
+        assert response.status_code==200,response.text
+        body=response.json()
+        names={item['speaker'] for item in body['built_in_speakers']}
+        # 名前を知らないまま preset を選ばせない。性別と言語も添える。
+        assert {'Ono_Anna','Ryan','Vivian'} <= names
+        assert all({'speaker','language','gender','description'} <= set(item)
+                   for item in body['built_in_speakers'])
+        assert 'ja' in body['languages']
+        # language は母語であって、話せる言語の全部ではない。実測で、英語・中国語
+        # の話者に日本語を読ませても日本語になった。公式話者に日本語の男性が居ない
+        # ので、これを言わないと日本語の男性キャラが立たない。
+        assert body['built_in_speakers_note']
+        assert '母語' in body['built_in_speakers_note']
+
+def test_a_japanese_male_character_can_be_built_from_a_non_native_speaker(env):
+    """公式話者に日本語の男性は居ない。だが非母語の話者でも日本語を喋る。
+
+    実測で Ryan / Aiden（英語）と Dylan / Uncle_Fu（中国語）に日本語を読ませ、
+    4 人とも日本語になった。この道を塞ぐと、日本語の男性キャラは design に頼る
+    しかなくなり、そちらは感情を指定できない。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        body=c.post('/addon/v1/agent/voice/create',json={
+            'name':'日本語の男','method':'preset','speaker':'Ryan','languages':['ja']}).json()
+        assert body['voice_id']
+        # 感情も効く。preset である限り、母語かどうかは関係しない。
+        assert body['supports_emotion'] is True
+
+def test_a_preset_voice_needs_a_speaker_that_exists(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        bad=c.post('/addon/v1/agent/voice/create',json={
+            "name":"勇者","method":"preset","speaker":"NotAPerson","languages":["ja"]})
+        assert bad.status_code==422,bad.text
+        assert bad.json()['detail']['code']=='unknown_speaker'
+        ok=c.post('/addon/v1/agent/voice/create',json={
+            "name":"勇者","method":"preset","speaker":"Ono_Anna","languages":["ja"]})
+        assert ok.status_code==200,ok.text
+        body=ok.json()
+        assert body['voice_id'].startswith('voice:')
+        assert body['method']=='preset' and body['speaker']=='Ono_Anna'
+        # preset だけが言い方の指示を受け付ける。
+        assert body['supports_emotion'] is True
+        listed=c.post('/addon/v1/agent/voice/list',json={}).json()['voices']
+        assert body['voice_id'] in {item['voice_id'] for item in listed}
+
+def test_cloning_a_person_needs_the_right_to_do_it(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/create',json={
+            "name":"語り手","method":"clone","languages":["ja"],
+            "reference_text":"こんにちは","upload_id":"upload:"+"0"*32})
+        assert response.status_code==422,response.text
+        assert response.json()['detail']['code']=='voice_rights_confirmation_required'
+
+def test_cloning_needs_the_transcript_of_the_reference(env):
+    """書き起こしを省くと話者埋め込みだけの複製になり、声質が落ちると公式が書いている。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/create',json={
+            "name":"語り手","method":"clone","languages":["ja"],
+            "rights_confirmed":True,"upload_id":"upload:"+"0"*32})
+        assert response.status_code==422,response.text
+        assert response.json()['detail']['code']=='reference_text_required'
+
+def test_designing_a_voice_needs_a_description(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/create',json={
+            "name":"勇者","method":"design","languages":["ja"]})
+        assert response.status_code==422,response.text
+        assert response.json()['detail']['code']=='description_required'
+
+def test_an_unknown_method_or_language_is_refused(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        assert c.post('/addon/v1/agent/voice/create',json={
+            "name":"x","method":"summon"}).status_code==422
+        assert c.post('/addon/v1/agent/voice/create',json={
+            "name":"x","method":"preset","speaker":"Ryan",
+            "languages":["klingon"]}).status_code==422
+
+def test_a_designed_voice_is_pinned_to_the_sample_it_produced(env):
+    """design を呼び直さない。呼び直した時点で別人になりうる。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/create',json={
+            "input":{"name":"勇者","method":"design","languages":["ja"],
+                     "description":"落ち着いた三十代の男性。低めの声。",
+                     "sample_text":"はじめまして。"},
+            "correlation":{"job_id":"host-job"}})
+        assert response.status_code==200,response.text
+        body=response.json()
+        assert body['method']=='design'
+        # 見本が保存され、以後はその複製で回る。
+        assert body['anchored'] is True
+        assert body['sample_asset_id']
+        # 複製経路は言い方の指示を受けないので、感情は見本の側で持つ。試験の
+        # engine は 1 本しか返さないため、持っているのは平静だけになる。指定しても
+        # 何も起きない状態なので、効かないと言わなければならない。
+        assert body['emotion_choices'] == ['neutral']
+        assert body['supports_emotion'] is False
+        listed=c.post('/addon/v1/agent/voice/list',json={}).json()['voices']
+        mine=next(item for item in listed if item['voice_id']==body['voice_id'])
+        assert mine['anchored'] is True and mine['method']=='design'
+        assert mine['description']=="落ち着いた三十代の男性。低めの声。"
+
+def test_a_named_voice_is_spoken_by_the_engine_that_made_it(env):
+    """声を指名したら、その声を作った engine で喋る。
+
+    画面の既定は画面の都合で決まっている。実機では GPT-SoVITS が選ばれていた。
+    そこへ MCP から作った Qwen3 の声を渡すと、既定の engine に回されて
+    「その engine では作れない声だ」と断られていた。声は engine ごとに作り方が
+    違い、別の engine には渡せない。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        created=c.post('/addon/v1/agent/voice/create',json={
+            "input":{"name":"別engineの勇者","method":"preset","speaker":"Ryan","languages":["ja"]},
+            "correlation":{"job_id":"host-job"}}).json()
+        c.put('/addon/v1/tts/preferences', json={
+            'engine_id': 'tts.gpt-sovits', 'gpt_sovits_model_id': 'lj1995/GPT-SoVITS'})
+        from sonicforge import app as module
+        request=module.jobs._apply_tts_preferences({
+            "task": "speech.tts.synthesize",
+            "input": {"text": "こんにちは。", "voice_id": created["voice_id"]},
+        })
+        assert request["routing"]["engine"] == "tts.qwen3"
+        # 名指しの指定はいちばん強い。声より優先する。
+        named=module.jobs._apply_tts_preferences({
+            "task": "speech.tts.synthesize",
+            "routing": {"engine": "tts.gpt-sovits"},
+            "input": {"text": "こんにちは。", "voice_id": created["voice_id"]},
+        })
+        assert named["routing"]["engine"] == "tts.gpt-sovits"
+
+
+def test_asking_for_an_emotion_nobody_recorded_is_refused(env):
+    """持っていない感情を静かに受け流さない。
+
+    見本は声を作るときに 1 回の呼び出しでまとめて作る。あとから足せないので、
+    知らない名前を受け取った時点で言う。黙って平静で作ると、使う側は「怒りの
+    見本がある」と思ったまま進んでしまう。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/create',json={
+            "input":{"name":"勇者","method":"design","languages":["ja"],
+                     "description":"落ち着いた三十代の男性。",
+                     "emotions":["anger","焦り"]},
+            "correlation":{"job_id":"host-job"}})
+        assert response.status_code==422,response.text
+        assert response.json()['detail']['code']=='invalid_emotions'
+
+
+def test_the_neutral_sample_is_always_recorded(env):
+    """平静だけは必ず要る。
+
+    identity の基準であり、当たらなかった指定の落とし先でもある。怒りだけを
+    頼まれても平静を作り、しかも先頭に置く（先頭が identity の基準になる）。
+    """
+    from sonicforge.app import _resolve_emotions
+
+    assert _resolve_emotions(["anger"]) == ["neutral", "anger"]
+    assert _resolve_emotions(["anger", "neutral"]) == ["neutral", "anger"]
+    assert _resolve_emotions(None) == ["neutral", "joy", "anger", "sorrow"]
+
+
+def test_the_joined_samples_are_cut_where_the_worker_said(env, tmp_path):
+    """繋がって返る見本を、添えられた切れ目で切る。
+
+    無音を探して切る作りにはしない。探すとずれ、ずれると書き起こしと音が食い
+    違って複製の質が落ちる。切れ目は作った側が正確に知っている。
+    """
+    import wave
+    from sonicforge.app import _split_wav
+
+    source = tmp_path / "joined.wav"
+    with wave.open(str(source), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16000)
+        handle.writeframes(b"".join(bytes([index % 256, 0]) for index in range(300)))
+    pieces = _split_wav(source, [{"start": 0, "end": 100}, {"start": 200, "end": 300}])
+    assert len(pieces) == 2
+    with wave.open(str(pieces[0]), "rb") as handle:
+        assert handle.getnframes() == 100
+        assert handle.readframes(1) == bytes([0, 0])
+    with wave.open(str(pieces[1]), "rb") as handle:
+        assert handle.getnframes() == 100
+        # 200 番目の標本から始まっている。無音の隙間を跨いで拾えている。
+        assert handle.readframes(1) == bytes([200 % 256, 0])
+
+
+def test_a_written_mood_is_pulled_to_a_sample_that_exists(env):
+    """使う側は自然文で書いてくる。それを持っている見本の名前に寄せる。
+
+    当たらなければ平静で読む。黙って別の感情を出すより素直である。
+    """
+    from sonicforge.voice_catalog import normalize_emotion
+
+    have = ["anger", "joy", "neutral", "sorrow"]
+    assert normalize_emotion("強い怒りをこめて", have) == "anger"
+    assert normalize_emotion("furious", have) == "anger"
+    assert normalize_emotion("悲しげに", have) == "sorrow"
+    assert normalize_emotion("嬉しそうに", have) == "joy"
+    # 知らない言い方は平静に落ちる。
+    assert normalize_emotion("囁くように", have) == "neutral"
+    assert normalize_emotion(None, have) == "neutral"
+    # 持っていない感情を頼まれても、持っているものから外れない。
+    assert normalize_emotion("強い怒りをこめて", ["neutral", "joy"]) == "neutral"
+
+
+def test_a_voice_can_be_removed_from_opencode(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        created=c.post('/addon/v1/agent/voice/create',json={
+            "name":"端役","method":"preset","speaker":"Ryan","languages":["en"]}).json()
+        gone=c.post('/addon/v1/agent/voice/delete',json={"voice_id":created['voice_id']})
+        assert gone.status_code==200 and gone.json()['deleted'] is True
+        remaining={item['voice_id'] for item in
+                   c.post('/addon/v1/agent/voice/list',json={}).json()['voices']}
+        assert created['voice_id'] not in remaining
+        assert c.post('/addon/v1/agent/voice/delete',
+                      json={"voice_id":created['voice_id']}).status_code==404

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonic-forge.local/schemas/voice-delete-request.json",
+  "title": "Delete a SonicForge voice",
+  "type": "object",
+  "required": [
+    "voice_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "voice_id": {
+      "type": "string",
+      "pattern": "^voice:[0-9a-f-]{36}$"
+    }
+  },
+  "description": "声を消す。参照音声も一緒に消える。既に作った音声資産は残る。"
+}

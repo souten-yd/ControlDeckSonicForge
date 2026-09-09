@@ -142,7 +142,7 @@ class TaskRequest(BaseModel):
 # 返った）。schemas/generate-request.json の説明文と対になっている。
 INPUT_FIELDS: dict[str, frozenset[str]] = {
     "speech.tts.synthesize": frozenset({
-        "text", "voice_id", "speaker", "style", "reference_text",
+        "text", "voice_id", "speaker", "style", "emotion", "reference_text",
         "reference_grant", "upload_id",
     }),
     "speech.asr.transcribe": frozenset({"audio_grant", "grant_id", "upload_id"}),

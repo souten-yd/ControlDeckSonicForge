@@ -1067,6 +1067,38 @@ def test_a_designed_voice_is_pinned_to_the_sample_it_produced(env):
         assert mine['anchored'] is True and mine['method']=='design'
         assert mine['description']=="落ち着いた三十代の男性。低めの声。"
 
+def test_speaking_without_a_voice_still_speaks(env):
+    """声を選んでいないだけで喋れなくならない。
+
+    GPT-SoVITS は複製する声か model pack のどちらかが要る。基本モデルには pack が
+    無いので、画面で engine だけ選んで見本の声を選ばなかったとき、sonic.generate は
+    必ず失敗していた（worker まで進んでから
+    "GPT-SoVITS requires a reusable clone voice or model reference"）。
+
+    頼まれたのは「喋らせること」であって「GPT-SoVITS で喋らせること」ではない。
+    内蔵話者を持つ Qwen3 に回す。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        c.put('/addon/v1/tts/preferences', json={
+            'engine_id': 'tts.gpt-sovits', 'gpt_sovits_model_id': 'lj1995/GPT-SoVITS'})
+        assert c.get('/addon/v1/tts/preferences').json()['gpt_sovits_voice_id'] is None
+        from sonicforge import app as module
+        request=module.jobs._apply_tts_preferences({
+            "task": "speech.tts.synthesize",
+            "input": {"text": "こんにちは。"},
+        })
+        assert request["routing"]["engine"] == "tts.qwen3"
+        # GPT-SoVITS 向けの model 指定は連れて行かない。
+        assert "model" not in request["routing"]
+        # 声が決まっていれば、これまでどおり GPT-SoVITS が喋る。
+        kept=module.jobs._apply_tts_preferences({
+            "task": "speech.tts.synthesize",
+            "input": {"text": "こんにちは。", "voice_id": "voice:whatever"},
+        })
+        assert kept["routing"]["engine"] == "tts.gpt-sovits"
+
+
 def test_the_generate_contract_says_a_character_needs_a_voice():
     """道具を一覧から選ぶ側にも、声が要ることを伝える。
 

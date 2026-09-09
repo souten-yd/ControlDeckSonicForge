@@ -136,9 +136,31 @@ class JobManager:
                 inp = dict(request.get("input") or {})
                 if not inp.get("voice_id") and selected["gpt_sovits_voice_id"]:
                     inp["voice_id"] = selected["gpt_sovits_voice_id"]
+                # GPT-SoVITS は複製する声か model pack のどちらかが要る。基本
+                # モデルには pack が無いので、声が決まっていなければ必ず失敗する
+                # ——画面で engine だけ選んで見本の声を選ばなかったときに起きる。
+                #
+                # 断るのではなく、内蔵話者を持つ Qwen3 に回す。頼まれたのは
+                # 「喋らせること」であって「GPT-SoVITS で喋らせること」ではない。
+                # どちらが喋ったかは結果の engine_id に出る。
+                if not inp.get("voice_id") and not self._has_gpt_sovits_pack(session, model_id):
+                    engine = tts_models.QWEN_ENGINE
+                    routing["engine"] = engine
+                    routing.pop("model", None)
                 request["input"] = inp
         request["routing"] = routing
         return request
+
+    def _has_gpt_sovits_pack(self, session, model_id: str) -> bool:
+        """その model で GPT-SoVITS が声無しに喋れるか。
+
+        pack が見つからないのも「喋れない」に含める。ここで確かめておかないと、
+        worker まで進んでから失敗する。
+        """
+        try:
+            return tts_models.worker_pack(self.settings, session, model_id) is not None
+        except tts_models.ModelPackError:
+            return False
 
     async def wait(self, job_id: str, *, poll_sec: float = 0.05) -> Job | None:
         """job が終わるまで待つ。時計では切らない。

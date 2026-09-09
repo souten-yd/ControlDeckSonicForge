@@ -101,5 +101,5 @@
     }
   },
   "additionalProperties": true,
-  "description": "音声・効果音・環境音・音楽を作る。作るものの中身は input に書く。input で読む項目は task ごとに違い、ここに書いていない項目は拒否される（黙って無視されない）。"
+  "description": "音声・効果音・環境音・音楽を作る。作るものの中身は input に書く。input で読む項目は task ごとに違い、ここに書いていない項目は拒否される（黙って無視されない）。\n\nキャラクターの台詞を作るときは input.voice_id を渡す。**渡さないと台詞ごとに別の声で読まれうる。** 声は sonic.voice.list で選ぶか、無ければ sonic.voice.create で先に作る（キャラクターごとに一度でよい）。感情は input.emotion で指定するが、効き方が声によって違うので、sonic.voice.list の supports_emotion と emotion_choices を見て決める。"
 }

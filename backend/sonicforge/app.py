@@ -713,6 +713,10 @@ def _voice_summary(voice: Voice) -> dict[str, Any]:
         # 感情の指示（input.emotion）が効くかどうか。preset だけが effective で、
         # design と clone は複製経路を通り、そこは指示を受け付けない。使う側が
         # 効かない指定を書き続けないよう、声の側から言う。
+        #
+        # preset は感情を指定しても同じ人物のままであることを実測で確かめた
+        # （台詞を固定して指示だけ振り、耳で判定）。ここが崩れていたら、感情を
+        # 指定した途端にキャラが別人になるので、両立するとは言えなかった。
         "supports_emotion": voice.source_type == "built-in",
         "created_at": voice.created_at.isoformat() if voice.created_at else None,
     }
@@ -875,6 +879,7 @@ async def agent_voice_list(request: Request):
     return {
         "voices": voices,
         "built_in_speakers": voice_catalog.catalog(),
+        "built_in_speakers_note": voice_catalog.NON_NATIVE_NOTE,
         "languages": list(voice_catalog.SUPPORTED_LANGUAGES),
     }
 

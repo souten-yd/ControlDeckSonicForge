@@ -21,7 +21,7 @@
         "design",
         "clone"
       ],
-      "description": "preset は公式の名前つき話者をそのまま使う（9人、日本語の母語話者は女性1人だけ）。design は声を文章で注文する。clone は手元の音声から複製する。迷ったら design を選ぶ——声の自由度が高く、同じ声で喋り続けられる。"
+      "description": "preset は公式の名前つき話者をそのまま使う（9人）。design は声を文章で注文する。clone は手元の音声から複製する。\n\n**迷ったら preset を選ぶ。** preset だけが「同じ声が続く」と「感情を指定できる」の両方を満たす（実測: 台詞を固定して感情の指示だけ振っても同一人物のままだった）。design と clone は複製経路を通るため input.emotion が効かない。\n\ndesign を選ぶのは、9人に欲しい声が無いときである。"
     },
     "languages": {
       "type": "array",
@@ -55,13 +55,13 @@
         "Ono_Anna",
         "Sohee"
       ],
-      "description": "method が preset のときの話者名。sonic.voice.list の built_in_speakers に性別と言語が載っている。"
+      "description": "method が preset のときの話者名。sonic.voice.list の built_in_speakers に性別と母語が載っている。母語以外も喋れるので、母語話者が居ない組み合わせ（日本語の男性など）は非母語の話者を選ぶ。母語で使うのが最も良いと公式が推奨しているので、母語話者が居るなら優先する。"
     },
     "description": {
       "type": "string",
       "minLength": 1,
       "maxLength": 1000,
-      "description": "method が design のときの声の注文。性別・年齢・声質・訛り・話し方を文章で書く（例: 落ち着いた三十代の男性。低めで少ししゃがれた声。淡々と話す）。**感情はここに書かない。** 注文文を変えると別の人物になる（実測: 同じ注文文で呼び直しただけでも耳で聞いて完全に別人だった）。感情は台詞の書き方で表す。"
+      "description": "method が design のときの声の注文。性別・年齢・声質・訛り・話し方を文章で書く（例: 落ち着いた三十代の男性。低めで少ししゃがれた声。淡々と話す）。**感情はここに書かない。** 注文文を変えると別の人物になる（実測: 同じ注文文で呼び直しただけでも耳で聞いて完全に別人だった）。"
     },
     "sample_text": {
       "type": "string",

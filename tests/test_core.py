@@ -967,6 +967,26 @@ def test_the_voice_list_shows_what_can_be_chosen(env):
         assert all({'speaker','language','gender','description'} <= set(item)
                    for item in body['built_in_speakers'])
         assert 'ja' in body['languages']
+        # language は母語であって、話せる言語の全部ではない。実測で、英語・中国語
+        # の話者に日本語を読ませても日本語になった。公式話者に日本語の男性が居ない
+        # ので、これを言わないと日本語の男性キャラが立たない。
+        assert body['built_in_speakers_note']
+        assert '母語' in body['built_in_speakers_note']
+
+def test_a_japanese_male_character_can_be_built_from_a_non_native_speaker(env):
+    """公式話者に日本語の男性は居ない。だが非母語の話者でも日本語を喋る。
+
+    実測で Ryan / Aiden（英語）と Dylan / Uncle_Fu（中国語）に日本語を読ませ、
+    4 人とも日本語になった。この道を塞ぐと、日本語の男性キャラは design に頼る
+    しかなくなり、そちらは感情を指定できない。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        body=c.post('/addon/v1/agent/voice/create',json={
+            'name':'日本語の男','method':'preset','speaker':'Ryan','languages':['ja']}).json()
+        assert body['voice_id']
+        # 感情も効く。preset である限り、母語かどうかは関係しない。
+        assert body['supports_emotion'] is True
 
 def test_a_preset_voice_needs_a_speaker_that_exists(env):
     m=load_app()

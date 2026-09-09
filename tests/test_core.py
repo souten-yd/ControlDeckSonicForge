@@ -1067,6 +1067,36 @@ def test_a_designed_voice_is_pinned_to_the_sample_it_produced(env):
         assert mine['anchored'] is True and mine['method']=='design'
         assert mine['description']=="落ち着いた三十代の男性。低めの声。"
 
+def test_a_named_voice_is_spoken_by_the_engine_that_made_it(env):
+    """声を指名したら、その声を作った engine で喋る。
+
+    画面の既定は画面の都合で決まっている。実機では GPT-SoVITS が選ばれていた。
+    そこへ MCP から作った Qwen3 の声を渡すと、既定の engine に回されて
+    「その engine では作れない声だ」と断られていた。声は engine ごとに作り方が
+    違い、別の engine には渡せない。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        created=c.post('/addon/v1/agent/voice/create',json={
+            "input":{"name":"別engineの勇者","method":"preset","speaker":"Ryan","languages":["ja"]},
+            "correlation":{"job_id":"host-job"}}).json()
+        c.put('/addon/v1/tts/preferences', json={
+            'engine_id': 'tts.gpt-sovits', 'gpt_sovits_model_id': 'lj1995/GPT-SoVITS'})
+        from sonicforge import app as module
+        request=module.jobs._apply_tts_preferences({
+            "task": "speech.tts.synthesize",
+            "input": {"text": "こんにちは。", "voice_id": created["voice_id"]},
+        })
+        assert request["routing"]["engine"] == "tts.qwen3"
+        # 名指しの指定はいちばん強い。声より優先する。
+        named=module.jobs._apply_tts_preferences({
+            "task": "speech.tts.synthesize",
+            "routing": {"engine": "tts.gpt-sovits"},
+            "input": {"text": "こんにちは。", "voice_id": created["voice_id"]},
+        })
+        assert named["routing"]["engine"] == "tts.gpt-sovits"
+
+
 def test_asking_for_an_emotion_nobody_recorded_is_refused(env):
     """持っていない感情を静かに受け流さない。
 

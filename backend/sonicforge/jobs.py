@@ -118,7 +118,17 @@ class JobManager:
         routing = dict(request.get("routing") or {})
         with self.session_factory() as session:
             selected = tts_models.preferences(session)
-            engine = routing.get("engine") or selected["engine_id"]
+            # 声を指名しているなら、その声を作った engine で喋る。声は engine ごとに
+            # 作り方が違い、別の engine には渡せない。画面の既定は画面の都合で
+            # 決まっているので、それに引きずられると、MCP から作った声が既定の
+            # engine に回されて「その engine では作れない声だ」と断られる。
+            voice_engine = None
+            voice_id = (request.get("input") or {}).get("voice_id")
+            if isinstance(voice_id, str) and voice_id.startswith("voice:"):
+                voice = session.get(Voice, voice_id)
+                if voice is not None:
+                    voice_engine = voice.engine_id
+            engine = routing.get("engine") or voice_engine or selected["engine_id"]
             routing["engine"] = engine
             if engine == tts_models.GPT_SOVITS_ENGINE:
                 model_id = routing.get("model") or selected["gpt_sovits_model_id"]

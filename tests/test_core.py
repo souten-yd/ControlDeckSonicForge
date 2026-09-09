@@ -1057,13 +1057,91 @@ def test_a_designed_voice_is_pinned_to_the_sample_it_produced(env):
         # 見本が保存され、以後はその複製で回る。
         assert body['anchored'] is True
         assert body['sample_asset_id']
-        # 見本を掴んだあとは複製で回る。複製経路は言い方の指示を受けないので、
-        # そのことが声の情報として出ている必要がある。
+        # 複製経路は言い方の指示を受けないので、感情は見本の側で持つ。試験の
+        # engine は 1 本しか返さないため、持っているのは平静だけになる。指定しても
+        # 何も起きない状態なので、効かないと言わなければならない。
+        assert body['emotion_choices'] == ['neutral']
         assert body['supports_emotion'] is False
         listed=c.post('/addon/v1/agent/voice/list',json={}).json()['voices']
         mine=next(item for item in listed if item['voice_id']==body['voice_id'])
         assert mine['anchored'] is True and mine['method']=='design'
         assert mine['description']=="落ち着いた三十代の男性。低めの声。"
+
+def test_asking_for_an_emotion_nobody_recorded_is_refused(env):
+    """持っていない感情を静かに受け流さない。
+
+    見本は声を作るときに 1 回の呼び出しでまとめて作る。あとから足せないので、
+    知らない名前を受け取った時点で言う。黙って平静で作ると、使う側は「怒りの
+    見本がある」と思ったまま進んでしまう。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        response=c.post('/addon/v1/agent/voice/create',json={
+            "input":{"name":"勇者","method":"design","languages":["ja"],
+                     "description":"落ち着いた三十代の男性。",
+                     "emotions":["anger","焦り"]},
+            "correlation":{"job_id":"host-job"}})
+        assert response.status_code==422,response.text
+        assert response.json()['detail']['code']=='invalid_emotions'
+
+
+def test_the_neutral_sample_is_always_recorded(env):
+    """平静だけは必ず要る。
+
+    identity の基準であり、当たらなかった指定の落とし先でもある。怒りだけを
+    頼まれても平静を作り、しかも先頭に置く（先頭が identity の基準になる）。
+    """
+    from sonicforge.app import _resolve_emotions
+
+    assert _resolve_emotions(["anger"]) == ["neutral", "anger"]
+    assert _resolve_emotions(["anger", "neutral"]) == ["neutral", "anger"]
+    assert _resolve_emotions(None) == ["neutral", "joy", "anger", "sorrow"]
+
+
+def test_the_joined_samples_are_cut_where_the_worker_said(env, tmp_path):
+    """繋がって返る見本を、添えられた切れ目で切る。
+
+    無音を探して切る作りにはしない。探すとずれ、ずれると書き起こしと音が食い
+    違って複製の質が落ちる。切れ目は作った側が正確に知っている。
+    """
+    import wave
+    from sonicforge.app import _split_wav
+
+    source = tmp_path / "joined.wav"
+    with wave.open(str(source), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16000)
+        handle.writeframes(b"".join(bytes([index % 256, 0]) for index in range(300)))
+    pieces = _split_wav(source, [{"start": 0, "end": 100}, {"start": 200, "end": 300}])
+    assert len(pieces) == 2
+    with wave.open(str(pieces[0]), "rb") as handle:
+        assert handle.getnframes() == 100
+        assert handle.readframes(1) == bytes([0, 0])
+    with wave.open(str(pieces[1]), "rb") as handle:
+        assert handle.getnframes() == 100
+        # 200 番目の標本から始まっている。無音の隙間を跨いで拾えている。
+        assert handle.readframes(1) == bytes([200 % 256, 0])
+
+
+def test_a_written_mood_is_pulled_to_a_sample_that_exists(env):
+    """使う側は自然文で書いてくる。それを持っている見本の名前に寄せる。
+
+    当たらなければ平静で読む。黙って別の感情を出すより素直である。
+    """
+    from sonicforge.voice_catalog import normalize_emotion
+
+    have = ["anger", "joy", "neutral", "sorrow"]
+    assert normalize_emotion("強い怒りをこめて", have) == "anger"
+    assert normalize_emotion("furious", have) == "anger"
+    assert normalize_emotion("悲しげに", have) == "sorrow"
+    assert normalize_emotion("嬉しそうに", have) == "joy"
+    # 知らない言い方は平静に落ちる。
+    assert normalize_emotion("囁くように", have) == "neutral"
+    assert normalize_emotion(None, have) == "neutral"
+    # 持っていない感情を頼まれても、持っているものから外れない。
+    assert normalize_emotion("強い怒りをこめて", ["neutral", "joy"]) == "neutral"
+
 
 def test_a_voice_can_be_removed_from_opencode(env):
     m=load_app()

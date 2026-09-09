@@ -21,7 +21,7 @@
         "design",
         "clone"
       ],
-      "description": "preset は公式の名前つき話者をそのまま使う（9人）。design は声を文章で注文する。clone は手元の音声から複製する。\n\n**迷ったら preset を選ぶ。** preset だけが「同じ声が続く」と「感情を指定できる」の両方を満たす（実測: 台詞を固定して感情の指示だけ振っても同一人物のままだった）。design と clone は複製経路を通るため input.emotion が効かない。\n\ndesign を選ぶのは、9人に欲しい声が無いときである。"
+      "description": "preset は公式の名前つき話者をそのまま使う（9人）。design は声を文章で注文する。clone は手元の音声から複製する。\n\nどれも同じ声が続く。違うのは感情の出し方である。preset は言い方を自然文で書けるのに対し、design と clone は作るときに用意した見本の分だけ出せる（emotions を参照）。\n\nキャラクターごとに違う声が要るなら design を選ぶ。9 人で足りるなら preset が最も手軽で、言い方も自由に書ける。"
     },
     "languages": {
       "type": "array",
@@ -67,7 +67,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 300,
-      "description": "method が design のとき、声を確定させるために一度読ませる文。省略すると言語ごとの既定文を使う。感情の乗らない文にすること——この一本が以後の声そのものになるので、見本が怒っていれば以後ずっと怒った声になる。"
+      "description": "method が design のとき、平静の見本として読ませる文。省略すると言語ごとの既定文を使う。感情の乗らない文にすること——この一本が平静の声そのものになる。他の感情の見本は emotions で選ぶ（文はこちらが用意する）。"
     },
     "reference_grant": {
       "type": "string",
@@ -86,7 +86,21 @@
     "rights_confirmed": {
       "type": "boolean",
       "description": "method が clone のとき必須。その声を複製してよい権利を確認したという申告。"
+    },
+    "emotions": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "neutral",
+          "joy",
+          "anger",
+          "sorrow"
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 4,
+      "description": "method が design のとき、どの感情の見本を用意するか。既定は全部（neutral / joy / anger / sorrow）。\n\n見本は 1 回の呼び出しでまとめて作る。design は呼び直すと別人になるため、感情ごとに作り直すことはできない。**あとから感情を足すこともできない**——足すには声を作り直すことになる。減らすと作成が速くなるが、迷うなら既定のままにする。\n\nneutral は常に含まれる。identity の基準であり、当たらなかった指定の落とし先でもある。"
     }
   },
-  "description": "キャラクターの声を作る。返る voice_id を sonic.generate の input.voice_id に渡すと、以後その声で喋る。\n\ndesign で作った声は、その場で一度喋らせた見本を参照として保存し、以降はその見本からの複製で再生する。Qwen3-TTS の voice design には再現性の保証も seed も無く、実測では同じ注文文で呼び直すと完全に別人になった。見本を固定することで初めて同じ声が続く。\n\n感情の指示（sonic.generate の input.emotion）が効くのは preset で作った声だけである。design と clone は複製経路を通り、そこは言い方の指示を受け付けない。これらの声で感情を出すには、台詞の書き方でそれを表す（モデルは本文の意味からも口調を決める）。sonic.voice.list が声ごとに supports_emotion を返すので、それを見て使い分ける。"
+  "description": "キャラクターの声を作る。返る voice_id を sonic.generate の input.voice_id に渡すと、以後その声で喋る。\n\ndesign で作った声は、その場で喋らせた見本を参照として保存し、以降はその見本からの複製で再生する。Qwen3-TTS の voice design には再現性の保証も seed も無く、実測では同じ注文文で呼び直すと完全に別人になった。見本を固定することで初めて同じ声が続く。\n\n感情も見本で決まる。design のときは感情別の見本を 1 回の呼び出しでまとめて作り、喋らせるときに sonic.generate の input.emotion で選ぶ。実測で、怒った見本から複製すると中立の台詞でも怒った口調になった。最も自然だったのは見本と台詞の感情を揃えたときで、食い違わせると抑揚が崩れた。\n\npreset の声は見本を持たず、言い方を自然文で指定できる。どちらの形かはsonic.voice.list の supports_emotion と emotion_choices で分かる。"
 }

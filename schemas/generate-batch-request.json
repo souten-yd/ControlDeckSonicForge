@@ -86,7 +86,7 @@
               "emotion": {
                 "type": "string",
                 "maxLength": 300,
-                "description": "speech.tts.synthesize: 言い方を自然文で指定する（例: 強い怒りをこめて / 囁くように）。**preset で作った声にだけ効く。** design や clone で作った声は複製経路を通り、そこは言い方の指示を受け付けない——その場合は台詞の書き方で感情を表す（モデルは本文の意味からも口調を決める）。どちらの声かは sonic.voice.list の supports_emotion で分かる。"
+                "description": "speech.tts.synthesize: 言い方の指定。\n\npreset の声は自然文で書ける（例: 強い怒りをこめて / 囁くように）。\n\ndesign と clone の声は、作るときに用意した感情別の見本から選ぶ形になる。sonic.voice.list の emotion_choices にその声が持っている名前が載っている（neutral / joy / anger / sorrow）。近い言い方を書けば寄せるが、当たらなければ平静で読む。\n\n**台詞の書き方も感情に揃える。** 実測で、怒った見本に怒った台詞を渡したものが最も自然で、怒った見本に中立の台詞、中立の見本に怒った台詞と食い違わせると抑揚が崩れた。感情を出すなら emotion と台詞の両方を揃える。"
               }
             },
             "additionalProperties": false

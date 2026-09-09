@@ -102,6 +102,8 @@ def handle(payload: dict) -> None:
     else:
         style_text = str(style or "")
     instruct = str(inp.get("emotion") or "").strip() or style_text or str(recipe.get("instruct") or "")
+    # 見本づくりのときだけレシピに載っている。1 回の design 呼び出しで複数本を作る。
+    sample_texts = recipe.get("sample_texts")
 
     if source_type == "clone":
         if not voice.get("rights_confirmed"):
@@ -114,8 +116,18 @@ def handle(payload: dict) -> None:
                 "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
             )
         )
+        # 感情ごとの見本を持っているなら、指定に近いものを選ぶ。持っていなければ
+        # 従来どおり単一の参照を使う。
+        references = recipe.get("references")
         ref_audio = recipe.get("reference_audio") or inp.get("_internal_reference_audio")
         ref_text = recipe.get("reference_text") or inp.get("reference_text")
+        if isinstance(references, dict) and references:
+            chosen = str(inp.get("_internal_emotion_label") or "")
+            picked = references.get(chosen) or references.get("neutral")
+            if picked is None:
+                picked = next(iter(references.values()))
+            ref_audio = picked.get("audio") or ref_audio
+            ref_text = picked.get("text") or ref_text
         if not ref_audio:
             raise ValueError("voice clone requires a SonicForge-managed reference audio")
         tts = _model(model_id)
@@ -149,10 +161,15 @@ def handle(payload: dict) -> None:
             raise ValueError("voice design profile requires design_instruction")
         tts = _model(model_id)
         _emit({"type": "progress", "progress": 0.55, "message": "Designing and synthesizing voice"})
+        # 見本を複数まとめて作るときは、必ず 1 回の呼び出しで作る。design は
+        # 呼び直すと別人になる（同じ注文文でも耳で聞いて完全に別人だった）ので、
+        # 感情ごとに呼び分けると感情ごとに別のキャラができてしまう。
+        # 注文文は全部同じにする——注文文を変えるのも別人になる道である。
+        texts = [str(item) for item in (sample_texts or [text])]
         wavs, sr = tts.generate_voice_design(
-            text=text,
+            text=texts,
             language=language,
-            instruct=design_instruction,
+            instruct=[design_instruction] * len(texts),
         )
         mode = "design"
         speaker = voice.get("name")
@@ -187,7 +204,28 @@ def handle(payload: dict) -> None:
         mode = "custom_voice"
 
     output = work / "output.wav"
-    sf.write(output, wavs[0], sr)
+    # 仕事の出力は 1 ファイルという約束なので、複数本は無音を挟んで繋いで返す。
+    # どこで切ればよいかは worker が正確に知っているので、境目を標本位置で
+    # 添える。呼んだ側は無音を探さずに切れる——探すとずれ、ずれると書き起こしと
+    # 音が食い違って複製の質が落ちる。
+    segments: list[dict] = []
+    if len(wavs) > 1:
+        import numpy as np
+
+        gap = np.zeros(int(sr * 0.4), dtype=np.asarray(wavs[0]).dtype)
+        pieces = []
+        cursor = 0
+        for index, wav in enumerate(wavs):
+            array = np.asarray(wav)
+            if index:
+                pieces.append(gap)
+                cursor += len(gap)
+            segments.append({"start": cursor, "end": cursor + len(array)})
+            pieces.append(array)
+            cursor += len(array)
+        sf.write(output, np.concatenate(pieces), sr)
+    else:
+        sf.write(output, wavs[0], sr)
     _emit(
         {
             "type": "result",
@@ -203,6 +241,8 @@ def handle(payload: dict) -> None:
                 "speaker": speaker,
                 "filename": "speech.wav",
                 "warm_model_cache": False,
+                "segments": segments,
+                "sample_rate": sr,
             },
         }
     )

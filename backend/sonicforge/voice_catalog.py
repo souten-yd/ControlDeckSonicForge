@@ -36,7 +36,15 @@ design を毎回呼ぶ作りにすると、台詞ごとに別人になりうる�
   良いという公式の推奨は残るので、女性なら Ono_Anna を優先する。
 
   台詞の意味だけで感情を出す道（instruct を空にして「ふざけるな！」と書く）
-  は、感情自体は乗るが不自然になる。preset で感情を出すなら instruct を使う。
+  は、感情自体は乗るが抑揚が不自然で使えなかった。preset で感情を出すなら
+  instruct を使う。
+
+  複製は喋り方も写す。怒った見本から複製すると、中立の台詞でも怒った口調に
+  なった。これが design / clone の声に感情を与える唯一の道である。
+
+  最も自然だったのは見本と台詞の感情を揃えたときだった。中立の見本に怒った
+  台詞、怒った見本に中立の台詞と食い違わせると抑揚が崩れる。台詞の意味だけの
+  道が不自然だったのも、見本が中立のままだったからだと読める。
 """
 
 from __future__ import annotations
@@ -85,6 +93,84 @@ ANCHOR_TEXT: dict[str, str] = {
     "ko": "안녕하세요. 만나서 반갑습니다. 오늘 이야기를 조금 해보겠습니다.",
 }
 DEFAULT_ANCHOR_LANGUAGE = "en"
+
+# 感情別の見本文。
+#
+# design と clone の声は複製経路を通るため instruct が効かない。台詞の意味だけで
+# 感情を出す道も試したが、抑揚が不自然で使えなかった。残った道が「感情の乗った
+# 見本を持っておき、そこから複製する」で、実測で、怒った見本から複製すると中立の
+# 台詞でも怒った口調になることを確かめた。複製が写しているのは声質だけでなく
+# 喋り方そのものである。
+#
+# 見本はこちらが固定して持つ。複製の品質は参照音声と書き起こしの一致で決まるので、
+# こちらが読ませた文をそのまま書き起こしにできるこの形が最も条件が良い。読みの
+# 割れる固有名詞や数字を避け、3 秒を超える長さにしてある。
+EMOTIONS: tuple[str, ...] = ("neutral", "joy", "anger", "sorrow")
+
+EMOTION_ANCHOR_TEXT: dict[str, dict[str, str]] = {
+    "ja": {
+        "neutral": ANCHOR_TEXT["ja"],
+        "joy": "やった、ついにできた。本当に嬉しいよ、ずっと待っていたんだ。",
+        "anger": "ふざけるな。何度言えば分かるんだ、いい加減にしてくれ。",
+        "sorrow": "もう、どうしようもないんだ。全部、僕のせいだったんだよ。",
+    },
+    "en": {
+        "neutral": ANCHOR_TEXT["en"],
+        "joy": "We did it, we finally did it. I am so happy, I have waited so long for this.",
+        "anger": "That is enough. How many times do I have to say it before you listen to me?",
+        "sorrow": "There is nothing left to do. All of it was my fault, and I knew it.",
+    },
+    "zh": {
+        "neutral": ANCHOR_TEXT["zh"],
+        "joy": "太好了，终于成功了。我真的很开心，等了这么久。",
+        "anger": "别开玩笑了。我说了多少遍你才明白，够了。",
+        "sorrow": "已经没有办法了。全都是我的错，我一直都知道。",
+    },
+    "ko": {
+        "neutral": ANCHOR_TEXT["ko"],
+        "joy": "해냈어요, 드디어 해냈어요. 정말 기뻐요, 오래 기다렸거든요.",
+        "anger": "장난치지 마세요. 몇 번을 말해야 알아듣나요, 이제 그만하세요.",
+        "sorrow": "이제 어쩔 수가 없어요. 전부 제 잘못이었어요.",
+    },
+}
+
+# 使う側が書いてくる言い方を、持っている見本に寄せる。preset は instruct に何でも
+# 書けるが、design と clone は「持っている見本の分だけ」しか出せない。当たらな
+# かったものは neutral に落とす——黙って別の感情を出すより、平静に読むほうがよい。
+_EMOTION_SYNONYMS: dict[str, str] = {
+    "neutral": "neutral", "平静": "neutral", "普通": "neutral", "calm": "neutral",
+    "落ち着": "neutral", "淡々": "neutral", "flat": "neutral", "normal": "neutral",
+    "joy": "joy", "happy": "joy", "喜": "joy", "嬉": "joy", "楽し": "joy",
+    "明る": "joy", "excited": "joy", "cheerful": "joy",
+    "anger": "anger", "angry": "anger", "怒": "anger", "激": "anger",
+    "furious": "anger", "mad": "anger",
+    "sorrow": "sorrow", "sad": "sorrow", "哀": "sorrow", "悲": "sorrow",
+    "沈ん": "sorrow", "寂し": "sorrow", "depressed": "sorrow",
+}
+
+
+def emotion_anchor_text(language: str | None, emotion: str) -> str:
+    table = EMOTION_ANCHOR_TEXT.get(str(language or ""), EMOTION_ANCHOR_TEXT[DEFAULT_ANCHOR_LANGUAGE])
+    return table.get(emotion, table["neutral"])
+
+
+def normalize_emotion(value: str | None, available: list[str] | tuple[str, ...]) -> str:
+    """書かれた言い方を、その声が持っている見本の名前に寄せる。
+
+    当たらなければ neutral。available に neutral すら無ければ最初の一つ。
+    """
+    text = str(value or "").strip().lower()
+    matched = ""
+    if text:
+        for needle, label in _EMOTION_SYNONYMS.items():
+            if needle in text:
+                matched = label
+                break
+    if matched and matched in available:
+        return matched
+    if "neutral" in available:
+        return "neutral"
+    return available[0] if available else "neutral"
 
 
 def anchor_text(language: str | None) -> str:

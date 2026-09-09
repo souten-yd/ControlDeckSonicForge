@@ -710,14 +710,22 @@ def _voice_summary(voice: Voice) -> dict[str, Any]:
         "speaker": recipe.get("speaker"),
         "description": recipe.get("design_instruction"),
         "anchored": bool(recipe.get("reference_audio")),
-        # 感情の指示（input.emotion）が効くかどうか。preset だけが effective で、
-        # design と clone は複製経路を通り、そこは指示を受け付けない。使う側が
-        # 効かない指定を書き続けないよう、声の側から言う。
+        # この声で出せる感情。preset は instruct に何でも書けるので空で、
+        # design と clone は「持っている見本の分だけ」しか出せない。
+        "emotion_choices": sorted(recipe.get("references") or {}),
+        # 感情の指示（input.emotion）が効くかどうか。効き方は二通りある。
         #
-        # preset は感情を指定しても同じ人物のままであることを実測で確かめた
-        # （台詞を固定して指示だけ振り、耳で判定）。ここが崩れていたら、感情を
-        # 指定した途端にキャラが別人になるので、両立するとは言えなかった。
-        "supports_emotion": voice.source_type == "built-in",
+        # preset は複製経路を通らないので言い方を自然文で書ける。感情を指定しても
+        # 同じ人物のままであることは実測で確かめた（台詞を固定して指示だけ振り、
+        # 耳で判定）。ここが崩れていたら、感情を指定した途端にキャラが別人になる。
+        #
+        # design と clone は複製経路を通り、そこは指示を受け付けない。代わりに
+        # 感情別の見本を持たせてあり、そこから選ぶ形で効く。見本が平静の 1 本
+        # しか無い声（感情別に作る前のもの、持ち込みの複製）は、指定しても何も
+        # 起きないので効かないと言う。
+        "supports_emotion": (
+            voice.source_type == "built-in" or len(recipe.get("references") or {}) > 1
+        ),
         "created_at": voice.created_at.isoformat() if voice.created_at else None,
     }
 
@@ -805,11 +813,22 @@ async def _create_voice(
             "code": "description_required",
             "message": "design には声の説明（性別・年齢・声質・訛りなど）が要ります",
         })
-    sample_text = str(value.get("sample_text") or "").strip() or voice_catalog.anchor_text(
-        languages[0] if languages else None)
-    # まず注文どおりの声で一度喋らせる。この一本が以後の identity になる。
+    language = languages[0] if languages else None
+    emotions = _resolve_emotions(value.get("emotions"))
+    sample_text = str(value.get("sample_text") or "").strip() or voice_catalog.emotion_anchor_text(
+        language, "neutral")
+    sample_texts = [
+        sample_text if label == "neutral" else voice_catalog.emotion_anchor_text(language, label)
+        for label in emotions
+    ]
+    # 注文どおりの声で、感情別の見本をまとめて喋らせる。**1 回の呼び出しで作る**の
+    # が肝心で、design は呼び直すと別人になるため、感情ごとに呼び分けると感情ごとに
+    # 別のキャラができる。この見本が以後の identity になる。
+    # 見本文は下書きの声に載せて運ぶ。`_internal_*` は外から渡せない決まりで、
+    # ここは外向きの入口と同じ検証を通るためである。
     draft = _save_voice(name, "design", languages, {
         "method": "design", "design_instruction": description,
+        "sample_texts": sample_texts,
     }, rights_confirmed=False)
     try:
         finished = await _run_task(
@@ -835,7 +854,22 @@ async def _create_voice(
             _drop_voice(draft.id)
             raise HTTPException(status_code=502, detail={"code": "voice_sample_missing"})
         sample_path = (settings.data_dir / asset.relative_path).resolve()
-    stored = await _store_voice_reference(sample_path)
+        segments = list((asset.metadata_json or {}).get("segments") or [])
+    # 見本は 1 本に繋がって返る（仕事の出力は 1 ファイルという約束のため）。
+    # どこで切るかは worker が標本位置で添えてくるので、無音を探さずに切れる。
+    try:
+        cuts = _split_wav(sample_path, segments) if len(segments) > 1 else [sample_path]
+    except Exception:
+        _drop_voice(draft.id)
+        raise HTTPException(status_code=502, detail={"code": "voice_sample_unreadable"})
+    references: dict[str, dict[str, str]] = {}
+    for label, piece, spoken in zip(emotions, cuts, sample_texts):
+        references[label] = {
+            "audio": await _store_voice_reference(piece),
+            "text": spoken,
+        }
+        if piece != sample_path:
+            piece.unlink(missing_ok=True)
     # 見本が取れたので、以後は複製で回す。design を呼び直さない——同じ注文文でも
     # 同じ声が出る保証が無いため、呼び直した時点で別人になりうる。
     with session_factory() as session:
@@ -845,8 +879,10 @@ async def _create_voice(
         row.recipe = {
             "method": "design",
             "design_instruction": description,
-            "reference_audio": stored,
-            "reference_text": sample_text,
+            # 単一の参照しか見ない古い経路のために、平静の見本を今までの場所にも置く。
+            "reference_audio": references["neutral"]["audio"],
+            "reference_text": references["neutral"]["text"],
+            "references": references,
             # 参照はこちらが作った音で、実在の人の声ではない。何を根拠に
             # 複製してよいと判じたかを残す。
             "rights_basis": "synthetic",
@@ -855,6 +891,56 @@ async def _create_voice(
         session.refresh(row)
         session.expunge(row)
     return {**_voice_summary(row), "sample_asset_id": finished["asset_id"]}
+
+
+def _resolve_emotions(requested: Any) -> list[str]:
+    """どの感情の見本を作るかを決める。
+
+    neutral は必ず入れる——identity の基準であり、当たらなかった指定の落とし先
+    でもある。知らない名前は受け流さずに断る。見本は 1 回の呼び出しでまとめて
+    作るのであとから足せず、黙って平静で作ると、使う側は「怒りの見本がある」と
+    思ったまま進んでしまう。
+    """
+    if requested is None:
+        return list(voice_catalog.EMOTIONS)
+    if not isinstance(requested, list) or not requested:
+        raise HTTPException(status_code=422, detail={
+            "code": "invalid_emotions",
+            "message": f"emotions は {', '.join(voice_catalog.EMOTIONS)} から選びます",
+        })
+    unknown = [item for item in requested if item not in voice_catalog.EMOTIONS]
+    if unknown:
+        raise HTTPException(status_code=422, detail={
+            "code": "invalid_emotions",
+            "message": f"知らない感情です: {', '.join(str(item) for item in unknown)}",
+        })
+    return ["neutral"] + [item for item in requested if item != "neutral"]
+
+
+def _split_wav(source: Path, segments: list[dict]) -> list[Path]:
+    """繋がった見本を、worker が添えた切れ目で切り分ける。
+
+    無音を探して切る作りにはしない。探すとずれ、ずれると書き起こしと音が食い
+    違って複製の質が落ちる。切れ目は作った側が正確に知っている。
+    """
+    import wave
+
+    pieces: list[Path] = []
+    with wave.open(str(source), "rb") as handle:
+        params = handle.getparams()
+        frames = handle.readframes(params.nframes)
+    width = params.sampwidth * params.nchannels
+    for index, segment in enumerate(segments):
+        start = int(segment.get("start") or 0)
+        end = int(segment.get("end") or 0)
+        if end <= start:
+            raise ValueError("segment boundaries are not usable")
+        target = source.parent / f"{source.stem}.part{index}.wav"
+        with wave.open(str(target), "wb") as out:
+            out.setparams(params)
+            out.writeframes(frames[start * width:end * width])
+        pieces.append(target)
+    return pieces
 
 
 def _drop_voice(voice_id: str) -> None:

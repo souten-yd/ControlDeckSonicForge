@@ -1067,6 +1067,27 @@ def test_a_designed_voice_is_pinned_to_the_sample_it_produced(env):
         assert mine['anchored'] is True and mine['method']=='design'
         assert mine['description']=="落ち着いた三十代の男性。低めの声。"
 
+def test_the_generate_contract_says_a_character_needs_a_voice():
+    """道具を一覧から選ぶ側にも、声が要ることを伝える。
+
+    ControlDeck は道具の説明を label と契約の description から作る。label は画面に
+    出す名前で 80 文字までなので、そこには書けない。契約に書いていないと、一覧から
+    sonic.generate を選んだ使い手には「キャラの台詞には声が要る」が届かず、声を
+    指定しないまま呼んで台詞ごとに別人の声になる。
+    """
+    import json
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).parents[1]
+    for name in ("generate-request.json", "generate-batch-request.json"):
+        schema = json.loads((root / "schemas" / name).read_text(encoding="utf-8"))
+        text = schema.get("description") or ""
+        assert "voice_id" in text, name
+        assert "sonic.voice.create" in text, name
+        # 効き方が声によって違うので、確かめる先も言う。
+        assert "supports_emotion" in text, name
+
+
 def test_the_worker_does_not_hold_every_model_it_ever_loaded():
     """載せたものを黙って持ち続けない。
 

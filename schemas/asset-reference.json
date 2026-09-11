@@ -2,12 +2,27 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "asset_id": {"type": "string", "pattern": "^asset:[A-Za-z0-9._:-]{1,256}$"},
-    "job_id": {"type": "string", "pattern": "^job:[A-Za-z0-9._:-]{1,256}$"}
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset:[A-Za-z0-9._:-]{1,256}$"
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "^job:[A-Za-z0-9._:-]{1,256}$"
+    }
   },
   "oneOf": [
-    {"required": ["asset_id"]},
-    {"required": ["job_id"]}
+    {
+      "required": [
+        "asset_id"
+      ]
+    },
+    {
+      "required": [
+        "job_id"
+      ]
+    }
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "description": "Read back a finished sound or job: its kind, length, and whether it is done. It changes nothing — to make audio call sonic.generate, to get the words out of it call sonic.transcribe, to put it in the project call sonic.pack. None of them need this first."
 }

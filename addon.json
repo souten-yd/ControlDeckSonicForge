@@ -120,7 +120,7 @@
     "agent_tools": [
       {
         "id": "sonic.capabilities",
-        "label": "Inspect SonicForge capabilities and how to give a character a voice",
+        "label": "List what SonicForge can make right now",
         "endpoint": "/addon/v1/agent/capabilities",
         "schema_path": "/schemas/empty-input.json",
         "permission": "workflows.run"
@@ -162,7 +162,7 @@
       },
       {
         "id": "sonic.pipeline",
-        "label": "Run a typed speech/audio pipeline",
+        "label": "Run several audio steps in one call",
         "endpoint": "/addon/v1/agent/pipeline",
         "schema_path": "/schemas/pipeline-request.json",
         "permission": "workflows.run"
@@ -176,7 +176,7 @@
       },
       {
         "id": "sonic.inspect",
-        "label": "Inspect a SonicForge job or asset",
+        "label": "Read back what a finished sound or job is",
         "endpoint": "/addon/v1/agent/inspect",
         "schema_path": "/schemas/asset-reference.json",
         "permission": "workflows.run"

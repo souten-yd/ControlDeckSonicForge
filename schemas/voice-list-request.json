@@ -5,5 +5,5 @@
   "type": "object",
   "properties": {},
   "additionalProperties": false,
-  "description": "作ってある声と、preset で選べる公式話者の一覧を返す。声を使う前にこれを見て voice_id を選ぶ。"
+  "description": "The character voices that exist, plus the built-in preset speakers. Each entry carries the emotions it can produce (emotion_choices) and whether emotion is chosen by name (supports_emotion). Pick the voice_id here before making any line.\n\nIt creates nothing — sonic.voice.create makes a voice, sonic.generate speaks with one."
 }

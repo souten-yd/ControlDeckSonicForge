@@ -1,1 +1,20 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["asset_id","project_output_grant"],"properties":{"asset_id":{"type":"string","pattern":"^asset:"},"project_output_grant":{"type":"string","pattern":"^grant:"}},"additionalProperties":false}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "asset_id",
+    "project_output_grant"
+  ],
+  "properties": {
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset:"
+    },
+    "project_output_grant": {
+      "type": "string",
+      "pattern": "^grant:"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Put a finished sound into the current ControlDeck project. Generating alone leaves it outside the project, so this is the last step before anyone can use it.\n\nNeeds a project_output_grant from control_deck.project_output_grant. Get that grant AFTER generating: generation takes tens of seconds and a grant taken early is likely to expire."
+}

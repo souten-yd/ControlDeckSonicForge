@@ -13,5 +13,5 @@
       "pattern": "^voice:[0-9a-f-]{36}$"
     }
   },
-  "description": "声を消す。参照音声も一緒に消える。既に作った音声資産は残る。"
+  "description": "Delete a character voice. The reference takes saved for design and clone go with it, so no new line can be made in that voice afterwards; audio already generated is unaffected.\n\nRecreating the same voice gives a different person — voice design has no reproducibility. Delete only when you are sure it is finished with. To change delivery, keep the voice and choose sonic.generate's input.emotion instead."
 }

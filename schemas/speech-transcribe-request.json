@@ -1,1 +1,32 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["task","input"],"properties":{"task":{"const":"speech.asr.transcribe"},"input":{"type":"object"},"content_language":{"enum":["auto","ja","en"]},"quality":{"enum":["fast","balanced","quality"]}},"additionalProperties":true}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "task",
+    "input"
+  ],
+  "properties": {
+    "task": {
+      "const": "speech.asr.transcribe"
+    },
+    "input": {
+      "type": "object"
+    },
+    "content_language": {
+      "enum": [
+        "auto",
+        "ja",
+        "en"
+      ]
+    },
+    "quality": {
+      "enum": [
+        "fast",
+        "balanced",
+        "quality"
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "description": "Turn recorded audio into text. Use it whenever you need to know what was said. sonic.inspect returns length and state but never the words. The opposite direction — text into speech — is sonic.generate, not this."
+}

@@ -1,1 +1,6 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "description": "What SonicForge can make right now: which of speech, sound effects, ambience and music are available, which models are loaded, and how to give a character a voice. It makes nothing itself — sonic.generate and sonic.generate.batch do, and neither needs this first."
+}

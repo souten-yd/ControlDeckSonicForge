@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from . import vocal_language
+
 Language = Literal["auto", "ja", "en"]
 Quality = Literal["fast", "balanced", "quality"]
 TaskName = Literal[
@@ -169,6 +171,17 @@ class TaskRequest(BaseModel):
                     "unsupported_vocal_language: vocal_language must be one of "
                     + ", ".join(sorted(VOCAL_LANGUAGES))
                 )
+            # 言語を決めていないなら、歌詞の文字から決める。
+            #
+            # 渡さないとモデルは unknown を受け取り、日本語の歌詞では**歌わない**
+            # （実測 2026-09-14: 同じ歌詞・同じ prompt の 30 秒 2 本で、ja を
+            # 指定したほうだけが歌った）。画面の簡易モードは言語を選ぶ場所を
+            # 持たないので、そこから頼むと必ずこれに当たっていた。
+            # 書かれた文字を見れば分かるものを、モデルに当てさせない。
+            if lyrics and language in (None, "auto"):
+                detected = vocal_language.detect(lyrics)
+                if detected:
+                    self.input["vocal_language"] = detected
         known = INPUT_FIELDS.get(self.task)
         if known is not None:
             # 読まない項目は黙って捨てない。duration_seconds と書いた要求が

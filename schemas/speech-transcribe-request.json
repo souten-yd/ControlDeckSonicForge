@@ -52,5 +52,5 @@
     }
   },
   "additionalProperties": true,
-  "description": "Turn recorded audio into text. Use it whenever you need to know what was said. sonic.inspect returns length and state but never the words. The opposite direction — text into speech — is sonic.generate, not this."
+  "description": "録音された音を文字にする。何を言っていたかを知りたいときに使う。sonic.inspect は長さと状態しか返さず、言葉は返さない。逆向き（文章を声にする）は sonic.generate であってこれではない。\n\n音の在りかは input に 1 つだけ渡す。**自分で作った音も書き起こせる**——sonic.generate が返した asset_id をそのまま渡せる。画面から取り込んだ音は upload_id、project 内の file は control_deck.project_input_grant で取った grant_id を使う。1 つも渡さなければ、何を渡せばよいかを言って断る。"
 }

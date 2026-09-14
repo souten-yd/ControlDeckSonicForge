@@ -70,6 +70,28 @@
           "type": "boolean",
           "description": "music.generate: 歌を入れないか。既定は true（インスト）。"
         },
+        "lyrics": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "music.generate: 歌わせる歌詞。**instrumental を false にするだけでは歌にならない。**歌詞が空のまま歌えと言われたモデルは伴奏だけを返す。行を改行で分け、[verse] / [chorus] のような節の目印を入れると構成が安定する。instrumental が true のときは無視される。"
+        },
+        "vocal_language": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "ja",
+            "en",
+            "zh",
+            "ko",
+            "es",
+            "fr",
+            "de",
+            "it",
+            "pt",
+            "ru"
+          ],
+          "description": "music.generate: 歌詞を歌わせる言語。省略（auto）ならモデルが歌詞から推定する。歌詞の言語と食い違う値を入れると発音が崩れる。"
+        },
         "emotion": {
           "type": "string",
           "maxLength": 300,

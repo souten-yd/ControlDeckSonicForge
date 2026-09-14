@@ -54,6 +54,17 @@ const I18N = {
     musicMood: "雰囲気",
     length: "長さ",
     instrumental: "歌なし（BGM）",
+    lyricsPresets: "歌詞のひな形",
+    lyricsLabel: "歌詞",
+    lyricsHint: "歌詞が空だと歌わずに伴奏だけになります。[verse] / [chorus] で節を分けると構成が安定します。",
+    lyricsPresetChorus: "サビだけ",
+    lyricsPresetVerseChorus: "Aメロ＋サビ",
+    lyricsPresetLoop: "短いループ",
+    lyricsPresetClear: "空にする",
+    needLyrics: "歌ありにするなら歌詞を入れてください。空のままだと歌わずに伴奏だけになります。",
+    vocalLanguage: "歌う言語",
+    vocalLanguageHint: "歌詞の言語と食い違う値を選ぶと発音が崩れます。自動なら歌詞から推定します。",
+    vocalLanguageAuto: "自動（歌詞から推定）",
     create: "作る",
     creating: "作っています…",
     transcribeAction: "文字起こしする",
@@ -445,6 +456,17 @@ const I18N = {
     musicMood: "Mood",
     length: "Length",
     instrumental: "Instrumental (BGM)",
+    lyricsPresets: "Lyric templates",
+    lyricsLabel: "Lyrics",
+    lyricsHint: "Empty lyrics produce a backing track with no singing. [verse] / [chorus] markers keep the structure stable.",
+    lyricsPresetChorus: "Chorus only",
+    lyricsPresetVerseChorus: "Verse + chorus",
+    lyricsPresetLoop: "Short loop",
+    lyricsPresetClear: "Clear",
+    needLyrics: "Vocal music needs lyrics. Left empty it sings nothing and returns a backing track.",
+    vocalLanguage: "Vocal language",
+    vocalLanguageHint: "A value that disagrees with the lyrics breaks pronunciation. Auto infers it from the lyrics.",
+    vocalLanguageAuto: "Auto (infer from lyrics)",
     create: "Create",
     creating: "Creating…",
     transcribeAction: "Transcribe",
@@ -818,6 +840,31 @@ const MUSIC_MOODS = [
   {id: "tense", label: "moodTense", ja: "緊張感のある張り詰めた雰囲気", en: "tense suspenseful mood"},
   {id: "epic", label: "moodEpic", ja: "壮大で厚みのある雰囲気", en: "epic cinematic mood"},
   {id: "retro", label: "moodRetro", ja: "レトロなチップチューン風", en: "retro chiptune style"},
+];
+
+/* 簡易モードで歌詞を書き始めるためのひな形。
+   歌詞そのものは人が書くものなので、ここが与えるのは構成の骨だけにする。
+   節の目印（[verse] / [chorus]）が入っていると ACE-Step の構成が安定する。 */
+const LYRIC_PRESETS = [
+  {id: "chorus", label: "lyricsPresetChorus",
+   ja: "[chorus]\nここにサビの歌詞\nもう一行",
+   en: "[chorus]\nyour chorus line here\none more line"},
+  {id: "verse-chorus", label: "lyricsPresetVerseChorus",
+   ja: "[verse]\nここにAメロの歌詞\nもう一行\n[chorus]\nここにサビの歌詞\nもう一行",
+   en: "[verse]\nyour verse line here\none more line\n[chorus]\nyour chorus line here\none more line"},
+  {id: "loop", label: "lyricsPresetLoop",
+   ja: "[chorus]\n短く繰り返す一行",
+   en: "[chorus]\none short repeating line"},
+  {id: "clear", label: "lyricsPresetClear", ja: "", en: ""},
+];
+
+const VOCAL_LANGUAGES = [
+  {id: "auto", label: "vocalLanguageAuto"},
+  {id: "ja", label: "japanese"},
+  {id: "en", label: "english"},
+  {id: "zh", text: "中文"}, {id: "ko", text: "한국어"}, {id: "es", text: "Español"},
+  {id: "fr", text: "Français"}, {id: "de", text: "Deutsch"}, {id: "it", text: "Italiano"},
+  {id: "pt", text: "Português"}, {id: "ru", text: "Русский"},
 ];
 
 const SPEECH_STYLES = [
@@ -1360,6 +1407,17 @@ function syncAdvanced() {
   bindAdvancedValue("advanced-style-instruction", "styleInstruction", "");
   bindAdvancedValue("advanced-speaker", "speaker", "");
   bindAdvancedValue("advanced-bpm", "bpm", "");
+  const vocalLanguage = byId("advanced-vocal-language");
+  if (vocalLanguage) {
+    vocalLanguage.replaceChildren(...VOCAL_LANGUAGES.map((item) => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.text ?? t(item.label);
+      return option;
+    }));
+    vocalLanguage.value = state.form.vocalLanguage || "auto";
+    vocalLanguage.onchange = () => { state.form.vocalLanguage = vocalLanguage.value; };
+  }
   const timestamps = byId("advanced-timestamps");
   if (timestamps) {
     timestamps.checked = state.form.timestamps !== false;
@@ -1408,6 +1466,29 @@ function bindAdvancedValue(id, key, fallback) {
 }
 
 /* ── 選択肢の描画 ─────────────────────────────────────────────────────── */
+
+/* 歌詞は「歌あり」を選んだときだけ出す。
+   チェックを外しただけでは歌にならない——歌詞が空のモデルは伴奏だけを返す——
+   ので、外した人が必ず歌詞欄を通るようにする。畳んでいる間は DOM から
+   外さず hidden にするだけにして、書きかけの歌詞を消さない。 */
+function renderMusicLyrics() {
+  const toggle = byId("music-instrumental");
+  const block = byId("music-lyrics-block");
+  if (!toggle || !block) return;
+  const sung = !toggle.checked;
+  block.hidden = !sung;
+  const area = byId("music-lyrics");
+  if (!area) return;
+  if (area.value !== (state.form.lyrics ?? "")) area.value = state.form.lyrics ?? "";
+  area.oninput = () => { state.form.lyrics = area.value; };
+  renderChips(byId("music-lyrics-chips"), LYRIC_PRESETS, "", (id) => {
+    const preset = LYRIC_PRESETS.find((item) => item.id === id);
+    if (!preset) return;
+    state.form.lyrics = state.locale === "en" ? preset.en : preset.ja;
+    renderMusicLyrics();
+    byId("music-lyrics")?.focus();
+  });
+}
 
 function renderChips(container, items, selected, onSelect, {multi = false} = {}) {
   if (!container) return;
@@ -1606,6 +1687,7 @@ function renderStudio() {
       renderStudio();
       syncAdvanced();
     });
+  renderMusicLyrics();
 
   const speechEngine = byId("speech-engine");
   const selectedTtsEngine = state.ttsPreferences?.engine_id || "tts.qwen3";
@@ -2056,14 +2138,23 @@ function buildRequest() {
   const prompt = composedPrompt();
   if (!prompt) throw new Error(t("needPrompt"));
   const bpm = state.form.bpm ? Number(state.form.bpm) : null;
-  return {...shared, task: "music.generate",
-    input: {
-      prompt,
-      duration_sec: currentDuration(),
-      bpm: Number.isFinite(bpm) && bpm ? bpm : null,
-      instrumental: byId("music-instrumental").checked,
-    },
-    content_language: "auto"};
+  const instrumental = byId("music-instrumental").checked;
+  const lyrics = String(state.form.lyrics || "").trim();
+  // 歌ありで歌詞が空だと、作れてしまったうえで歌っていないものが返る。
+  // 送る前に止めて、足りないものを名指しする。
+  if (!instrumental && !lyrics) throw new Error(t("needLyrics"));
+  const input = {
+    prompt,
+    duration_sec: currentDuration(),
+    bpm: Number.isFinite(bpm) && bpm ? bpm : null,
+    instrumental,
+  };
+  if (!instrumental) {
+    input.lyrics = lyrics;
+    const language = state.form.vocalLanguage || "auto";
+    if (language !== "auto") input.vocal_language = language;
+  }
+  return {...shared, task: "music.generate", input, content_language: "auto"};
 }
 
 byId("studio-form").addEventListener("submit", async (event) => {
@@ -2093,6 +2184,10 @@ byId("studio-reset").addEventListener("click", () => {
   byId("speech-text").value = "";
   byId("sfx-prompt").value = "";
   byId("music-prompt").value = "";
+  const lyricsArea = byId("music-lyrics");
+  if (lyricsArea) lyricsArea.value = "";
+  const instrumentalToggle = byId("music-instrumental");
+  if (instrumentalToggle) instrumentalToggle.checked = true;
   showError("studio-error", "");
   mountAdvanced();
   renderStudio();
@@ -2101,6 +2196,10 @@ byId("studio-reset").addEventListener("click", () => {
 for (const id of ["sfx-prompt", "music-prompt"]) {
   byId(id).addEventListener("input", () => renderStudio());
 }
+
+/* 「歌なし」を外した時点で歌詞欄を出す。作るときに初めて足りないと言われるより、
+   外した場所で欄が現れるほうが、何が要るのかが分かる。 */
+byId("music-instrumental").addEventListener("change", () => renderMusicLyrics());
 
 byId("speech-voice-add").addEventListener("click", () => {
   if ((state.ttsPreferences?.engine_id || "tts.qwen3") === "tts.gpt-sovits") {

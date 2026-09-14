@@ -158,6 +158,15 @@
               <p class="section-label" data-i18n="length">長さ</p>
               <div id="music-length-chips" class="chips" role="radiogroup" data-i18n-label="length" aria-label="長さ"></div>
               <label class="check"><input id="music-instrumental" type="checkbox" checked> <span data-i18n="instrumental">歌なし（BGM）</span></label>
+              <!-- 歌ありのときだけ出す。歌詞が無いと歌にならないので、
+                   チェックを外した人が必ず通る場所に置く。 -->
+              <div id="music-lyrics-block" hidden>
+                <p class="section-label" data-i18n="lyricsPresets">歌詞のひな形</p>
+                <div id="music-lyrics-chips" class="chips" role="group" data-i18n-label="lyricsPresets" aria-label="歌詞のひな形"></div>
+                <label class="field-label" for="music-lyrics" data-i18n="lyricsLabel">歌詞</label>
+                <textarea id="music-lyrics" maxlength="4096" rows="6" placeholder="[verse]&#10;夜を駆けて　光を掴む&#10;[chorus]&#10;立ち上がれ　今　届くまで"></textarea>
+                <p class="hint" data-i18n="lyricsHint">歌詞が空だと歌わずに伴奏だけになります。[verse] / [chorus] で節を分けると構成が安定します。</p>
+              </div>
             </div>
 
             <div data-adv-slot="task"></div>
@@ -594,6 +603,10 @@
           </label>
         </div>
         <div id="advanced-bpm-chips" class="chips" role="group" data-i18n-label="bpm" aria-label="テンポ"></div>
+        <label data-i18n="vocalLanguage">歌う言語
+          <select id="advanced-vocal-language"></select>
+        </label>
+        <p class="hint" data-i18n="vocalLanguageHint">歌詞の言語と食い違う値を選ぶと発音が崩れます。自動なら歌詞から推定します。</p>
       </div>
     </template>
 

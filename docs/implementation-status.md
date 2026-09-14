@@ -924,3 +924,43 @@ Installed-runtime acceptance passed:
 - real OpenCode `sonic.inspect(job_id)` returned that Job in terminal `succeeded` state with the same Asset, proving the updated schema was re-projected after installation.
 
 The authenticated ControlDeck parent-page navigation was **NOT TESTED** in a real signed-in Chrome session during this release pass because no reusable browser credential was available. The persisted effective manifest, bridge-mode 320 px layout, direct installed UI and post-restart service/API paths were checked. The existing physical M5 limitation remains **NOT TESTED** and is unrelated to this release.
+
+## 13. 歌入り音楽の歌詞欠落と、申告だけの loop — 2026-09-14
+
+`music.generate` の `instrumental: false` は受理されジョブも成功するが、歌にならない。
+worker が `GenerationParams` を組むとき `caption` / `instrumental` / `bpm` / `duration` /
+`seed` / `shift` の 6 つしか渡しておらず、ACE-Step の `lyrics`（既定 `""`）が空のままだった。
+空の歌詞で歌えと言われたモデルは伴奏だけを返す。長さも合っていてジョブも成功するので、
+頼んだ側からは「歌を頼んだのに歌っていない」としか見えない。実測: `instrumental=false` で
+作った 30 秒を聴いた利用者の判定は「歌に聞こえない。音楽だけ」。
+
+直したもの:
+
+- `schemas/generate-request.json` の `input` に `lyrics`（4096 文字）と
+  `vocal_language`（auto/ja/en/zh/ko/es/fr/de/it/pt/ru）を追加。
+- `INPUT_FIELDS["music.generate"]` に同じ 2 つを追加。
+- 歌ありで歌詞が空、または歌詞ありで `instrumental` が既定 true のままという
+  取り違えを要求の検証で断るようにした。黙って違うものを作らない。
+- `worker_packs/acestep/worker.py` が `lyrics` と `vocal_language` を渡す。
+  `auto` は ACE-Step の `unknown` へ写す。結果 payload に `has_lyrics` と
+  `vocal_language` を残す。
+- 音楽 GUI に歌詞欄を追加。「歌なし（BGM）」を外した時点で現れる。簡易モードは
+  ひな形（サビだけ / Aメロ＋サビ / 短いループ / 空にする）から書き始められ、
+  詳細モードで歌う言語を選べる。空のまま作ろうとすると送信前に止める。
+- capabilities の `loop` 申告を外した。受け取る入口も繋ぎ目を作る worker も無い。
+  実測: ループ前提の BGM を 30 曲頼まれて、ループにならないまま出来上がった。
+- `pipeline_runtime` の SFX 段が `loop` と `category` を転送していた。どちらも
+  `INPUT_FIELDS` に無いので、その段を含む pipeline は未知項目として全体が止まる。
+  転送を `duration_sec` だけに絞った。
+
+確認したこと:
+
+- 全 206 件の pytest が成功（追加した 6 件を含む）。
+- リポジトリの worker を直叩きし、日本語歌詞 + `vocal_language: "ja"` で 30 秒を生成。
+  結果 payload は `has_lyrics: true` / `vocal_language: "ja"`。歌になっていることを
+  利用者が耳で確認。半音格子から外れたピッチの割合は、歌詞なし 10.5% に対し
+  歌詞あり 13.7〜20.5%。
+- 音楽 GUI の**ブラウザ操作は NOT TESTED**。Claude in Chrome 拡張が未接続で、
+  headless Chrome も CDP／`--dump-dom` の双方で応答しなかった。静的には、
+  追加した 4 つの id が HTML に在ること、`app.js` が触る id に欠けが無いこと、
+  ja/en の文言表に欠けが無いことを確認済み。実ブラウザでの表示・操作確認が残っている。

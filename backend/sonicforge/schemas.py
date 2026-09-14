@@ -118,6 +118,32 @@ class TaskRequest(BaseModel):
             self.input.get("prompt") or self.input.get("description") or ""
         ).strip():
             raise ValueError("generation requires input.prompt or input.description")
+        if self.task == "music.generate":
+            # 歌ありは歌詞が要る。instrumental を false にするだけでは歌にならない。
+            #
+            # ACE-Step の lyrics 既定は空文字で、空のまま歌えと言われたモデルは
+            # 伴奏だけを返す。ジョブは成功し、長さも合っているので、頼んだ側からは
+            # 「歌を頼んだのに歌っていない」としか見えない（実測 2026-09-14:
+            # instrumental=false で作った 30 秒を聴いて「歌に聞こえない。音楽だけ」）。
+            # 黙って伴奏を返すより、何が足りないかを言って断る。
+            lyrics = str(self.input.get("lyrics") or "").strip()
+            if self.input.get("instrumental") is False and not lyrics:
+                raise ValueError(
+                    "vocal music requires input.lyrics; "
+                    "instrumental=false alone produces an instrumental track"
+                )
+            if lyrics and self.input.get("instrumental") is not False:
+                # 逆向きの取り違えも黙って捨てない。歌詞を書いたのに
+                # instrumental が既定の true のままだと歌詞は無視される。
+                raise ValueError(
+                    "input.lyrics is ignored while instrumental is true; "
+                    "set instrumental=false to sing them"
+                )
+            language = self.input.get("vocal_language")
+            if language is not None and language not in VOCAL_LANGUAGES:
+                raise ValueError(
+                    f"vocal_language must be one of {', '.join(sorted(VOCAL_LANGUAGES))}"
+                )
         known = INPUT_FIELDS.get(self.task)
         if known is not None:
             # 読まない項目は黙って捨てない。duration_seconds と書いた要求が
@@ -140,6 +166,12 @@ class TaskRequest(BaseModel):
 # 間違えた要求は既定値で作られ、頼んだ側からは「頼んだとおりに作られなかった」
 # ようにしか見えない（実測: duration_seconds と書いた 20 秒の依頼が 30 秒で
 # 返った）。schemas/generate-request.json の説明文と対になっている。
+# 歌わせられる言語。ACE-Step の VALID_LANGUAGES の部分集合で、"auto" は
+# 「歌詞から推定させる」（worker が "unknown" へ写す）。
+VOCAL_LANGUAGES = frozenset({
+    "auto", "ja", "en", "zh", "ko", "es", "fr", "de", "it", "pt", "ru",
+})
+
 INPUT_FIELDS: dict[str, frozenset[str]] = {
     "speech.tts.synthesize": frozenset({
         "text", "voice_id", "speaker", "style", "emotion", "reference_text",
@@ -150,6 +182,7 @@ INPUT_FIELDS: dict[str, frozenset[str]] = {
     "audio.ambience.generate": frozenset({"prompt", "description", "duration_sec"}),
     "music.generate": frozenset({
         "prompt", "description", "duration_sec", "bpm", "instrumental",
+        "lyrics", "vocal_language",
     }),
 }
 

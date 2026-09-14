@@ -146,6 +146,7 @@
               <div id="sfx-kind-chips" class="chips" role="radiogroup" data-i18n-label="sfxKind" aria-label="音の種類"></div>
               <p class="section-label" data-i18n="length">長さ</p>
               <div id="sfx-length-chips" class="chips" role="radiogroup" data-i18n-label="length" aria-label="長さ"></div>
+              <label class="check"><input id="sfx-loop" type="checkbox"> <span data-i18n="loopToggle">繰り返し用にする（継ぎ目なし）</span></label>
             </div>
 
             <!-- 音楽 -->
@@ -158,6 +159,8 @@
               <p class="section-label" data-i18n="length">長さ</p>
               <div id="music-length-chips" class="chips" role="radiogroup" data-i18n-label="length" aria-label="長さ"></div>
               <label class="check"><input id="music-instrumental" type="checkbox" checked> <span data-i18n="instrumental">歌なし（BGM）</span></label>
+              <label class="check"><input id="music-loop" type="checkbox"> <span data-i18n="loopToggle">繰り返し用にする（継ぎ目なし）</span></label>
+              <p id="music-loop-hint" class="hint" hidden data-i18n="loopHint">終わりを始まりへ重ねるので、重ねたぶん（約1.5秒）短くなります。</p>
               <!-- 歌ありのときだけ出す。歌詞が無いと歌にならないので、
                    チェックを外した人が必ず通る場所に置く。 -->
               <div id="music-lyrics-block" hidden>

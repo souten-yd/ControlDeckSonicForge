@@ -3,13 +3,15 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from . import audio_loop
 from .audio import inspect_wav
 from .config import Settings
 from . import voice_catalog
@@ -572,6 +574,53 @@ class JobManager:
         request["input"] = inp
         return request
 
+    async def _apply_loop(self, request: dict, result: WorkerResult) -> WorkerResult:
+        """頼まれていれば、繋ぎ目の分からないループ素材に作り替える。
+
+        繰り返し流す前提のものを、そのまま繰り返すと毎周「ブツッ」と鳴る。
+        終わりを始まりへ重ねて渡すと切れ目が聞こえなくなる代わりに、
+        重ねたぶんだけ短くなる。何秒になったかは結果に残す——頼んだ長さと
+        違うものが返っているのに黙っていると、ここでも「頼んだとおりに
+        作られなかった」に見える。
+        """
+        if not request.get("input", {}).get("loop"):
+            return result
+        source = result.output_path
+        if source is None:
+            return result
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg is None:
+            raise WorkerError("ffmpeg is required to build a seamless loop")
+        meta = inspect_wav(source)
+        duration = float(meta.get("duration_sec") or 0.0)
+        target = source.with_name(f"{source.stem}-loop.wav")
+        argv = audio_loop.loop_argv(ffmpeg, source, target, duration)
+        proc = await asyncio.create_subprocess_exec(
+            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            start_new_session=os.name != "nt",
+        )
+        try:
+            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180.0)
+        except (asyncio.CancelledError, TimeoutError):
+            if proc.returncode is None:
+                proc.kill()
+            await proc.wait()
+            raise WorkerError("building the loop timed out") from None
+        if proc.returncode != 0 or not target.is_file():
+            raise WorkerError(
+                "building the loop failed: " + stderr.decode("utf-8", "replace")[-300:]
+            )
+        source.unlink(missing_ok=True)
+        looped = inspect_wav(target)
+        payload = dict(result.payload or {})
+        payload["loop"] = True
+        payload["loop_crossfade_sec"] = round(
+            audio_loop.crossfade_seconds(duration), 3
+        )
+        # 重ねたぶん短くなる。頼んだ長さとの差はここで分かるようにする。
+        payload["duration_sec"] = round(float(looped.get("duration_sec") or 0.0), 3)
+        return replace(result, output_path=target, payload=payload)
+
     def _persist_audio_result(
         self,
         job_id: str,
@@ -902,6 +951,7 @@ class JobManager:
             output_asset = None
             output_commit = None
             if result.output_path:
+                result = await self._apply_loop(request, result)
                 output_asset, target, meta = self._persist_audio_result(
                     job_id, request, result
                 )

@@ -964,3 +964,57 @@ worker が `GenerationParams` を組むとき `caption` / `instrumental` / `bpm`
   headless Chrome も CDP／`--dump-dom` の双方で応答しなかった。静的には、
   追加した 4 つの id が HTML に在ること、`app.js` が触る id に欠けが無いこと、
   ja/en の文言表に欠けが無いことを確認済み。実ブラウザでの表示・操作確認が残っている。
+
+## 14. loop の実装、書き起こしの入口、要求の断り方 — 2026-09-14
+
+§13 で申告だけ外した `loop` を実装した。あわせて、要求の作り方が違うだけで 500 を
+返していた経路を直した。
+
+**loop**（`backend/sonicforge/audio_loop.py`）
+
+終わりの数秒を始まりへ重ねて渡す（cross-fade）ことで、繰り返しても切れ目が聞こえない
+1 本にする。重ねる幅は既定 1.5 秒で、短い素材では全体の 1/4 で頭打ちにする。重ねた
+ぶん短くなるので、実際の長さと重ね幅を結果 payload（`loop` / `loop_crossfade_sec` /
+`duration_sec`）へ残す。契約の説明にも「短くなる」と書いた。
+
+切り出しは `-ss` / `-t` で入力側に指定する。filter の `atrim` で切ってから
+`acrossfade` へ渡すと**出力が 0 秒になる**（実測: 30 秒の素材から 0.0 秒）。
+同じ file を 2 回入力して `[0:a][1:a]acrossfade` へ渡す形なら通る。
+
+実測: 30.00 秒の素材 → 28.50 秒のループ素材（ffmpeg exit 0、重ね 1.50 秒）。
+`audio.sfx.generate` / `audio.ambience.generate` / `music.generate` で頼める。
+GUI にも「繰り返し用にする（継ぎ目なし）」を SFX と音楽の両方へ置いた。
+繋ぎ目が実際に消えているかは**耳で判定するもので、端のサンプル段差では測れない**
+（両端が無音に近い素材では、そのまま繰り返しても段差が出ない）。ループ点をまたぐ
+6 秒を切り出して聴き比べる形で確認した。
+
+**書き起こしの入口**
+
+`sonic.transcribe` は `grant:` と `upload_id` しか受け取らず、自分で作った `asset:` を
+渡せなかった。`sonic.inspect` は「言葉は sonic.transcribe で」と案内するのに、その
+transcribe が asset を受け取らない状態だった。`asset_id` を受け取るようにし、
+`speech-transcribe-request.json` の `input` に 4 つの道（asset_id / upload_id /
+grant_id / audio_grant）を公開した。以前は `{"type": "object"}` としか書いておらず、
+呼ぶ側は名前を当てるしかなかった。
+
+音の在りかを 1 つも渡さない要求は入口で断る。この判定は API の入口（`_workflow_body`）
+に置く。model 側へ置くと、自分で file を staging してから要求を組む局所 API
+（`local_api`）まで巻き添えになる。
+
+**断り方**
+
+`_workflow_body` の `TaskRequest.model_validate` が失敗すると 500 が返っていた。
+要求の作り方が違うだけなのに、呼ぶ側からは「SonicForge が壊れた」に見えて、直せる
+場所が分からない（実測 2026-09-14: `sonic.transcribe` に `asset_id` を渡して 500、
+何を渡せばよいかはどこにも出ない）。422 に理由を載せて返すようにした。batch は
+その理由へ「何件目か」を足して、自分の `invalid_generation_batch` のまま返す。
+
+確認したこと:
+
+- 全 212 件の pytest が成功。
+- 別ポートで起こした実サービスへ、4 つの誤りがそれぞれ理由つきで 422 を返すこと、
+  正しい歌入りの要求と `asset_id` 指定の書き起こしが通ることを確認。
+  capabilities は `loop` / `lyrics` / `vocal_language` を申告する。
+- loop を fake worker で頼むと「audio is too short to loop」で断られる。fake は
+  長さによらず 0.35 秒しか作らないので、これは正しい拒否である。実素材での成功は上記。
+- 音楽 GUI の**ブラウザ操作は引き続き NOT TESTED**（§13 と同じ理由）。

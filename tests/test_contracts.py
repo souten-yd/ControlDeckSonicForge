@@ -145,23 +145,23 @@ def test_music_schema_publishes_the_lyrics_contract():
     assert "ja" in fields["vocal_language"]["enum"]
 
 
-def test_capabilities_do_not_claim_a_loop_nobody_implements():
+def test_loop_is_reachable_everywhere_it_is_claimed():
     """申告だけある機能は、使う側からは「頼める」と読める。
 
-    loop は capabilities に出ていたが、受け取る入口（INPUT_FIELDS）も、繋ぎ目を
-    作る worker も無い。実測 2026-09-14: ループ前提の BGM を 30 曲頼まれて、
-    ループにならないまま出来上がった。実装が入るまで申告しない。
+    loop は capabilities に出ていたのに、受け取る入口（INPUT_FIELDS）も、繋ぎ目を
+    作る処理も無かった。実測 2026-09-14: ループ前提の BGM を 30 曲頼まれて、
+    ループにならないまま出来上がった。申告する以上は端まで通す。
     """
     from sonicforge.schemas import INPUT_FIELDS
 
     for task in ("audio.sfx.generate", "audio.ambience.generate", "music.generate"):
-        assert "loop" not in INPUT_FIELDS[task], f"{task} が loop を受け取れるなら申告してよい"
+        assert "loop" in INPUT_FIELDS[task]
 
 
 def test_pipeline_only_forwards_fields_the_request_validator_accepts():
     """pipeline が組み立てた要求が、自分の検証に弾かれない。
 
-    SFX 段は loop と category を通していたが、どちらも INPUT_FIELDS に無いので、
+    SFX 段は loop と category を通していたが、どちらも INPUT_FIELDS に無かったので、
     その段を含む pipeline は未知項目として全体が止まる。
     """
     import inspect
@@ -173,9 +173,88 @@ def test_pipeline_only_forwards_fields_the_request_validator_accepts():
     start = source.index('"task": "audio.sfx.generate"')
     forwarded = set(
         item.strip().strip('"')
-        for item in source[start:start + 500].split("if key in {", 1)[1].split("}", 1)[0].split(",")
+        for item in source[start:start + 700].split("if key in {", 1)[1].split("}", 1)[0].split(",")
         if item.strip()
     )
     assert forwarded <= INPUT_FIELDS["audio.sfx.generate"], (
         f"pipeline が通す {sorted(forwarded)} は受け取れる項目の外にある"
     )
+
+
+def test_loop_crossfade_shortens_the_material_and_says_by_how_much():
+    """重ねたぶんだけ短くなる。長さの決め方を数字で固定する。"""
+    import pytest
+
+    from sonicforge import audio_loop
+    from sonicforge.workers import WorkerError
+
+    # 30 秒なら既定の 1.5 秒を重ねる。
+    assert audio_loop.crossfade_seconds(30.0) == pytest.approx(1.5)
+    # 短い素材では全体の 1/4 で頭打ち。溶かしすぎて輪郭を失わせない。
+    assert audio_loop.crossfade_seconds(2.0) == pytest.approx(0.5)
+
+    argv = audio_loop.loop_argv(
+        "/usr/bin/ffmpeg", Path("in.wav"), Path("out.wav"), 30.0
+    )
+    graph = argv[argv.index("-filter_complex") + 1]
+    assert "[0:a][1:a]acrossfade" in graph
+    # 切り出しは入力側で行う。filter の atrim から acrossfade へ渡すと出力が
+    # 0 秒になる（実測: 30 秒の素材から 0.0 秒）。
+    assert "atrim" not in graph
+    assert argv.count("-i") == 2 and argv.count("-ss") == 2
+    # shell を通さない。引数は 1 つずつ渡す。
+    assert all(isinstance(item, str) for item in argv)
+
+    # 重ねる余地の無い素材は断る。元の断片を返さない。
+    with pytest.raises(WorkerError):
+        audio_loop.loop_argv("/usr/bin/ffmpeg", Path("in.wav"), Path("out.wav"), 0.2)
+
+
+def test_loop_contract_warns_that_the_result_gets_shorter():
+    """頼んだ長さと違うものが返るなら、契約にそう書く。"""
+    import json
+    from pathlib import Path as P
+
+    schema = json.loads(
+        (P(__file__).resolve().parents[1] / "schemas" / "generate-request.json")
+        .read_text(encoding="utf-8")
+    )
+    description = schema["properties"]["input"]["properties"]["loop"]["description"]
+    assert "短くなる" in description
+
+
+def test_transcription_accepts_an_asset_sonicforge_already_holds():
+    """自分で作った音も書き起こせる。
+
+    sonic.inspect は長さと状態しか返さず「言葉は sonic.transcribe で」と案内するのに、
+    その transcribe が asset を受け取らなかった。
+    """
+    import pytest
+
+    from sonicforge.schemas import TaskRequest
+
+    ok = TaskRequest.model_validate({
+        "task": "speech.asr.transcribe",
+        "input": {"asset_id": "asset:4b6d01c2-c941-4fa3-8048-368c3a930a33"},
+    })
+    assert ok.input["asset_id"].startswith("asset:")
+
+    with pytest.raises(Exception) as error:
+        TaskRequest.model_validate({
+            "task": "speech.asr.transcribe", "input": {"asset_id": "not-an-asset"},
+        })
+    assert "asset" in str(error.value)
+
+
+def test_transcribe_schema_publishes_where_the_audio_comes_from():
+    """input が {"type": "object"} だけでは、呼ぶ側は当てるしかない。"""
+    import json
+    from pathlib import Path
+
+    schema = json.loads(
+        (Path(__file__).resolve().parents[1] / "schemas" / "speech-transcribe-request.json")
+        .read_text(encoding="utf-8")
+    )
+    fields = schema["properties"]["input"]["properties"]
+    assert {"asset_id", "upload_id", "grant_id"} <= set(fields)
+    assert schema["properties"]["input"]["additionalProperties"] is False

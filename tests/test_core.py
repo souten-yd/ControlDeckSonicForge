@@ -1270,3 +1270,41 @@ def test_a_voice_can_be_removed_from_opencode(env):
         assert created['voice_id'] not in remaining
         assert c.post('/addon/v1/agent/voice/delete',
                       json={"voice_id":created['voice_id']}).status_code==404
+
+
+def test_transcription_says_what_audio_it_needs_instead_of_failing_late(env):
+    """音の在りかを渡さない書き起こしは、入口で断る。
+
+    以前は何も渡さなくても通り、worker まで進んでから落ちた。呼ぶ側には
+    「拡張機能の実行に失敗しました」しか返らず、何を渡せばよいかはどこにも
+    出ない（実測 2026-09-14: asset_id / audio_asset_id / upload_id のどれを
+    渡しても 500 で、契約の input は {"type": "object"} としか書いていなかった）。
+    """
+    m = load_app()
+    with TestClient(m.app) as c:
+        response = c.post('/addon/v1/agent/transcribe', json={'input': {}})
+        assert response.status_code == 422, response.text
+        message = response.json()['detail']['message']
+        assert 'asset_id' in message and 'upload_id' in message and 'grant_id' in message
+
+
+def test_a_malformed_request_is_refused_with_its_reason_not_a_500(env):
+    """要求の作り方が違うだけで 500 を返すと、直せる場所が分からない。
+
+    実測 2026-09-14: sonic.transcribe に asset_id を渡すと 500 が返り、
+    何を渡せばよいかはどこにも出なかった。
+    """
+    m = load_app()
+    with TestClient(m.app) as c:
+        bad_asset = c.post('/addon/v1/agent/transcribe',
+                           json={'input': {'asset_id': 'nope'}})
+        assert bad_asset.status_code == 422, bad_asset.text
+        assert 'asset' in bad_asset.json()['detail']['message']
+
+        # 歌ありで歌詞が空。作れてしまったうえで歌っていないものを返さない。
+        silent_vocal = c.post('/addon/v1/agent/generate', json={
+            'task': 'music.generate',
+            'input': {'prompt': 'boss theme', 'instrumental': False},
+        })
+        assert silent_vocal.status_code == 422, silent_vocal.text
+        assert 'lyrics' in silent_vocal.json()['detail']['message']

@@ -42,14 +42,13 @@ def capability_document(session: Session, *, fake_enabled: bool = False) -> dict
             entry("speech.tts.synthesize", speech, {"languages":["ja","en"],"streaming":False,"voice_clone":True,"style_control":True}),
             entry("speech.asr.transcribe", speech, {"languages":["ja","en"],"timestamps":["segment"],"streaming":False}),
             entry("speech.localization.batch", speech, {"languages":["ja","en"],"paired_lines":True}),
-            # loop は申告していたが、受け取る入口も、繋ぎ目を作る worker も無い。
-            # 申告だけ残すと、使う側はここを根拠に「ループ BGM を頼める」と読む
-            # （実測: ループ前提の BGM を 30 曲頼まれて、ループにならないまま
-            # 出来上がった）。実装したときに戻す。
-            entry("audio.sfx.generate", game, {"variations":True}, optional=True),
-            entry("audio.ambience.generate", game, {"variations":True}, optional=True),
+            # loop は input.loop で頼む。終わりを始まりへ重ねて渡すので、
+            # 繋ぎ目が聞こえない代わりに重ねたぶん短くなる。
+            entry("audio.sfx.generate", game, {"variations":True,"loop":True}, optional=True),
+            entry("audio.ambience.generate", game, {"variations":True,"loop":True}, optional=True),
             entry("music.generate", music,
-                  {"instrumental":True,"bpm_hint":True,"lyrics":True,"vocal_language":True},
+                  {"instrumental":True,"bpm_hint":True,"loop":True,
+                   "lyrics":True,"vocal_language":True},
                   optional=True),
         ],
         "routing": {"default_language":"auto","default_quality":"balanced","advanced_engine_pinning":True},

@@ -60,6 +60,10 @@
           "maximum": 300,
           "description": "作る長さ（秒）。省略すると効果音は 3 秒、音楽は 30 秒になる。"
         },
+        "loop": {
+          "type": "boolean",
+          "description": "audio.sfx.generate / audio.ambience.generate / music.generate: 繰り返し流す素材にする。終わりを始まりへ重ねて渡すので、繋ぎ目が聞こえない。**重ねたぶん短くなる**（既定 1.5 秒、素材が短いときはその 1/4 まで）。実際の長さは結果の duration_sec に出る。"
+        },
         "bpm": {
           "type": "number",
           "minimum": 30,

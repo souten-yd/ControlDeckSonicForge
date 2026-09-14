@@ -54,6 +54,8 @@ const I18N = {
     musicMood: "雰囲気",
     length: "長さ",
     instrumental: "歌なし（BGM）",
+    loopToggle: "繰り返し用にする（継ぎ目なし）",
+    loopHint: "終わりを始まりへ重ねるので、重ねたぶん（約1.5秒）短くなります。",
     lyricsPresets: "歌詞のひな形",
     lyricsLabel: "歌詞",
     lyricsHint: "歌詞が空だと歌わずに伴奏だけになります。[verse] / [chorus] で節を分けると構成が安定します。",
@@ -456,6 +458,8 @@ const I18N = {
     musicMood: "Mood",
     length: "Length",
     instrumental: "Instrumental (BGM)",
+    loopToggle: "Make it loop seamlessly",
+    loopHint: "The end is blended into the start, so the result is shorter by that overlap (about 1.5s).",
     lyricsPresets: "Lyric templates",
     lyricsLabel: "Lyrics",
     lyricsHint: "Empty lyrics produce a backing track with no singing. [verse] / [chorus] markers keep the structure stable.",
@@ -1486,6 +1490,8 @@ function renderMusicLyrics() {
     if (!preset) return;
     state.form.lyrics = state.locale === "en" ? preset.en : preset.ja;
     renderMusicLyrics();
+  const loopHint = byId("music-loop-hint");
+  if (loopHint) loopHint.hidden = !byId("music-loop")?.checked;
     byId("music-lyrics")?.focus();
   });
 }
@@ -2131,9 +2137,9 @@ function buildRequest() {
   if (state.task === "sfx") {
     const prompt = composedPrompt();
     if (!prompt) throw new Error(t("needPrompt"));
-    return {...shared, task: currentSfxKind().task,
-      input: {prompt, duration_sec: currentDuration()},
-      content_language: "auto"};
+    const sfxInput = {prompt, duration_sec: currentDuration()};
+    if (byId("sfx-loop")?.checked) sfxInput.loop = true;
+    return {...shared, task: currentSfxKind().task, input: sfxInput, content_language: "auto"};
   }
   const prompt = composedPrompt();
   if (!prompt) throw new Error(t("needPrompt"));
@@ -2149,6 +2155,7 @@ function buildRequest() {
     bpm: Number.isFinite(bpm) && bpm ? bpm : null,
     instrumental,
   };
+  if (byId("music-loop")?.checked) input.loop = true;
   if (!instrumental) {
     input.lyrics = lyrics;
     const language = state.form.vocalLanguage || "auto";
@@ -2188,6 +2195,10 @@ byId("studio-reset").addEventListener("click", () => {
   if (lyricsArea) lyricsArea.value = "";
   const instrumentalToggle = byId("music-instrumental");
   if (instrumentalToggle) instrumentalToggle.checked = true;
+  for (const id of ["music-loop", "sfx-loop"]) {
+    const toggle = byId(id);
+    if (toggle) toggle.checked = false;
+  }
   showError("studio-error", "");
   mountAdvanced();
   renderStudio();
@@ -2200,6 +2211,7 @@ for (const id of ["sfx-prompt", "music-prompt"]) {
 /* 「歌なし」を外した時点で歌詞欄を出す。作るときに初めて足りないと言われるより、
    外した場所で欄が現れるほうが、何が要るのかが分かる。 */
 byId("music-instrumental").addEventListener("change", () => renderMusicLyrics());
+byId("music-loop").addEventListener("change", () => renderStudio());
 
 byId("speech-voice-add").addEventListener("click", () => {
   if ((state.ttsPreferences?.engine_id || "tts.qwen3") === "tts.gpt-sovits") {

@@ -15,6 +15,8 @@ TaskName = Literal[
     "audio.ambience.generate",
     "music.generate",
 ]
+# 書き起こしが音を受け取る道。どれか 1 つが要る。
+ASR_SOURCE_FIELDS = ("asset_id", "upload_id", "grant_id", "audio_grant")
 GRANT_PATTERN = r"^grant:[A-Za-z0-9._:-]{1,256}$"
 UPLOAD_PATTERN = r"^upload:[0-9a-f]{32}$"
 
@@ -79,6 +81,14 @@ class TaskRequest(BaseModel):
                 or re.fullmatch(UPLOAD_PATTERN, upload) is None
             ):
                 raise ValueError("ASR upload reference is invalid")
+            # 自分で作った音も書き起こせる。sonic.inspect は長さと状態しか返さず
+            # 「言葉は sonic.transcribe で」と案内するのに、その transcribe が
+            # asset を受け取らなかった（実測: asset_id を渡して 500）。
+            asset = self.input.get("asset_id")
+            if asset is not None and (
+                not isinstance(asset, str) or not asset.startswith("asset:")
+            ):
+                raise ValueError("ASR asset reference must be an asset: ID")
 
         if self.task == "speech.localization.batch":
             batch_id = self.input.get("batch_id")
@@ -177,12 +187,14 @@ INPUT_FIELDS: dict[str, frozenset[str]] = {
         "text", "voice_id", "speaker", "style", "emotion", "reference_text",
         "reference_grant", "upload_id",
     }),
-    "speech.asr.transcribe": frozenset({"audio_grant", "grant_id", "upload_id"}),
-    "audio.sfx.generate": frozenset({"prompt", "description", "duration_sec"}),
-    "audio.ambience.generate": frozenset({"prompt", "description", "duration_sec"}),
+    "speech.asr.transcribe": frozenset({
+        "audio_grant", "grant_id", "upload_id", "asset_id",
+    }),
+    "audio.sfx.generate": frozenset({"prompt", "description", "duration_sec", "loop"}),
+    "audio.ambience.generate": frozenset({"prompt", "description", "duration_sec", "loop"}),
     "music.generate": frozenset({
         "prompt", "description", "duration_sec", "bpm", "instrumental",
-        "lyrics", "vocal_language",
+        "lyrics", "vocal_language", "loop",
     }),
 }
 

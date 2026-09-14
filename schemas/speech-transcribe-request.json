@@ -10,7 +10,31 @@
       "const": "speech.asr.transcribe"
     },
     "input": {
-      "type": "object"
+      "type": "object",
+      "description": "書き起こす音の在りか。次の 3 つのうち 1 つを渡す。何も渡さないと断る。",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "pattern": "^asset:[A-Za-z0-9._:-]{1,256}$",
+          "description": "SonicForge が持っている音。sonic.generate が返した asset_id をそのまま渡せる。"
+        },
+        "upload_id": {
+          "type": "string",
+          "pattern": "^upload:[0-9a-f]{32}$",
+          "description": "画面から録音・選択して取り込んだ音。"
+        },
+        "grant_id": {
+          "type": "string",
+          "pattern": "^grant:[A-Za-z0-9._:-]{1,256}$",
+          "description": "project 内の file。control_deck.project_input_grant で取る。"
+        },
+        "audio_grant": {
+          "type": "string",
+          "pattern": "^grant:[A-Za-z0-9._:-]{1,256}$",
+          "description": "grant_id の別名（旧称）。grant_id を使うこと。"
+        }
+      },
+      "additionalProperties": false
     },
     "content_language": {
       "enum": [

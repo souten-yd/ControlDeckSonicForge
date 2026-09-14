@@ -42,9 +42,14 @@ def capability_document(session: Session, *, fake_enabled: bool = False) -> dict
             entry("speech.tts.synthesize", speech, {"languages":["ja","en"],"streaming":False,"voice_clone":True,"style_control":True}),
             entry("speech.asr.transcribe", speech, {"languages":["ja","en"],"timestamps":["segment"],"streaming":False}),
             entry("speech.localization.batch", speech, {"languages":["ja","en"],"paired_lines":True}),
+            # loop は input.loop で頼む。終わりを始まりへ重ねて渡すので、
+            # 繋ぎ目が聞こえない代わりに重ねたぶん短くなる。
             entry("audio.sfx.generate", game, {"variations":True,"loop":True}, optional=True),
             entry("audio.ambience.generate", game, {"variations":True,"loop":True}, optional=True),
-            entry("music.generate", music, {"instrumental":True,"bpm_hint":True,"loop":True}, optional=True),
+            entry("music.generate", music,
+                  {"instrumental":True,"bpm_hint":True,"loop":True,
+                   "lyrics":True,"vocal_language":True},
+                  optional=True),
         ],
         "routing": {"default_language":"auto","default_quality":"balanced","advanced_engine_pinning":True},
         # 使う側は道具の一覧しか見ずに選ぶことがある。一覧に出るのは一行の説明だけ

@@ -246,7 +246,10 @@ class PipelineRuntime:
                     **{
                         key: item
                         for key, item in stage.parameters.items()
-                        if key in {"duration_sec", "loop", "category"}
+                        # 渡してよいのは検証が受け取る項目だけ。category は読む先が
+                        # 無く、混ぜると schemas の未知項目チェックに当たって
+                        # pipeline 全体が止まる。
+                        if key in {"duration_sec", "loop"}
                     },
                 },
             }

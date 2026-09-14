@@ -88,8 +88,17 @@ def handle(payload: dict) -> None:
     if not caption:
         raise ValueError("music generation requires input.prompt or input.description")
 
+    # 歌詞は ACE-Step 側の既定が空文字で、空のまま instrumental=False を渡すと
+    # 歌わずに伴奏だけが返る。歌ありを頼まれたのに歌詞が無いという組み合わせは
+    # 要求の検証で弾いてあるので、ここでは渡すことに徹する。
+    lyrics = str(inp.get("lyrics") or "")
+    language = str(inp.get("vocal_language") or "auto")
+
     params = GenerationParams(
         caption=caption,
+        lyrics=lyrics,
+        # 対応表の外の値は歌わせ方を壊すので、決めていないときは推定に任せる。
+        vocal_language="unknown" if language == "auto" else language,
         instrumental=bool(inp.get("instrumental", True)),
         bpm=inp.get("bpm"),
         duration=float(inp.get("duration_sec") or 30),
@@ -122,6 +131,10 @@ def handle(payload: dict) -> None:
             "payload": {
                 "bpm": inp.get("bpm"),
                 "duration_requested": inp.get("duration_sec"),
+                # 歌ったかどうかは聴かないと分からない。何を渡して作ったのかは
+                # 結果に残す（歌詞そのものは長いので、有無と言語だけ）。
+                "has_lyrics": bool(lyrics.strip()),
+                "vocal_language": language,
                 "lm_model": lm_model,
                 "lm_backend": lm_backend,
             },

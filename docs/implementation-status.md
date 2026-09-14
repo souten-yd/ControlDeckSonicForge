@@ -1018,3 +1018,20 @@ grant_id / audio_grant）を公開した。以前は `{"type": "object"}` とし
 - loop を fake worker で頼むと「audio is too short to loop」で断られる。fake は
   長さによらず 0.35 秒しか作らないので、これは正しい拒否である。実素材での成功は上記。
 - 音楽 GUI の**ブラウザ操作は引き続き NOT TESTED**（§13 と同じ理由）。
+
+## 15. 断りの符号を具体化する — 2026-09-14
+
+ControlDeck は Add-on の応答本文を呼び出し側へ流さない。内部の path や例外の文面を
+漏らさないための設計で、通るのは形の決まった短い符号だけである
+（`app/addons/execution.py` の `_upstream_error`）。したがって**符号が具体的でないと、
+何が悪いかは届かない**。実測 2026-09-14: 0.6.21 を入れた直後、OpenCode から歌詞なしで
+歌を頼むと、届いたのは「拡張機能の実行に失敗しました（invalid_request）」だけだった。
+歌詞が要ることは読み取れない。
+
+要求の断りに符号を付けた。`ValueError` の頭へ `missing_lyrics: ...` のように置き、
+`_validation_reason` が符号と理由へ割る。符号は `missing_lyrics` / `lyrics_ignored` /
+`unsupported_vocal_language` / `invalid_asset_reference` / `invalid_grant_reference` /
+`invalid_upload_reference` / `unknown_input_fields` / `missing_audio`。取り出せなければ
+従来どおり `invalid_request` にする。
+
+確認: 全 213 件の pytest が成功。

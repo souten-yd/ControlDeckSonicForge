@@ -72,7 +72,7 @@ class TaskRequest(BaseModel):
             if grant is not None and (
                 not isinstance(grant, str) or not grant.startswith("grant:")
             ):
-                raise ValueError("ASR input must use a scoped grant ID")
+                raise ValueError("invalid_grant_reference: ASR input must use a scoped grant ID")
             # Audio recorded or picked in the browser never becomes a ControlDeck
             # grant; it is uploaded to SonicForge and referenced by upload ID.
             upload = self.input.get("upload_id")
@@ -80,7 +80,7 @@ class TaskRequest(BaseModel):
                 not isinstance(upload, str)
                 or re.fullmatch(UPLOAD_PATTERN, upload) is None
             ):
-                raise ValueError("ASR upload reference is invalid")
+                raise ValueError("invalid_upload_reference: ASR upload reference is invalid")
             # 自分で作った音も書き起こせる。sonic.inspect は長さと状態しか返さず
             # 「言葉は sonic.transcribe で」と案内するのに、その transcribe が
             # asset を受け取らなかった（実測: asset_id を渡して 500）。
@@ -88,7 +88,7 @@ class TaskRequest(BaseModel):
             if asset is not None and (
                 not isinstance(asset, str) or not asset.startswith("asset:")
             ):
-                raise ValueError("ASR asset reference must be an asset: ID")
+                raise ValueError("invalid_asset_reference: ASR asset reference must be an asset: ID")
 
         if self.task == "speech.localization.batch":
             batch_id = self.input.get("batch_id")
@@ -139,20 +139,21 @@ class TaskRequest(BaseModel):
             lyrics = str(self.input.get("lyrics") or "").strip()
             if self.input.get("instrumental") is False and not lyrics:
                 raise ValueError(
-                    "vocal music requires input.lyrics; "
+                    "missing_lyrics: vocal music requires input.lyrics; "
                     "instrumental=false alone produces an instrumental track"
                 )
             if lyrics and self.input.get("instrumental") is not False:
                 # 逆向きの取り違えも黙って捨てない。歌詞を書いたのに
                 # instrumental が既定の true のままだと歌詞は無視される。
                 raise ValueError(
-                    "input.lyrics is ignored while instrumental is true; "
-                    "set instrumental=false to sing them"
+                    "lyrics_ignored: input.lyrics is ignored while instrumental is "
+                    "true; set instrumental=false to sing them"
                 )
             language = self.input.get("vocal_language")
             if language is not None and language not in VOCAL_LANGUAGES:
                 raise ValueError(
-                    f"vocal_language must be one of {', '.join(sorted(VOCAL_LANGUAGES))}"
+                    "unsupported_vocal_language: vocal_language must be one of "
+                    + ", ".join(sorted(VOCAL_LANGUAGES))
                 )
         known = INPUT_FIELDS.get(self.task)
         if known is not None:
@@ -165,6 +166,7 @@ class TaskRequest(BaseModel):
             )
             if unknown:
                 raise ValueError(
+                    "unknown_input_fields: "
                     f"{self.task} does not read these input fields: {', '.join(unknown)}"
                 )
         return self

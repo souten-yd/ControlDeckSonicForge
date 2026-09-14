@@ -1308,3 +1308,34 @@ def test_a_malformed_request_is_refused_with_its_reason_not_a_500(env):
         })
         assert silent_vocal.status_code == 422, silent_vocal.text
         assert 'lyrics' in silent_vocal.json()['detail']['message']
+
+
+def test_each_refusal_carries_its_own_code_so_the_reason_survives_controldeck(env):
+    """符号が具体的でないと、何が悪いかは呼び出し側へ届かない。
+
+    ControlDeck は Add-on の応答本文を流さない。内部の path や例外の文面を漏らさ
+    ないためで、通るのは形の決まった短い符号だけである。実測 2026-09-14: OpenCode
+    から歌詞なしで歌を頼むと、届いたのは「拡張機能の実行に失敗しました
+    （invalid_request）」だけで、歌詞が要ることは分からなかった。
+    """
+    m = load_app()
+    cases = [
+        ({'task': 'music.generate',
+          'input': {'prompt': 'x', 'instrumental': False}}, 'missing_lyrics'),
+        ({'task': 'music.generate',
+          'input': {'prompt': 'x', 'lyrics': 'la'}}, 'lyrics_ignored'),
+        ({'task': 'music.generate',
+          'input': {'prompt': 'x', 'instrumental': False, 'lyrics': 'la',
+                    'vocal_language': 'klingon'}}, 'unsupported_vocal_language'),
+        ({'task': 'music.generate',
+          'input': {'prompt': 'x', 'duration_seconds': 20}}, 'unknown_input_fields'),
+    ]
+    with TestClient(m.app) as c:
+        for body, expected in cases:
+            response = c.post('/addon/v1/agent/generate', json=body)
+            assert response.status_code == 422, response.text
+            assert response.json()['detail']['code'] == expected, response.text
+
+        bad_asset = c.post('/addon/v1/agent/transcribe',
+                           json={'input': {'asset_id': 'nope'}})
+        assert bad_asset.json()['detail']['code'] == 'invalid_asset_reference', bad_asset.text

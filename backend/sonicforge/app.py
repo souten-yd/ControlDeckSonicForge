@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shutil
 import sqlite3
 import uuid
@@ -550,20 +551,36 @@ def _workflow_body(task: str, value: dict[str, Any]) -> TaskRequest:
         # 「SonicForge が壊れた」に見えて、直せる場所が分からない
         # （実測: sonic.transcribe に asset_id を渡して 500、何を渡せばよいかは
         # どこにも出ない）。断る理由は本文に載せる。
+        code, message = _validation_reason(exc)
         raise HTTPException(status_code=422, detail={
-            "code": "invalid_request",
-            "message": _validation_message(exc),
+            "code": code, "message": message,
         }) from exc
 
 
-def _validation_message(exc: ValidationError) -> str:
-    """pydantic の指摘を 1 行にまとめる。どこが悪いかを先に書く。"""
-    parts = []
+# 断りの符号。`missing_lyrics: ...` のように、理由の頭へ付けて運ぶ。
+#
+# ControlDeck は Add-on の応答本文を呼び出し側へ流さない。内部の path や例外の
+# 文面を漏らさないためで、通るのは形の決まった短い符号だけである（Host 側の
+# addons/execution.py）。つまり **符号が具体的でないと、何が悪いかは届かない**。
+# 実測 2026-09-14: OpenCode から歌詞なしで歌を頼むと、呼び出し側に届くのは
+# 「拡張機能の実行に失敗しました（invalid_request）」だけだった。
+_REASON_CODE = re.compile(r"^([a-z][a-z0-9_]{2,63}): (.+)$", re.S)
+
+
+def _validation_reason(exc: ValidationError) -> tuple[str, str]:
+    """pydantic の指摘から、符号と 1 行の理由を取り出す。"""
+    parts: list[str] = []
+    code = ""
     for error in exc.errors()[:4]:
-        location = ".".join(str(item) for item in error.get("loc", ()) if item != "__root__")
         message = str(error.get("msg") or "").removeprefix("Value error, ")
+        matched = _REASON_CODE.match(message)
+        if matched:
+            if not code:
+                code = matched.group(1)
+            message = matched.group(2)
+        location = ".".join(str(item) for item in error.get("loc", ()) if item != "__root__")
         parts.append(f"{location}: {message}" if location else message)
-    return "; ".join(parts) or "request is invalid"
+    return code or "invalid_request", "; ".join(parts) or "request is invalid"
 
 
 async def _run_task(

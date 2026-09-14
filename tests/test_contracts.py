@@ -318,3 +318,43 @@ def test_duration_contract_publishes_the_per_task_ranges():
     assert "600" in field["description"] and "10 秒未満" in field["description"]
     # 音楽が 0.2 秒刻みに落ちることも書く。頼んだ長さと違うものが返るため。
     assert "0.2" in field["description"]
+
+
+def test_vocal_language_is_read_from_the_lyrics_when_nobody_chose_one():
+    """言語を渡さないと、日本語の歌詞では歌わない。
+
+    実測 2026-09-14: 同じ歌詞・同じ prompt で 30 秒を 2 本作り、
+    `vocal_language: "ja"` を指定したほうだけが歌った。指定しないほうは伴奏だけ。
+    画面の簡易モードは言語を選ぶ場所を持たないので、そこから頼むと必ずこれに
+    当たっていた。歌詞を書いた人は言語を知っている——書かれた文字を見れば
+    分かるものを、モデルに当てさせない。
+    """
+    from sonicforge.schemas import TaskRequest
+
+    def language_for(lyrics, **extra):
+        return TaskRequest.model_validate({
+            "task": "music.generate",
+            "input": {"prompt": "x", "instrumental": False, "lyrics": lyrics, **extra},
+        }).input.get("vocal_language")
+
+    assert language_for("[verse]\n夜を駆けて　光を掴む") == "ja"
+    assert language_for("서울의 밤") == "ko"
+    assert language_for("夜空") == "zh"          # 仮名が無い漢字だけ
+    assert language_for("Привет мир") == "ru"
+    # ラテン文字は英語・スペイン語などを見分けられない。決めずに任せる。
+    assert language_for("[chorus]\nrise into the light") is None
+    # 人が選んだものは尊重する。食い違っていても上書きしない。
+    assert language_for("夜を駆けて", vocal_language="en") == "en"
+
+
+def test_vocal_language_contract_says_it_is_read_from_the_script():
+    """呼ぶ側が「省略すると何が起きるか」を読めるようにする。"""
+    import json
+    from pathlib import Path as P
+
+    field = json.loads(
+        (P(__file__).resolve().parents[1] / "schemas" / "generate-request.json")
+        .read_text(encoding="utf-8")
+    )["properties"]["input"]["properties"]["vocal_language"]
+    assert "自動で決める" in field["description"]
+    assert "歌わない" in field["description"]

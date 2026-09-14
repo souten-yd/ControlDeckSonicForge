@@ -2,7 +2,7 @@
   "api_version": "2",
   "id": "sonic-forge",
   "name": "SonicForge",
-  "version": "0.6.25",
+  "version": "0.6.26",
   "description": "Japanese and English speech, game audio and music generation",
   "publisher": "souten-yd",
   "requires": {
@@ -127,7 +127,7 @@
       },
       {
         "id": "sonic.generate",
-        "label": "Generate one line of speech, a sound or music",
+        "label": "Generate speech, a sound effect, ambience or music (with lyrics, loop)",
         "endpoint": "/addon/v1/agent/generate",
         "schema_path": "/schemas/generate-request.json",
         "permission": "workflows.run"
@@ -169,7 +169,7 @@
       },
       {
         "id": "sonic.transcribe",
-        "label": "Transcribe audio",
+        "label": "Transcribe audio from an asset, an upload or a project file",
         "endpoint": "/addon/v1/agent/transcribe",
         "schema_path": "/schemas/speech-transcribe-request.json",
         "permission": "workflows.run"

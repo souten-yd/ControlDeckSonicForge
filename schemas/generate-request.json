@@ -56,9 +56,13 @@
         },
         "duration_sec": {
           "type": "number",
-          "minimum": 1,
-          "maximum": 300,
-          "description": "作る長さ（秒）。省略すると効果音は 3 秒、音楽は 30 秒になる。"
+          "minimum": 0.1,
+          "maximum": 600,
+          "description": "作る長さ（秒）。**上限は task ごとに違う**。audio.sfx.generate / audio.ambience.generate は 0.1〜120 秒、music.generate は 1〜600 秒。範囲の外は理由つきで断る。省略すると効果音は 3 秒、音楽は 30 秒になる。音楽は約 0.2 秒刻みに落ちる（1 秒を 5 個の code で表すため。実測: 22.5 秒 → 22.4 秒）。また 10 秒未満はモデルが想定する範囲の外なので、出来は保証しない（出力はされる）。効果音は頼んだ長さちょうどに出る。"
+        },
+        "loop": {
+          "type": "boolean",
+          "description": "audio.sfx.generate / audio.ambience.generate / music.generate: 繰り返し流す素材にする。終わりを始まりへ重ねて渡すので、繋ぎ目が聞こえない。**重ねたぶん短くなる**（既定 1.5 秒、素材が短いときはその 1/4 まで）。実際の長さは結果の duration_sec に出る。"
         },
         "bpm": {
           "type": "number",
@@ -69,6 +73,28 @@
         "instrumental": {
           "type": "boolean",
           "description": "music.generate: 歌を入れないか。既定は true（インスト）。"
+        },
+        "lyrics": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "music.generate: 歌わせる歌詞。**instrumental を false にするだけでは歌にならない。**歌詞が空のまま歌えと言われたモデルは伴奏だけを返す。行を改行で分け、[verse] / [chorus] のような節の目印を入れると構成が安定する。instrumental が true のときは無視される。"
+        },
+        "vocal_language": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "ja",
+            "en",
+            "zh",
+            "ko",
+            "es",
+            "fr",
+            "de",
+            "it",
+            "pt",
+            "ru"
+          ],
+          "description": "music.generate: 歌詞を歌わせる言語。省略（auto）ならモデルが歌詞から推定する。歌詞の言語と食い違う値を入れると発音が崩れる。"
         },
         "emotion": {
           "type": "string",

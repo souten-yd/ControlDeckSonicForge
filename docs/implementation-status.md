@@ -924,3 +924,238 @@ Installed-runtime acceptance passed:
 - real OpenCode `sonic.inspect(job_id)` returned that Job in terminal `succeeded` state with the same Asset, proving the updated schema was re-projected after installation.
 
 The authenticated ControlDeck parent-page navigation was **NOT TESTED** in a real signed-in Chrome session during this release pass because no reusable browser credential was available. The persisted effective manifest, bridge-mode 320 px layout, direct installed UI and post-restart service/API paths were checked. The existing physical M5 limitation remains **NOT TESTED** and is unrelated to this release.
+
+## 13. 歌入り音楽の歌詞欠落と、申告だけの loop — 2026-09-14
+
+`music.generate` の `instrumental: false` は受理されジョブも成功するが、歌にならない。
+worker が `GenerationParams` を組むとき `caption` / `instrumental` / `bpm` / `duration` /
+`seed` / `shift` の 6 つしか渡しておらず、ACE-Step の `lyrics`（既定 `""`）が空のままだった。
+空の歌詞で歌えと言われたモデルは伴奏だけを返す。長さも合っていてジョブも成功するので、
+頼んだ側からは「歌を頼んだのに歌っていない」としか見えない。実測: `instrumental=false` で
+作った 30 秒を聴いた利用者の判定は「歌に聞こえない。音楽だけ」。
+
+直したもの:
+
+- `schemas/generate-request.json` の `input` に `lyrics`（4096 文字）と
+  `vocal_language`（auto/ja/en/zh/ko/es/fr/de/it/pt/ru）を追加。
+- `INPUT_FIELDS["music.generate"]` に同じ 2 つを追加。
+- 歌ありで歌詞が空、または歌詞ありで `instrumental` が既定 true のままという
+  取り違えを要求の検証で断るようにした。黙って違うものを作らない。
+- `worker_packs/acestep/worker.py` が `lyrics` と `vocal_language` を渡す。
+  `auto` は ACE-Step の `unknown` へ写す。結果 payload に `has_lyrics` と
+  `vocal_language` を残す。
+- 音楽 GUI に歌詞欄を追加。「歌なし（BGM）」を外した時点で現れる。簡易モードは
+  ひな形（サビだけ / Aメロ＋サビ / 短いループ / 空にする）から書き始められ、
+  詳細モードで歌う言語を選べる。空のまま作ろうとすると送信前に止める。
+- capabilities の `loop` 申告を外した。受け取る入口も繋ぎ目を作る worker も無い。
+  実測: ループ前提の BGM を 30 曲頼まれて、ループにならないまま出来上がった。
+- `pipeline_runtime` の SFX 段が `loop` と `category` を転送していた。どちらも
+  `INPUT_FIELDS` に無いので、その段を含む pipeline は未知項目として全体が止まる。
+  転送を `duration_sec` だけに絞った。
+
+確認したこと:
+
+- 全 206 件の pytest が成功（追加した 6 件を含む）。
+- リポジトリの worker を直叩きし、日本語歌詞 + `vocal_language: "ja"` で 30 秒を生成。
+  結果 payload は `has_lyrics: true` / `vocal_language: "ja"`。歌になっていることを
+  利用者が耳で確認。半音格子から外れたピッチの割合は、歌詞なし 10.5% に対し
+  歌詞あり 13.7〜20.5%。
+- 音楽 GUI の**ブラウザ操作は NOT TESTED**。Claude in Chrome 拡張が未接続で、
+  headless Chrome も CDP／`--dump-dom` の双方で応答しなかった。静的には、
+  追加した 4 つの id が HTML に在ること、`app.js` が触る id に欠けが無いこと、
+  ja/en の文言表に欠けが無いことを確認済み。実ブラウザでの表示・操作確認が残っている。
+
+## 14. loop の実装、書き起こしの入口、要求の断り方 — 2026-09-14
+
+§13 で申告だけ外した `loop` を実装した。あわせて、要求の作り方が違うだけで 500 を
+返していた経路を直した。
+
+**loop**（`backend/sonicforge/audio_loop.py`）
+
+終わりの数秒を始まりへ重ねて渡す（cross-fade）ことで、繰り返しても切れ目が聞こえない
+1 本にする。重ねる幅は既定 1.5 秒で、短い素材では全体の 1/4 で頭打ちにする。重ねた
+ぶん短くなるので、実際の長さと重ね幅を結果 payload（`loop` / `loop_crossfade_sec` /
+`duration_sec`）へ残す。契約の説明にも「短くなる」と書いた。
+
+切り出しは `-ss` / `-t` で入力側に指定する。filter の `atrim` で切ってから
+`acrossfade` へ渡すと**出力が 0 秒になる**（実測: 30 秒の素材から 0.0 秒）。
+同じ file を 2 回入力して `[0:a][1:a]acrossfade` へ渡す形なら通る。
+
+実測: 30.00 秒の素材 → 28.50 秒のループ素材（ffmpeg exit 0、重ね 1.50 秒）。
+`audio.sfx.generate` / `audio.ambience.generate` / `music.generate` で頼める。
+GUI にも「繰り返し用にする（継ぎ目なし）」を SFX と音楽の両方へ置いた。
+繋ぎ目が実際に消えているかは**耳で判定するもので、端のサンプル段差では測れない**
+（両端が無音に近い素材では、そのまま繰り返しても段差が出ない）。ループ点をまたぐ
+6 秒を切り出して聴き比べる形で確認した。
+
+**書き起こしの入口**
+
+`sonic.transcribe` は `grant:` と `upload_id` しか受け取らず、自分で作った `asset:` を
+渡せなかった。`sonic.inspect` は「言葉は sonic.transcribe で」と案内するのに、その
+transcribe が asset を受け取らない状態だった。`asset_id` を受け取るようにし、
+`speech-transcribe-request.json` の `input` に 4 つの道（asset_id / upload_id /
+grant_id / audio_grant）を公開した。以前は `{"type": "object"}` としか書いておらず、
+呼ぶ側は名前を当てるしかなかった。
+
+音の在りかを 1 つも渡さない要求は入口で断る。この判定は API の入口（`_workflow_body`）
+に置く。model 側へ置くと、自分で file を staging してから要求を組む局所 API
+（`local_api`）まで巻き添えになる。
+
+**断り方**
+
+`_workflow_body` の `TaskRequest.model_validate` が失敗すると 500 が返っていた。
+要求の作り方が違うだけなのに、呼ぶ側からは「SonicForge が壊れた」に見えて、直せる
+場所が分からない（実測 2026-09-14: `sonic.transcribe` に `asset_id` を渡して 500、
+何を渡せばよいかはどこにも出ない）。422 に理由を載せて返すようにした。batch は
+その理由へ「何件目か」を足して、自分の `invalid_generation_batch` のまま返す。
+
+確認したこと:
+
+- 全 212 件の pytest が成功。
+- 別ポートで起こした実サービスへ、4 つの誤りがそれぞれ理由つきで 422 を返すこと、
+  正しい歌入りの要求と `asset_id` 指定の書き起こしが通ることを確認。
+  capabilities は `loop` / `lyrics` / `vocal_language` を申告する。
+- loop を fake worker で頼むと「audio is too short to loop」で断られる。fake は
+  長さによらず 0.35 秒しか作らないので、これは正しい拒否である。実素材での成功は上記。
+- 音楽 GUI の**ブラウザ操作は引き続き NOT TESTED**（§13 と同じ理由）。
+
+## 15. 断りの符号を具体化する — 2026-09-14
+
+ControlDeck は Add-on の応答本文を呼び出し側へ流さない。内部の path や例外の文面を
+漏らさないための設計で、通るのは形の決まった短い符号だけである
+（`app/addons/execution.py` の `_upstream_error`）。したがって**符号が具体的でないと、
+何が悪いかは届かない**。実測 2026-09-14: 0.6.21 を入れた直後、OpenCode から歌詞なしで
+歌を頼むと、届いたのは「拡張機能の実行に失敗しました（invalid_request）」だけだった。
+歌詞が要ることは読み取れない。
+
+要求の断りに符号を付けた。`ValueError` の頭へ `missing_lyrics: ...` のように置き、
+`_validation_reason` が符号と理由へ割る。符号は `missing_lyrics` / `lyrics_ignored` /
+`unsupported_vocal_language` / `invalid_asset_reference` / `invalid_grant_reference` /
+`invalid_upload_reference` / `unknown_input_fields` / `missing_audio`。取り出せなければ
+従来どおり `invalid_request` にする。
+
+確認: 全 213 件の pytest が成功。
+
+## 16. 長さの範囲を実体へ合わせる — 2026-09-14
+
+`duration_sec` の範囲 1〜300 秒を全 task で共用していた。実体はこうである。
+
+| 層 | 音楽 | 効果音・環境音 |
+|---|---|---|
+| エンジン | ACE-Step 10〜600（下限は助言） | Stable Audio 0.1〜120 |
+| 契約（修正前） | 1〜300 | 1〜300 |
+| GUI 詳細（修正前） | 10〜600・step 1 | 0.1〜120・step 0.1 |
+
+食い違いの実害:
+
+- **音楽の上限が半分しか使えなかった**。ACE-Step の上限は GPU の VRAM 段で決まり、
+  この機械（AMD Radeon AI PRO R9700 / 31.86 GB → tier `unlimited`）は
+  `max_duration_with_lm = 600`。契約が 300 で止めていた。
+- **GUI 詳細は 600 まで入力できる**のに契約が 300 で弾く。押してから 422 になる。
+- **効果音の 0.1〜0.9 秒**も同じ形で、入力欄は 0.1 から許すのに契約の下限 1 が弾く
+  （実測: 0.5 秒 → 422 `input.duration_sec`）。
+- 音楽の詳細欄が `step="1"` で、API は小数を受けるのに UI から入れられない。
+
+直したもの: `DURATION_LIMITS` を task ごとに持ち、契約は和集合（0.1〜600）を公開して
+正確な境目は検証が持つ。範囲外は `duration_out_of_range` で断る。GUI は音楽 step 0.2、
+簡易チップに 5m / 10m を追加、効果音・音楽それぞれに粒度の注記を置いた。
+
+**音楽の下限は締めなかった。** ACE-Step は 10〜600 と名乗るが、その下限は出力長の
+下限ではなく生成トークン数の見積りに効くだけで、実測では 5 秒を頼むと 5.12 秒が返る。
+既存の batch 試験も 5 秒の曲を作っている。動くものを契約で塞がず、10 秒未満は出来を
+保証しないという注意を説明へ書いた。
+
+実測（worker 直叩き、AMD Radeon AI PRO R9700）:
+
+| 頼んだ | 実際 | 所要 |
+|---|---|---|
+| 600 秒（音楽） | **600.00 秒**（115.2 MB、VRAM 山 22.4 GB） | 657 秒 |
+| 22.5 秒（音楽） | 22.40 秒 | — |
+| 5 秒（音楽） | 5.12 秒 | — |
+| 1.3 秒（効果音） | 1.30 秒 | — |
+
+音楽が約 0.2 秒刻みに落ちるのは、1 秒を 5 個の code で表し `int(duration * 5)` で
+切るため。効果音は頼んだ長さちょうどに出る。
+
+確認: 全 216 件の pytest が成功。GUI のブラウザ操作は引き続き NOT TESTED。
+
+## 17. 音楽 GUI のブラウザ確認 — 2026-09-14
+
+§13〜§16 で NOT TESTED として残していた音楽 GUI のブラウザ確認を、利用者が実機の
+ブラウザ（ControlDeck 組み込み、0.6.23 稼働中）で行い、**追加した項目が表示される
+ことを確認した**。これで §13 の「実ブラウザでの表示確認が残っている」は解消する。
+
+確認されたのは項目の表示である。ひな形チップを押して歌詞が入ること、空のまま
+「作る」を押して送信前に止まること、ループ切り替えと歌う言語が生成要求へ乗ること、
+320px 幅での崩れの有無は、**この確認の対象外であり NOT TESTED のまま**。
+これらは API 側では実サービスへ叩いて確認済み（§14〜§16）で、残るのは画面からの
+操作経路だけである。
+
+なお、この確認に至るまでの検証環境の制約を記録しておく: Claude in Chrome 拡張は
+未接続で、headless Chrome も CDP（`Page.navigate` 後の評価が返らない）と
+`--dump-dom`（0 バイト・タイムアウト）の双方で応答しなかった。自動での画面確認は
+この機械では取れていない。
+
+## 18. ループが常に「短すぎる」と断っていた — 2026-09-14
+
+§14 で入れたループ加工は、**一度も成功していなかった**。実機で 120 秒の曲に
+ループを頼んだ利用者に `audio is too short to loop` が出た。
+
+原因は呼び出し側の 1 行。`inspect_wav` が返すのは `duration_ms` なのに
+`meta.get("duration_sec")` を読んでいたため、素材の長さが常に 0 秒と判じられ、
+`loop_argv` の下限（0.5 秒）に当たって断られていた。結果 payload の
+`duration_sec` も同じ誤りで、常に 0 になっていた。
+
+**見逃した理由を記録する。** §14 の確認は `loop_argv` が組み立てる ffmpeg の
+引数と、その引数を手で実行した結果（30.00 秒 → 28.50 秒）だけを見ていた。
+素材の長さを呼び出し側がどう取るかは通していない。さらに fake worker で
+ループを頼んだときに出た `audio is too short to loop` を「fake は 0.35 秒しか
+作らないので正しい拒否」と読んだが、実際はこの不具合が出ていた。**症状を見て
+先に用意した説明に合わせてしまった**のがまずい。
+
+直したもの: `_apply_loop` が `duration_ms` を秒へ直して使う。あわせて、
+引数の形ではなく**後処理を通しで試す**試験を足した（実 wav を 6 秒で作り、
+4.5 秒に縮み、`loop_crossfade_sec` が 1.5 になることを見る）。修正前のコードに
+当てると `audio is too short to loop` で落ちることも確認した。
+
+確認: 全 218 件の pytest が成功。
+
+## 19. ループの継ぎ目に穴が残っていた — 2026-09-14
+
+0.6.24 のループ加工は長さこそ正しく縮むが、**継ぎ目に穴が残る**。120 秒のループ BGM を
+聴いた利用者の判定は「めっちゃ継ぎ目が空いてる」。
+
+測ると明らか。118.5 秒のループ素材の、ループ点前後 0.25 秒ごとの RMS（全体比）:
+
+```
+終わり -2.00s : 0.00 倍   ← 完全な無音
+終わり -1.00s : 0.20 倍
+頭     +0.00s : 0.58 倍
+```
+
+ACE-Step は曲の頭と尻をフェードで作る。その**無音の尻を無音の頭へ重ねていた**ので、
+重ねても無音のままで穴が残る。
+
+直したもの: 重ねる前に `silencedetect` で端の無音を見つけ、中身のある範囲だけを
+重ねる。曲の途中の休符は残す（そこを削ると別の曲になる）。端の判定が外れて削りすぎた
+場合は元のまま扱う。落としたぶんは `loop_trimmed_sec` として結果へ残す。
+
+あわせて重ね方の曲線を `tri` から `qsin` にした。重ねる 2 つは無関係な波形なので、
+等ゲイン（tri）だと足したときに音量が落ちる。**ただし曲線に万能解は無い**。実測、
+継ぎ目前後の RMS（1.00 が平坦）:
+
+| 素材 | tri | qsin | log |
+|---|---|---|---|
+| 端が静かな 30 秒 | 最小 0.13 | 0.18 | 0.34 |
+| 端が大きい 60 秒 | 山 1.23 | 1.70 | 2.21 |
+
+`log` は凹まない代わりに膨らむ。素材で最良が入れ替わるので、教科書どおりの等電力を
+既定にした。効きの大きさは曲線より**端の無音を削るかどうか**のほうが桁違いに大きい
+（同じ素材で最小 0.03 倍 → 0.23 倍）。
+
+**見逃した理由を記録する。** §14 と §18 の確認は「長さが縮むこと」しか見ていない。
+継ぎ目の質は別の量である。端のサンプル段差（`abs(x[0]-x[-1])`）も役に立たない——
+両端が無音なら段差は出ないので、むしろ良い値が出てしまう。**見るべきは継ぎ目前後の
+RMS 包絡**で、これは今回そのまま試験にした。
+
+確認: 全 219 件の pytest が成功。

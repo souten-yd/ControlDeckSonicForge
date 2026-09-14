@@ -146,6 +146,7 @@
               <div id="sfx-kind-chips" class="chips" role="radiogroup" data-i18n-label="sfxKind" aria-label="音の種類"></div>
               <p class="section-label" data-i18n="length">長さ</p>
               <div id="sfx-length-chips" class="chips" role="radiogroup" data-i18n-label="length" aria-label="長さ"></div>
+              <label class="check"><input id="sfx-loop" type="checkbox"> <span data-i18n="loopToggle">繰り返し用にする（継ぎ目なし）</span></label>
             </div>
 
             <!-- 音楽 -->
@@ -158,6 +159,17 @@
               <p class="section-label" data-i18n="length">長さ</p>
               <div id="music-length-chips" class="chips" role="radiogroup" data-i18n-label="length" aria-label="長さ"></div>
               <label class="check"><input id="music-instrumental" type="checkbox" checked> <span data-i18n="instrumental">歌なし（BGM）</span></label>
+              <label class="check"><input id="music-loop" type="checkbox"> <span data-i18n="loopToggle">繰り返し用にする（継ぎ目なし）</span></label>
+              <p id="music-loop-hint" class="hint" hidden data-i18n="loopHint">終わりを始まりへ重ねるので、重ねたぶん（約1.5秒）短くなります。</p>
+              <!-- 歌ありのときだけ出す。歌詞が無いと歌にならないので、
+                   チェックを外した人が必ず通る場所に置く。 -->
+              <div id="music-lyrics-block" hidden>
+                <p class="section-label" data-i18n="lyricsPresets">歌詞のひな形</p>
+                <div id="music-lyrics-chips" class="chips" role="group" data-i18n-label="lyricsPresets" aria-label="歌詞のひな形"></div>
+                <label class="field-label" for="music-lyrics" data-i18n="lyricsLabel">歌詞</label>
+                <textarea id="music-lyrics" maxlength="4096" rows="6" placeholder="[verse]&#10;夜を駆けて　光を掴む&#10;[chorus]&#10;立ち上がれ　今　届くまで"></textarea>
+                <p class="hint" data-i18n="lyricsHint">歌詞が空だと歌わずに伴奏だけになります。[verse] / [chorus] で節を分けると構成が安定します。</p>
+              </div>
             </div>
 
             <div data-adv-slot="task"></div>
@@ -575,9 +587,10 @@
     <template data-adv-template="task-sfx">
       <div class="advanced">
         <p class="section-label" data-i18n="advancedSfx">効果音の詳細設定</p>
-        <label data-i18n="lengthSeconds">長さ（0.1〜120秒）
+        <label data-i18n="lengthSecondsSfx">長さ（0.1〜120秒）
           <input id="advanced-duration" type="number" min="0.1" max="120" step="0.1" value="3">
         </label>
+        <p class="hint" data-i18n="sfxDurationHint">頼んだ長さちょうどに出ます。0.1秒刻みで指定できます。</p>
         <p class="hint" data-i18n="sfxAmbienceHint">「環境音」を選ぶと、単発の効果音ではなく持続する環境音として生成します。</p>
       </div>
     </template>
@@ -586,14 +599,19 @@
       <div class="advanced">
         <p class="section-label" data-i18n="advancedMusic">音楽の詳細設定</p>
         <div class="form-row">
-          <label data-i18n="lengthSeconds">長さ（10〜600秒）
-            <input id="advanced-duration" type="number" min="10" max="600" step="1" value="30">
+          <label data-i18n="lengthSecondsMusic">長さ（10〜600秒）
+            <input id="advanced-duration" type="number" min="1" max="600" step="0.2" value="30">
           </label>
           <label data-i18n="bpm">テンポ（BPM）
             <input id="advanced-bpm" type="number" min="30" max="300" step="1" placeholder="指定しない">
           </label>
         </div>
         <div id="advanced-bpm-chips" class="chips" role="group" data-i18n-label="bpm" aria-label="テンポ"></div>
+        <p class="hint" data-i18n="musicDurationHint">約0.2秒刻みに落ちます（22.5秒を頼むと22.4秒）。10秒未満も作れますが、モデルの想定外なので出来は保証しません。</p>
+        <label data-i18n="vocalLanguage">歌う言語
+          <select id="advanced-vocal-language"></select>
+        </label>
+        <p class="hint" data-i18n="vocalLanguageHint">歌詞の言語と食い違う値を選ぶと発音が崩れます。自動なら歌詞から推定します。</p>
       </div>
     </template>
 

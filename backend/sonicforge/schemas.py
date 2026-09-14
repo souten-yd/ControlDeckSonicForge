@@ -15,6 +15,8 @@ TaskName = Literal[
     "audio.ambience.generate",
     "music.generate",
 ]
+# 書き起こしが音を受け取る道。どれか 1 つが要る。
+ASR_SOURCE_FIELDS = ("asset_id", "upload_id", "grant_id", "audio_grant")
 GRANT_PATTERN = r"^grant:[A-Za-z0-9._:-]{1,256}$"
 UPLOAD_PATTERN = r"^upload:[0-9a-f]{32}$"
 
@@ -70,7 +72,7 @@ class TaskRequest(BaseModel):
             if grant is not None and (
                 not isinstance(grant, str) or not grant.startswith("grant:")
             ):
-                raise ValueError("ASR input must use a scoped grant ID")
+                raise ValueError("invalid_grant_reference: ASR input must use a scoped grant ID")
             # Audio recorded or picked in the browser never becomes a ControlDeck
             # grant; it is uploaded to SonicForge and referenced by upload ID.
             upload = self.input.get("upload_id")
@@ -78,7 +80,15 @@ class TaskRequest(BaseModel):
                 not isinstance(upload, str)
                 or re.fullmatch(UPLOAD_PATTERN, upload) is None
             ):
-                raise ValueError("ASR upload reference is invalid")
+                raise ValueError("invalid_upload_reference: ASR upload reference is invalid")
+            # 自分で作った音も書き起こせる。sonic.inspect は長さと状態しか返さず
+            # 「言葉は sonic.transcribe で」と案内するのに、その transcribe が
+            # asset を受け取らなかった（実測: asset_id を渡して 500）。
+            asset = self.input.get("asset_id")
+            if asset is not None and (
+                not isinstance(asset, str) or not asset.startswith("asset:")
+            ):
+                raise ValueError("invalid_asset_reference: ASR asset reference must be an asset: ID")
 
         if self.task == "speech.localization.batch":
             batch_id = self.input.get("batch_id")
@@ -118,6 +128,47 @@ class TaskRequest(BaseModel):
             self.input.get("prompt") or self.input.get("description") or ""
         ).strip():
             raise ValueError("generation requires input.prompt or input.description")
+        limits = DURATION_LIMITS.get(self.task)
+        if limits is not None and self.input.get("duration_sec") is not None:
+            low, high = limits
+            try:
+                seconds = float(self.input["duration_sec"])
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "invalid_duration: duration_sec must be a number"
+                ) from None
+            if not low <= seconds <= high:
+                raise ValueError(
+                    f"duration_out_of_range: {self.task} makes {low:g} to {high:g} "
+                    f"seconds; {seconds:g} is outside that"
+                )
+        if self.task == "music.generate":
+            # 歌ありは歌詞が要る。instrumental を false にするだけでは歌にならない。
+            #
+            # ACE-Step の lyrics 既定は空文字で、空のまま歌えと言われたモデルは
+            # 伴奏だけを返す。ジョブは成功し、長さも合っているので、頼んだ側からは
+            # 「歌を頼んだのに歌っていない」としか見えない（実測 2026-09-14:
+            # instrumental=false で作った 30 秒を聴いて「歌に聞こえない。音楽だけ」）。
+            # 黙って伴奏を返すより、何が足りないかを言って断る。
+            lyrics = str(self.input.get("lyrics") or "").strip()
+            if self.input.get("instrumental") is False and not lyrics:
+                raise ValueError(
+                    "missing_lyrics: vocal music requires input.lyrics; "
+                    "instrumental=false alone produces an instrumental track"
+                )
+            if lyrics and self.input.get("instrumental") is not False:
+                # 逆向きの取り違えも黙って捨てない。歌詞を書いたのに
+                # instrumental が既定の true のままだと歌詞は無視される。
+                raise ValueError(
+                    "lyrics_ignored: input.lyrics is ignored while instrumental is "
+                    "true; set instrumental=false to sing them"
+                )
+            language = self.input.get("vocal_language")
+            if language is not None and language not in VOCAL_LANGUAGES:
+                raise ValueError(
+                    "unsupported_vocal_language: vocal_language must be one of "
+                    + ", ".join(sorted(VOCAL_LANGUAGES))
+                )
         known = INPUT_FIELDS.get(self.task)
         if known is not None:
             # 読まない項目は黙って捨てない。duration_seconds と書いた要求が
@@ -129,6 +180,7 @@ class TaskRequest(BaseModel):
             )
             if unknown:
                 raise ValueError(
+                    "unknown_input_fields: "
                     f"{self.task} does not read these input fields: {', '.join(unknown)}"
                 )
         return self
@@ -140,16 +192,45 @@ class TaskRequest(BaseModel):
 # 間違えた要求は既定値で作られ、頼んだ側からは「頼んだとおりに作られなかった」
 # ようにしか見えない（実測: duration_seconds と書いた 20 秒の依頼が 30 秒で
 # 返った）。schemas/generate-request.json の説明文と対になっている。
+# task ごとに作れる長さが違う。1 つの範囲を全 task で共用していたため、
+# 契約の 1〜300 秒はどちらにも合っていなかった。
+#
+# 音楽（ACE-Step）: 実力は GPU の VRAM 段で決まり、この機械（31.9GB / tier
+# unlimited）では 600 秒。契約が 300 で止めていたので半分が使えなかった。
+# 下限は締めない。ACE-Step が自分で名乗る範囲は 10〜600 だが、下限は出力長の
+# 下限ではなく生成トークン数の見積りに効くだけで、実測では 5 秒を頼むと
+# 5.12 秒が返る。動くものを契約で塞がない（10 秒未満は出来を保証しないという
+# 注意は説明に書く）。
+# 効果音・環境音（Stable Audio）: worker 側が 0.1〜120 秒で受ける。
+# 契約の下限 1 のせいで、0.1〜0.9 秒は画面から入力できても弾かれていた。
+DURATION_LIMITS: dict[str, tuple[float, float]] = {
+    "audio.sfx.generate": (0.1, 120.0),
+    "audio.ambience.generate": (0.1, 120.0),
+    "music.generate": (1.0, 600.0),
+}
+# 契約に書く範囲は全 task の和集合。task ごとの正確な境目は下の検証で見る。
+DURATION_MIN = min(low for low, _ in DURATION_LIMITS.values())
+DURATION_MAX = max(high for _, high in DURATION_LIMITS.values())
+
+# 歌わせられる言語。ACE-Step の VALID_LANGUAGES の部分集合で、"auto" は
+# 「歌詞から推定させる」（worker が "unknown" へ写す）。
+VOCAL_LANGUAGES = frozenset({
+    "auto", "ja", "en", "zh", "ko", "es", "fr", "de", "it", "pt", "ru",
+})
+
 INPUT_FIELDS: dict[str, frozenset[str]] = {
     "speech.tts.synthesize": frozenset({
         "text", "voice_id", "speaker", "style", "emotion", "reference_text",
         "reference_grant", "upload_id",
     }),
-    "speech.asr.transcribe": frozenset({"audio_grant", "grant_id", "upload_id"}),
-    "audio.sfx.generate": frozenset({"prompt", "description", "duration_sec"}),
-    "audio.ambience.generate": frozenset({"prompt", "description", "duration_sec"}),
+    "speech.asr.transcribe": frozenset({
+        "audio_grant", "grant_id", "upload_id", "asset_id",
+    }),
+    "audio.sfx.generate": frozenset({"prompt", "description", "duration_sec", "loop"}),
+    "audio.ambience.generate": frozenset({"prompt", "description", "duration_sec", "loop"}),
     "music.generate": frozenset({
         "prompt", "description", "duration_sec", "bpm", "instrumental",
+        "lyrics", "vocal_language", "loop",
     }),
 }
 

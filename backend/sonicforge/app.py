@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shutil
 import sqlite3
 import uuid
@@ -26,7 +27,7 @@ from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
 from .host.files import read_grant
 from .jobs import HostedExecution, JobManager, ProgressGate
 from .legacy_data import LegacyDataError, migrate_discovered_legacy_data
-from .schemas import LocalizationBatchCreate, SetupApplyRequest, SetupCredentials, TaskRequest, TtsPreferenceUpdate, TtsSampleInstall, VoiceCreate
+from .schemas import ASR_SOURCE_FIELDS, LocalizationBatchCreate, SetupApplyRequest, SetupCredentials, TaskRequest, TtsPreferenceUpdate, TtsSampleInstall, VoiceCreate
 from .workers import (
     keep_engines_warm,
     retire_warm_workers,
@@ -101,6 +102,22 @@ async def _prepare_task(
     # Uploaded audio is already on this machine, so it resolves without a Host
     # round trip. Copy it into the job's staging area so the durable job owns a
     # file whose lifetime it controls, and the upload can be replayed.
+    # 自分の資産は手元にあるので、Host を経由せずにそのまま staging へ写す。
+    asset_input = payload.get("input", {}).get("asset_id")
+    if asset_input:
+        with session_factory() as session:
+            row = session.get(Asset, str(asset_input))
+            if row is None:
+                raise HTTPException(status_code=404, detail={
+                    "code": "asset_not_found", "message": "asset not found"})
+            source = (settings.data_dir / row.relative_path).resolve()
+        if not source.is_relative_to(settings.data_dir.resolve()) or not source.is_file():
+            raise HTTPException(status_code=404, detail={
+                "code": "asset_content_missing", "message": "asset content missing"})
+        staging = settings.data_dir / "tmp" / "imports"; staging.mkdir(parents=True, exist_ok=True)
+        staged = staging / f"{uuid.uuid4().hex}{source.suffix or '.wav'}"
+        shutil.copyfile(source, staged)
+        payload["input"]["_internal_staged_input"] = str(staged)
     upload_input = payload.get("input", {}).get("upload_id")
     if upload_input:
         try: source = uploads.resolve(settings, str(upload_input))
@@ -515,7 +532,55 @@ async def event_stream(websocket: WebSocket):
 
 
 def _workflow_body(task: str, value: dict[str, Any]) -> TaskRequest:
-    body = dict(value); body["task"] = task; body.setdefault("input", {}); body.setdefault("profile", "default"); body.setdefault("quality", "balanced"); body.setdefault("content_language", "auto"); body.setdefault("output", {"format": "wav", "sample_rate": None, "channels": None}); body.setdefault("routing", {"engine": None, "model": None, "device": "auto"}); body.setdefault("seed", None); body.setdefault("project_output_grant", None); return TaskRequest.model_validate(body)
+    body = dict(value); body["task"] = task; body.setdefault("input", {}); body.setdefault("profile", "default"); body.setdefault("quality", "balanced"); body.setdefault("content_language", "auto"); body.setdefault("output", {"format": "wav", "sample_rate": None, "channels": None}); body.setdefault("routing", {"engine": None, "model": None, "device": "auto"}); body.setdefault("seed", None); body.setdefault("project_output_grant", None)
+    # 何も渡されない書き起こしは、どこにも音が無いまま worker まで進んで落ちる。
+    # 入口で、何を渡せばよいかを言って断る。model 側に置くと、自分で file を
+    # staging してから作る局所 API まで巻き添えになる。
+    if task == "speech.asr.transcribe" and not any(
+        body.get("input", {}).get(key) for key in ASR_SOURCE_FIELDS
+    ):
+        raise HTTPException(status_code=422, detail={
+            "code": "missing_audio",
+            "message": "transcription needs audio: pass "
+                       + ", ".join(ASR_SOURCE_FIELDS[:3]),
+        })
+    try:
+        return TaskRequest.model_validate(body)
+    except ValidationError as exc:
+        # 要求の作り方が違うだけなのに 500 を返していた。呼ぶ側からは
+        # 「SonicForge が壊れた」に見えて、直せる場所が分からない
+        # （実測: sonic.transcribe に asset_id を渡して 500、何を渡せばよいかは
+        # どこにも出ない）。断る理由は本文に載せる。
+        code, message = _validation_reason(exc)
+        raise HTTPException(status_code=422, detail={
+            "code": code, "message": message,
+        }) from exc
+
+
+# 断りの符号。`missing_lyrics: ...` のように、理由の頭へ付けて運ぶ。
+#
+# ControlDeck は Add-on の応答本文を呼び出し側へ流さない。内部の path や例外の
+# 文面を漏らさないためで、通るのは形の決まった短い符号だけである（Host 側の
+# addons/execution.py）。つまり **符号が具体的でないと、何が悪いかは届かない**。
+# 実測 2026-09-14: OpenCode から歌詞なしで歌を頼むと、呼び出し側に届くのは
+# 「拡張機能の実行に失敗しました（invalid_request）」だけだった。
+_REASON_CODE = re.compile(r"^([a-z][a-z0-9_]{2,63}): (.+)$", re.S)
+
+
+def _validation_reason(exc: ValidationError) -> tuple[str, str]:
+    """pydantic の指摘から、符号と 1 行の理由を取り出す。"""
+    parts: list[str] = []
+    code = ""
+    for error in exc.errors()[:4]:
+        message = str(error.get("msg") or "").removeprefix("Value error, ")
+        matched = _REASON_CODE.match(message)
+        if matched:
+            if not code:
+                code = matched.group(1)
+            message = matched.group(2)
+        location = ".".join(str(item) for item in error.get("loc", ()) if item != "__root__")
+        parts.append(f"{location}: {message}" if location else message)
+    return code or "invalid_request", "; ".join(parts) or "request is invalid"
 
 
 async def _run_task(
@@ -618,6 +683,13 @@ def _batch_bodies(value: object) -> list[TaskRequest]:
             raise HTTPException(status_code=422, detail={"code": "unsupported_task", "message": f"item {index}: {task} cannot be batched"})
         try:
             bodies.append(_workflow_body(task, item))
+        except HTTPException as exc:
+            # _workflow_body は 1 件を組むための入口で、断る理由をすでに持っている。
+            # batch はそこへ「何件目か」を足して返す。件番号が無いと、どの指示を
+            # 直せばよいかが分からない。
+            detail = exc.detail
+            reason = detail.get("message") if isinstance(detail, dict) else str(detail)
+            raise HTTPException(status_code=exc.status_code, detail={"code": "invalid_generation_batch", "message": f"item {index}: {reason}"}) from exc
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail={"code": "invalid_generation_batch", "message": f"item {index}: {exc.errors()[0].get('msg', 'invalid item')}"}) from exc
     return bodies

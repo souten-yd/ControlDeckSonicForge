@@ -574,6 +574,24 @@ class JobManager:
         request["input"] = inp
         return request
 
+    async def _run_bounded(self, argv: list[str], *, expect_success: bool = False) -> str:
+        """ffmpeg を argv のまま走らせ、stderr を返す。shell は通さない。"""
+        proc = await asyncio.create_subprocess_exec(
+            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            start_new_session=os.name != "nt",
+        )
+        try:
+            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180.0)
+        except (asyncio.CancelledError, TimeoutError):
+            if proc.returncode is None:
+                proc.kill()
+            await proc.wait()
+            raise WorkerError("building the loop timed out") from None
+        text = stderr.decode("utf-8", "replace")
+        if expect_success and proc.returncode != 0:
+            raise WorkerError("building the loop failed: " + text[-300:])
+        return text
+
     async def _apply_loop(self, request: dict, result: WorkerResult) -> WorkerResult:
         """頼まれていれば、繋ぎ目の分からないループ素材に作り替える。
 
@@ -595,30 +613,24 @@ class JobManager:
         # 0 秒と判じ、どんな長さの素材でも「短すぎる」と断ってしまう。
         meta = inspect_wav(source)
         duration = float(meta["duration_ms"]) / 1000.0
+        # 端の無音を先に見つける。フェードで始まりフェードで終わる素材を
+        # そのまま重ねると、無音どうしが重なって継ぎ目に穴が残る。
+        scan = await self._run_bounded(audio_loop.silence_scan_argv(ffmpeg, source))
+        content = audio_loop.content_range(scan, duration)
         target = source.with_name(f"{source.stem}-loop.wav")
-        argv = audio_loop.loop_argv(ffmpeg, source, target, duration)
-        proc = await asyncio.create_subprocess_exec(
-            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            start_new_session=os.name != "nt",
-        )
-        try:
-            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180.0)
-        except (asyncio.CancelledError, TimeoutError):
-            if proc.returncode is None:
-                proc.kill()
-            await proc.wait()
-            raise WorkerError("building the loop timed out") from None
-        if proc.returncode != 0 or not target.is_file():
-            raise WorkerError(
-                "building the loop failed: " + stderr.decode("utf-8", "replace")[-300:]
-            )
+        argv = audio_loop.loop_argv(ffmpeg, source, target, duration, content=content)
+        stderr = await self._run_bounded(argv, expect_success=True)
+        if not target.is_file():
+            raise WorkerError("building the loop failed: " + stderr[-300:])
         source.unlink(missing_ok=True)
         looped = inspect_wav(target)
         payload = dict(result.payload or {})
         payload["loop"] = True
         payload["loop_crossfade_sec"] = round(
-            audio_loop.crossfade_seconds(duration), 3
+            audio_loop.crossfade_seconds(content[1] - content[0]), 3
         )
+        # 端の無音を落としたぶんも縮む。何をしたのかが分かるように残す。
+        payload["loop_trimmed_sec"] = round(duration - (content[1] - content[0]), 3)
         # 重ねたぶん短くなる。頼んだ長さとの差はここで分かるようにする。
         payload["duration_sec"] = round(float(looped["duration_ms"]) / 1000.0, 3)
         return replace(result, output_path=target, payload=payload)

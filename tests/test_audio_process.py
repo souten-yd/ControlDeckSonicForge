@@ -94,8 +94,11 @@ def test_apply_loop_actually_shortens_a_real_file(tmp_path):
     if shutil.which("ffmpeg") is None:
         pytest.skip("ffmpeg is required for the loop post-process")
 
+    # 端に無音を足した素材にする。ACE-Step の出力と同じ形で、削らずに重ねると
+    # 継ぎ目に穴が残る。
     source = tmp_path / "source.wav"
     write_tone_wav(source, duration_sec=6.0, sample_rate=24000)
+    _pad_with_silence(source, head_sec=0.5, tail_sec=0.5)
 
     manager = JobManager.__new__(JobManager)  # 後処理だけを見る
     result = WorkerResult(
@@ -107,10 +110,11 @@ def test_apply_loop_actually_shortens_a_real_file(tmp_path):
 
     assert looped.output_path is not None and looped.output_path.is_file()
     assert not source.exists(), "元の file は後片付けする"
-    # 重ねたぶん短くなる。6 秒なら重ねは 1.5 秒で、残るのは 4.5 秒。
+    # 端の無音 1.0 秒を落として中身は 6 秒。重ねは 1.5 秒で、残るのは 4.5 秒。
     assert looped.payload["loop"] is True
     assert looped.payload["loop_crossfade_sec"] == pytest.approx(1.5)
-    assert looped.payload["duration_sec"] == pytest.approx(4.5, abs=0.05)
+    assert looped.payload["loop_trimmed_sec"] == pytest.approx(1.0, abs=0.15)
+    assert looped.payload["duration_sec"] == pytest.approx(4.5, abs=0.15)
 
 
 def test_apply_loop_leaves_the_file_alone_when_nobody_asked(tmp_path):
@@ -131,3 +135,64 @@ def test_apply_loop_leaves_the_file_alone_when_nobody_asked(tmp_path):
     )
     same = asyncio.run(manager._apply_loop({"input": {}}, result))
     assert same is result and source.is_file()
+
+
+def test_edge_silence_is_trimmed_before_the_crossfade():
+    """端の無音を削ってから重ねる。削らないと継ぎ目に穴が残る。
+
+    ACE-Step は曲の頭と尻をフェードで作る。そのまま重ねると無音どうしが重なり、
+    2 秒近い穴がそのまま残る（実測 2026-09-14: 118.5 秒のループ素材でループ点の
+    手前 2 秒が RMS 0.00 倍。聴いた利用者の判定は「めっちゃ継ぎ目が空いてる」）。
+    端を削ると同じ素材で最小 0.03 倍 → 0.23 倍になった。
+    """
+    from pathlib import Path
+
+    from sonicforge import audio_loop
+
+    scan = (
+        "[silencedetect @ 0x1] silence_start: 0\n"
+        "[silencedetect @ 0x1] silence_end: 0.8 | silence_duration: 0.8\n"
+        "[silencedetect @ 0x1] silence_start: 29.2\n"
+        "[silencedetect @ 0x1] silence_end: 30 | silence_duration: 0.8\n"
+    )
+    assert audio_loop.content_range(scan, 30.0) == (0.8, 29.2)
+
+    # 曲の途中の休符は残す。そこを削ると別の曲になる。
+    middle = (
+        "[silencedetect @ 0x1] silence_start: 12\n"
+        "[silencedetect @ 0x1] silence_end: 13 | silence_duration: 1\n"
+    )
+    assert audio_loop.content_range(middle, 30.0) == (0.0, 30.0)
+
+    # 終わりまで無音のまま file が終わる形も拾う。
+    unterminated = "[silencedetect @ 0x1] silence_start: 28.5\n"
+    assert audio_loop.content_range(unterminated, 30.0) == (0.0, 28.5)
+
+    # 端の判定が外れて削りすぎたら、元のまま扱う。
+    everything = (
+        "[silencedetect @ 0x1] silence_start: 0\n"
+        "[silencedetect @ 0x1] silence_end: 29.9 | silence_duration: 29.9\n"
+    )
+    assert audio_loop.content_range(everything, 30.0) == (0.0, 30.0)
+
+    # 削った範囲の中だけで重ねる。
+    argv = audio_loop.loop_argv(
+        "/usr/bin/ffmpeg", Path("in.wav"), Path("out.wav"), 30.0, content=(0.8, 29.2),
+    )
+    assert argv[argv.index("-ss") + 1] == "2.300000"  # 0.8 + 1.5
+    assert "1.500000" in argv
+
+
+def _pad_with_silence(path, *, head_sec: float, tail_sec: float) -> None:
+    """前後に無音を足す。生成モデルのフェードを模す。"""
+    import wave
+
+    with wave.open(str(path), "rb") as source:
+        params = source.getparams()
+        frames = source.readframes(source.getnframes())
+    quiet = b"\x00" * (params.sampwidth * params.nchannels)
+    with wave.open(str(path), "wb") as target:
+        target.setparams(params)
+        target.writeframes(quiet * int(head_sec * params.framerate))
+        target.writeframes(frames)
+        target.writeframes(quiet * int(tail_sec * params.framerate))

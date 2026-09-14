@@ -198,6 +198,8 @@ def test_loop_crossfade_shortens_the_material_and_says_by_how_much():
     )
     graph = argv[argv.index("-filter_complex") + 1]
     assert "[0:a][1:a]acrossfade" in graph
+    # 重ねる 2 つは無関係な波形なので、等ゲイン（tri）だと足して音量が落ちる。
+    assert "c1=qsin:c2=qsin" in graph
     # 切り出しは入力側で行う。filter の atrim から acrossfade へ渡すと出力が
     # 0 秒になる（実測: 30 秒の素材から 0.0 秒）。
     assert "atrim" not in graph

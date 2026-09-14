@@ -215,6 +215,14 @@ async def _stderr_tail(stream: asyncio.StreamReader | None) -> bytes:
 # 常駐させるのは speech（TTS / ASR）だけにする。音楽と効果音は 1 回が数分かかる
 # 上に大きく、抱えたままにする利点が無い。
 _WARM_ENGINES = frozenset({"tts.qwen3", "tts.gpt-sovits", "asr.whisper"})
+# 枠を絞って走るときだけ、続けて作る間そのまま抱えておいてよい engine。
+#
+# 音楽をふだん抱えないのは、載せたままだと 31.9GiB のカードで画像や他の音楽の
+# 枠を削るからである。int8 + 送り出しで走るときは事情が違う——重みは RAM に
+# 置いて、実行する部品だけを VRAM へ送る形なので、生成の合間に VRAM を握って
+# いない。2 本目からモデルを読み直す必要も無い（読み直すと 30 秒の曲で 40 秒
+# 前後が丸々増える）。
+_SMALL_BUDGET_WARM_ENGINES = frozenset({"music.ace-step-1.5"})
 # batch のあいだだけ抱える engine。ここに載せてよいのは、1 要求 1 応答で次を待つ
 # ように書かれた worker だけである。`external` は運用者が差し替える任意の
 # コマンドで、次の要求を待つ保証が無いので入れない（待てば応答が来ないまま
@@ -290,8 +298,13 @@ async def retire_warm_workers() -> None:
 
 
 async def retire_transient_workers() -> None:
-    """batch のあいだだけ抱えていた engine を降ろす。常駐が本業のものは残す。"""
-    await _retire([key for key in _warm if key[0] not in _WARM_ENGINES])
+    """batch のあいだだけ抱えていた engine を降ろす。常駐が本業のものは残す。
+
+    枠を絞って走っている音楽は残す。VRAM を握っていないので、他の仕事の邪魔を
+    しない。使われなくなれば WARM_IDLE_SEC の掃除が降ろす。
+    """
+    keep = _WARM_ENGINES | _SMALL_BUDGET_WARM_ENGINES
+    await _retire([key for key in _warm if key[0] not in keep])
 
 
 async def retire_idle_workers(now: float | None = None) -> list[str]:
@@ -361,8 +374,11 @@ async def execute(
         argv = [str(python), str(script)]
     env = _worker_environment(settings, engine_id)
     key = _warm_key(engine_id, argv, env)
-    keep = engine_id in _WARM_ENGINES or (
-        _hold_all_warm > 0 and engine_id in _BATCH_WARM_ENGINES
+    small_budget = bool(request.get("_internal_granted_vram_bytes"))
+    keep = (
+        engine_id in _WARM_ENGINES
+        or (_hold_all_warm > 0 and engine_id in _BATCH_WARM_ENGINES)
+        or (small_budget and engine_id in _SMALL_BUDGET_WARM_ENGINES)
     )
     proc = _warm.get(key) if keep else None
     if proc is not None and proc.returncode is not None:

@@ -12,6 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from . import audio_loop
+
+# 音楽が「枠を絞ってでも動く」ときに要る VRAM。
+#
+# 実測 2026-09-14（AMD Radeon AI PRO R9700、LLM が 22.9 GiB 常駐のまま）:
+# DiT を int8 にし、部品を順に送る形（offload）で 8.47 GiB。30 秒の曲が
+# 132 秒で完成した。占有で作れば 80 秒なので、待たない代わりに 1.6 倍遅い。
+MUSIC_MINIMUM_VRAM_BYTES = 10 * 1024**3
 from .audio import inspect_wav
 from .config import Settings
 from . import voice_catalog
@@ -63,6 +70,9 @@ class HostedExecution:
     owns_terminal: bool = True
     resource_request_id: str | None = None
     lease_id: str | None = None
+    # broker が実際に貸してくれた VRAM。全部載る枠より小さいことがあるので、
+    # worker はこれを見て載せ方を決める（int8 + 部品ごとの送り出しへ落とす）。
+    granted_vram_bytes: int | None = None
     # 進捗の門。batch は全件で 1 つを共有する。
     gate: ProgressGate = field(default_factory=ProgressGate)
     # この job が Host Job 全体のどこを占めるか。batch の N 件目は
@@ -369,6 +379,14 @@ class JobManager:
                 "cold_load_peak_bytes": peak,
                 "headroom_bytes": 512 * 1024**2,
                 "confidence": "low",
+                # 全部載らなくても、これだけあれば動ける下限。
+                #
+                # DiT を int8 にして、実行する部品だけを順に VRAM へ送る形
+                # （offload）なら、実測 8.47 GiB で 30 秒の曲を作れた。LLM が
+                # 22.9 GiB を持ったままでも入る。下限を申告しないと broker は
+                # 「20 GiB 全部か、さもなくば待て」しか選べず、LLM が使用中の
+                # 間はずっと待つ（実測: 9 分待っても進まない）。
+                **({"minimum_bytes": MUSIC_MINIMUM_VRAM_BYTES} if is_music else {}),
             },
             # 音楽だけ device を占有する。20 GiB を要るので、LLM が載ったままでは
             # そもそも同居できない。以前 exclusive を諦めて shared-safe にしていたのは、
@@ -451,6 +469,9 @@ class JobManager:
                         "ControlDeck granted resource without a lease ID"
                     )
                 execution.lease_id = lease_id
+                granted = status.get("granted_bytes")
+                if isinstance(granted, int) and granted > 0:
+                    execution.granted_vram_bytes = granted
                 await self.host_client.lease_action(
                     execution.identity, lease_id, "activate"
                 )
@@ -591,6 +612,21 @@ class JobManager:
         if expect_success and proc.returncode != 0:
             raise WorkerError("building the loop failed: " + text[-300:])
         return text
+
+    @staticmethod
+    def _with_vram_budget(request: dict, execution: "HostedExecution | None") -> dict:
+        """借りられた枠を要求へ載せる。worker はこれを見て載せ方を決める。
+
+        全部載る枠を貸してもらえたなら何も足さない——従来どおり、そのまま
+        GPU へ載せて最速で作る。枠が小さいときだけ、worker が DiT を int8 に
+        して部品ごとに送り出す形へ落とす。実測 2026-09-14: その形なら LLM が
+        22.9 GiB を持ったままでも 8.47 GiB で作れる（占有より 1.6 倍遅い）。
+        """
+        if execution is None or execution.granted_vram_bytes is None:
+            return request
+        updated = dict(request)
+        updated["_internal_granted_vram_bytes"] = int(execution.granted_vram_bytes)
+        return updated
 
     async def _apply_loop(self, request: dict, result: WorkerResult) -> WorkerResult:
         """頼まれていれば、繋ぎ目の分からないループ素材に作り替える。
@@ -960,7 +996,10 @@ class JobManager:
 
             async with self.process_lock:
                 result = await execute(
-                    self.settings, request, work_dir, progress
+                    self.settings,
+                    self._with_vram_budget(request, execution),
+                    work_dir,
+                    progress,
                 )
             output_asset = None
             output_commit = None

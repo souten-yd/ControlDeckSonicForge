@@ -19,8 +19,89 @@ def _emit(event: dict) -> None:
     print(json.dumps(event, ensure_ascii=False), flush=True)
 
 
-def _handlers(project_root: str, checkpoints: str, device: str, dit_model: str, lm_model: str, lm_backend: str):
-    key = (project_root, checkpoints, device, dit_model, lm_model, lm_backend)
+# 枠がこれ以上あれば、そのまま GPU へ載せて最速で作る。下回ったら DiT を int8 に
+# して部品ごとに送り出す形へ落とす。
+#
+# 実測 2026-09-14（AMD Radeon AI PRO R9700）:
+#   そのまま          VRAM 約 21 GiB   30 秒の曲を 80 秒
+#   int8 + 送り出し   VRAM  8.47 GiB   同じ曲を 132 秒（LLM が 22.9 GiB 常駐のまま）
+# LLM を降ろせるなら前者が速い。降ろせないなら後者しか道がない。
+FULL_RESIDENCY_BYTES = 20 * 1024**3
+
+# int8 にするのは decoder の線形層だけ。ACE-Step 自身の量子化もこの範囲で、
+# 広げると遅くなる（実測: tokenizer まで含めると 30 秒の曲が 147 秒 → 344 秒）。
+QUANT_INCLUDE = ["decoder*"]
+QUANT_EXCLUDE = ["*tokenizer*", "*detokenizer*"]
+
+
+def _int8_cache_dir(checkpoints: str, dit_model: str) -> Path:
+    return Path(checkpoints) / f"{dit_model}-int8"
+
+
+def _build_int8(handler, cache: Path) -> None:
+    """DiT を int8 にして書き出す。CPU の上で行うので GPU は要らない。
+
+    生成のたびに量子化すると、その前に bf16/fp32 のまま GPU へ載せる段が要る。
+    LLM が居ると、そこで OOM する（実測: 載せる前に 0 bytes free）。先に作って
+    置いておけば、次からは int8 を載せるだけで済む（読み込み 2.0 秒）。
+    """
+    from optimum.quanto import freeze, qint8, quantization_map, quantize
+    from safetensors.torch import save_file
+    import torch
+
+    quantize(handler.model, weights=qint8, include=QUANT_INCLUDE, exclude=QUANT_EXCLUDE)
+    freeze(handler.model)
+    staging = cache.with_name(cache.name + ".partial")
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True, exist_ok=True)
+    state = {
+        name: value.contiguous()
+        for name, value in handler.model.state_dict().items()
+        if isinstance(value, torch.Tensor)
+    }
+    save_file(state, str(staging / "model.safetensors"))
+    (staging / "quantization_map.json").write_text(
+        json.dumps(quantization_map(handler.model)), encoding="utf-8"
+    )
+    shutil.rmtree(cache, ignore_errors=True)
+    staging.rename(cache)
+
+
+def _load_int8(handler, cache: Path, target: str, *, offloading: bool) -> None:
+    """保存済みの int8 を当てて、置き場所を整える。
+
+    送り出し（offload）を使うときは **DiT だけ** を GPU へ移す。VAE や text
+    encoder まで手で移すと、ACE-Step 自身の出し入れと衝突して
+    「mat2 is on cpu」で落ちる（実測 2026-09-14）。残りの部品は ACE-Step が
+    要るときだけ送る。
+
+    送り出しを使わないときは逆で、一式まとめて移さないと CPU に残った部品と
+    噛み合わない（Expected all tensors to be on the same device）。
+    """
+    from optimum.quanto import requantize
+    from safetensors.torch import load_file
+    import torch
+
+    state = load_file(str(cache / "model.safetensors"))
+    qmap = json.loads((cache / "quantization_map.json").read_text(encoding="utf-8"))
+    requantize(handler.model, state, qmap, device=torch.device("cpu"))
+    moved = ("model",) if offloading else ("model", "vae", "text_encoder", "reward_model")
+    for attr in moved:
+        part = getattr(handler, attr, None)
+        if part is not None and hasattr(part, "to"):
+            part.to(target)
+    if offloading:
+        return
+    for attr in ("device", "_device"):
+        if hasattr(handler, attr):
+            try:
+                setattr(handler, attr, target)
+            except Exception:  # noqa: BLE001 - 属性が読み取り専用でも進む
+                pass
+
+
+def _handlers(project_root: str, checkpoints: str, device: str, dit_model: str, lm_model: str, lm_backend: str, small_budget: bool = False):
+    key = (project_root, checkpoints, device, dit_model, lm_model, lm_backend, small_budget)
     cached = _HANDLERS.get(key)
     if cached is not None:
         return cached
@@ -32,11 +113,46 @@ def _handlers(project_root: str, checkpoints: str, device: str, dit_model: str, 
         from acestep.llm_inference import LLMHandler
 
         dit = AceStepHandler()
-        status, ok = dit.initialize_service(
-            project_root=project_root,
-            config_path=dit_model,
-            device=device,
-        )
+        cache = _int8_cache_dir(checkpoints, dit_model)
+        if not small_budget:
+            status, ok = dit.initialize_service(
+                project_root=project_root,
+                config_path=dit_model,
+                device=device,
+            )
+        else:
+            # 枠が小さい。bf16/fp32 のまま GPU へ載せると、そこで OOM する。
+            # CPU で読んでから int8 を当て、そのあとで GPU へ移す。
+            status, ok = dit.initialize_service(
+                project_root=project_root,
+                config_path=dit_model,
+                device="cpu",
+                offload_to_cpu=True,
+                offload_dit_to_cpu=True,
+            )
+            if ok:
+                # 無ければ作って保存し、あれば読むだけ。
+                #
+                # 作るのは一度きりで、CPU の上で 9 秒前後（実測）。以後は読むだけの
+                # 2.0 秒で済む。作った直後も **file から読み直す**——初回だけ別の道を
+                # 通ると、そこだけ挙動が違っても気づけない。
+                if not (cache / "model.safetensors").is_file():
+                    _emit({"type": "progress", "progress": 0.03,
+                           "message": "Building the int8 model (first run only)"})
+                    _build_int8(dit, cache)
+                    # 量子化済みの handler は捨て、素の状態から読み直す。
+                    dit = AceStepHandler()
+                    status, ok = dit.initialize_service(
+                        project_root=project_root,
+                        config_path=dit_model,
+                        device="cpu",
+                        offload_to_cpu=True,
+                        offload_dit_to_cpu=True,
+                    )
+                if ok:
+                    _load_int8(dit, cache,
+                               "cuda" if device in ("auto", "cuda") else device,
+                               offloading=True)
     if not ok:
         raise RuntimeError(f"ACE-Step DiT initialization failed: {status}")
 
@@ -52,6 +168,44 @@ def _handlers(project_root: str, checkpoints: str, device: str, dit_model: str, 
         raise RuntimeError(f"ACE-Step LM initialization failed: {status}")
     _HANDLERS[key] = (dit, llm)
     return dit, llm
+
+
+def prepare_int8(payload: dict) -> None:
+    """int8 を作って置いておくだけ。GPU は触らない。
+
+    生成のときに作ると、その 1 本だけ待ち時間が伸びる（CPU で読んで量子化して
+    書き出すので実測 9 秒前後）。先に作っておけば、生成は読むだけで済む。
+    """
+    import time
+
+    checkpoints = os.environ.get("ACESTEP_CHECKPOINTS_DIR") or str(
+        Path.home() / ".cache" / "ace-step" / "checkpoints"
+    )
+    dit_model = os.environ.get("SONICFORGE_ACESTEP_DIT", "acestep-v15-turbo")
+    cache = _int8_cache_dir(checkpoints, dit_model)
+    if (cache / "model.safetensors").is_file() and not payload.get("force"):
+        _emit({"type": "result", "payload": {"int8_dir": str(cache), "built": False}})
+        return
+    started = time.time()
+    with redirect_stdout(sys.stderr):
+        import acestep
+        from acestep.handler import AceStepHandler
+
+        project_root = os.environ.get("SONICFORGE_ACESTEP_ROOT") or str(
+            Path(acestep.__file__).resolve().parents[1]
+        )
+        handler = AceStepHandler()
+        status, ok = handler.initialize_service(
+            project_root=project_root, config_path=dit_model, device="cpu",
+        )
+        if not ok:
+            raise RuntimeError(f"ACE-Step DiT initialization failed: {status}")
+        _build_int8(handler, cache)
+    _emit({"type": "result", "payload": {
+        "int8_dir": str(cache), "built": True,
+        "bytes": sum(item.stat().st_size for item in cache.iterdir()),
+        "elapsed_sec": round(time.time() - started, 1),
+    }})
 
 
 def handle(payload: dict) -> None:
@@ -79,8 +233,13 @@ def handle(payload: dict) -> None:
     lm_model = os.environ.get("SONICFORGE_ACESTEP_LM", "acestep-5Hz-lm-0.6B")
     lm_backend = os.environ.get("SONICFORGE_ACESTEP_LM_BACKEND", "pt")
 
+    # broker が貸してくれた枠。全部載る量に届かないときは、DiT を int8 にして
+    # 部品ごとに送り出す形へ落とす。載せ方は結果に残す——同じ頼みでも速さが
+    # 変わるので、あとから「なぜ遅かったのか」を追えるようにする。
+    granted = request.get("_internal_granted_vram_bytes")
+    small_budget = bool(granted) and int(granted) < FULL_RESIDENCY_BYTES
     dit, llm = _handlers(
-        project_root, checkpoints, device, dit_model, lm_model, lm_backend
+        project_root, checkpoints, device, dit_model, lm_model, lm_backend, small_budget
     )
 
     inp = request.get("input", {})
@@ -135,6 +294,8 @@ def handle(payload: dict) -> None:
                 # 結果に残す（歌詞そのものは長いので、有無と言語だけ）。
                 "has_lyrics": bool(lyrics.strip()),
                 "vocal_language": language,
+                "placement": "int8_offload" if small_budget else "full_device",
+                "granted_vram_bytes": int(granted) if granted else None,
                 "lm_model": lm_model,
                 "lm_backend": lm_backend,
             },
@@ -156,6 +317,9 @@ def main() -> None:
             payload = json.loads(raw)
             if payload.get("type") == "shutdown":
                 return
+            if payload.get("type") == "prepare_int8":
+                prepare_int8(payload)
+                continue
             handle(payload)
         except Exception as exc:
             _emit({"type": "error", "message": str(exc)[:2000]})

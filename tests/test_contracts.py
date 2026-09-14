@@ -358,3 +358,132 @@ def test_vocal_language_contract_says_it_is_read_from_the_script():
     )["properties"]["input"]["properties"]["vocal_language"]
     assert "自動で決める" in field["description"]
     assert "歌わない" in field["description"]
+
+
+def test_music_declares_a_floor_so_it_can_run_beside_a_resident_llm():
+    """下限を申告しないと、LLM が使用中の間ずっと待つ。
+
+    音楽は 20 GiB を要求して device を占有する。broker は「全部か、さもなくば
+    待て」しか選べず、LLM が使っている間は退去を断られて止まる（実測
+    2026-09-14: 画面に Waiting for GPU: device_busy_exclusive が出たまま 9 分
+    進まなかった）。下限を申告すれば、空いているぶんだけ借りて動ける。
+    """
+    from sonicforge.jobs import MUSIC_MINIMUM_VRAM_BYTES, JobManager
+
+    manager = JobManager.__new__(JobManager)
+    estimate = manager._resource_estimate(
+        {"task": "music.generate", "routing": {}}, "host-job"
+    )
+    assert estimate["vram"]["minimum_bytes"] == MUSIC_MINIMUM_VRAM_BYTES
+    # 実測 8.47 GiB で動いた。下限はそこに余裕を足した値であって、
+    # 全部載る量（20 GiB）より十分小さくなければ意味が無い。
+    assert MUSIC_MINIMUM_VRAM_BYTES < estimate["vram"]["execution_peak_bytes"]
+
+    # 音声（ASR / TTS）は元から同居できるので、下限は足さない。
+    speech = manager._resource_estimate(
+        {"task": "speech.tts.synthesize", "routing": {}}, "host-job"
+    )
+    assert "minimum_bytes" not in speech["vram"]
+
+
+def test_the_granted_budget_reaches_the_worker():
+    """借りた枠を渡さないと、worker は載せ方を決められない。"""
+    from sonicforge.jobs import HostedExecution, JobManager
+
+    request = {"task": "music.generate", "input": {"prompt": "x"}}
+    # 枠を貸してもらえていないとき（fake worker など）は何も足さない。
+    assert JobManager._with_vram_budget(request, None) is request
+
+    execution = HostedExecution.__new__(HostedExecution)
+    execution.granted_vram_bytes = None
+    assert JobManager._with_vram_budget(request, execution) is request
+
+    execution.granted_vram_bytes = 10 * 1024**3
+    carried = JobManager._with_vram_budget(request, execution)
+    assert carried["_internal_granted_vram_bytes"] == 10 * 1024**3
+    # 元の要求は書き換えない。batch は同じ dict を使い回す。
+    assert "_internal_granted_vram_bytes" not in request
+
+
+def test_the_worker_falls_back_to_int8_only_when_the_budget_is_short():
+    """枠が足りるなら従来どおり。落とすのは足りないときだけ。
+
+    実測 2026-09-14: そのまま載せれば 30 秒の曲が 80 秒、int8 + 送り出しなら
+    132 秒。速いほうを捨てる理由は無いので、入るなら入れる。
+    """
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "worker_packs" / "acestep" / "worker.py"
+    spec = importlib.util.spec_from_file_location("acestep_worker_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.FULL_RESIDENCY_BYTES == 20 * 1024**3
+    # int8 にするのは decoder の線形層だけ。広げると遅くなる
+    # （実測: tokenizer まで含めると 30 秒の曲が 147 秒 → 344 秒）。
+    assert module.QUANT_INCLUDE == ["decoder*"]
+    assert "*tokenizer*" in module.QUANT_EXCLUDE
+    assert "*detokenizer*" in module.QUANT_EXCLUDE
+    # 置き場所は checkpoints の隣。モデルごとに分ける。
+    assert module._int8_cache_dir("/models", "acestep-v15-turbo").name == "acestep-v15-turbo-int8"
+
+
+def test_the_int8_file_is_built_once_and_then_only_read():
+    """無ければ作って保存し、あれば読むだけ。
+
+    作るのは CPU の上で 9 秒前後（実測）。以後は読むだけの 2.0 秒で済む。
+    作った直後も file から読み直す——初回だけ別の道を通ると、そこだけ挙動が
+    違っても気づけない。
+    """
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1] / "worker_packs" / "acestep" / "worker.py"
+    ).read_text(encoding="utf-8")
+    start = source.index("def _handlers(")
+    generation = source[start:source.index("def prepare_int8(")]
+    build_at = generation.index("_build_int8(dit, cache)")
+    load_at = generation.index("_load_int8(dit, cache", build_at)
+    # 作ったあとに読む順で、その間に読み飛ばす分岐が無いこと。
+    assert build_at < load_at
+    assert "else:" not in generation[build_at:load_at]
+    # 在るかどうかで作るかを決める。
+    assert '(cache / "model.safetensors").is_file()' in generation
+
+
+def test_the_worker_can_prepare_the_int8_file_without_a_gpu():
+    """用意は CPU だけで済む。GPU が塞がっていても先に作れる。"""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1] / "worker_packs" / "acestep" / "worker.py"
+    ).read_text(encoding="utf-8")
+    prepare_at = source.index("def prepare_int8(payload: dict)")
+    prepare = source[prepare_at:source.index("def handle(payload: dict)")]
+    assert 'device="cpu"' in prepare
+    assert "_build_int8(" in prepare
+    # 既に在れば作り直さない。force を渡したときだけ作り直す。
+    assert '"built": False' in prepare and 'payload.get("force")' in prepare
+
+
+def test_int8_placement_matches_whether_parts_are_sent_one_at_a_time():
+    """送り出しを使うかどうかで、手で移す部品が変わる。
+
+    送り出し（offload）を使うときは DiT だけを移す。VAE や text encoder まで
+    手で移すと ACE-Step 自身の出し入れと衝突し、生成の途中で
+    「mat2 is on cpu」で落ちる（実測 2026-09-14、実機で 2 本とも失敗）。
+    使わないときは逆で、一式まとめて移さないと CPU に残った部品と噛み合わない。
+    """
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1] / "worker_packs" / "acestep" / "worker.py"
+    ).read_text(encoding="utf-8")
+    start = source.index("def _load_int8(")
+    body = source[start:source.index("def _handlers(")]
+    assert 'moved = ("model",) if offloading else' in body
+    assert "vae" in body and "text_encoder" in body
+    # 生成側は送り出しを使う道なので、そちらで呼ぶ。
+    generation = source[source.index("def _handlers("):source.index("def prepare_int8(")]
+    assert "offloading=True" in generation

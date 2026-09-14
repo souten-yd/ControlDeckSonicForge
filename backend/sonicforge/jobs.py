@@ -591,8 +591,10 @@ class JobManager:
         ffmpeg = shutil.which("ffmpeg")
         if ffmpeg is None:
             raise WorkerError("ffmpeg is required to build a seamless loop")
+        # inspect_wav が返すのは duration_ms である。duration_sec を読むと常に
+        # 0 秒と判じ、どんな長さの素材でも「短すぎる」と断ってしまう。
         meta = inspect_wav(source)
-        duration = float(meta.get("duration_sec") or 0.0)
+        duration = float(meta["duration_ms"]) / 1000.0
         target = source.with_name(f"{source.stem}-loop.wav")
         argv = audio_loop.loop_argv(ffmpeg, source, target, duration)
         proc = await asyncio.create_subprocess_exec(
@@ -618,7 +620,7 @@ class JobManager:
             audio_loop.crossfade_seconds(duration), 3
         )
         # 重ねたぶん短くなる。頼んだ長さとの差はここで分かるようにする。
-        payload["duration_sec"] = round(float(looped.get("duration_sec") or 0.0), 3)
+        payload["duration_sec"] = round(float(looped["duration_ms"]) / 1000.0, 3)
         return replace(result, output_path=target, payload=payload)
 
     def _persist_audio_result(

@@ -1,2 +1,2 @@
 """ControlDeck SonicForge core."""
-__version__ = "0.6.23"
+__version__ = "0.6.24"

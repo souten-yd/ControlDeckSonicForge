@@ -587,9 +587,10 @@
     <template data-adv-template="task-sfx">
       <div class="advanced">
         <p class="section-label" data-i18n="advancedSfx">効果音の詳細設定</p>
-        <label data-i18n="lengthSeconds">長さ（0.1〜120秒）
+        <label data-i18n="lengthSecondsSfx">長さ（0.1〜120秒）
           <input id="advanced-duration" type="number" min="0.1" max="120" step="0.1" value="3">
         </label>
+        <p class="hint" data-i18n="sfxDurationHint">頼んだ長さちょうどに出ます。0.1秒刻みで指定できます。</p>
         <p class="hint" data-i18n="sfxAmbienceHint">「環境音」を選ぶと、単発の効果音ではなく持続する環境音として生成します。</p>
       </div>
     </template>
@@ -598,14 +599,15 @@
       <div class="advanced">
         <p class="section-label" data-i18n="advancedMusic">音楽の詳細設定</p>
         <div class="form-row">
-          <label data-i18n="lengthSeconds">長さ（10〜600秒）
-            <input id="advanced-duration" type="number" min="10" max="600" step="1" value="30">
+          <label data-i18n="lengthSecondsMusic">長さ（10〜600秒）
+            <input id="advanced-duration" type="number" min="1" max="600" step="0.2" value="30">
           </label>
           <label data-i18n="bpm">テンポ（BPM）
             <input id="advanced-bpm" type="number" min="30" max="300" step="1" placeholder="指定しない">
           </label>
         </div>
         <div id="advanced-bpm-chips" class="chips" role="group" data-i18n-label="bpm" aria-label="テンポ"></div>
+        <p class="hint" data-i18n="musicDurationHint">約0.2秒刻みに落ちます（22.5秒を頼むと22.4秒）。10秒未満も作れますが、モデルの想定外なので出来は保証しません。</p>
         <label data-i18n="vocalLanguage">歌う言語
           <select id="advanced-vocal-language"></select>
         </label>

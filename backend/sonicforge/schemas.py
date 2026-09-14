@@ -128,6 +128,20 @@ class TaskRequest(BaseModel):
             self.input.get("prompt") or self.input.get("description") or ""
         ).strip():
             raise ValueError("generation requires input.prompt or input.description")
+        limits = DURATION_LIMITS.get(self.task)
+        if limits is not None and self.input.get("duration_sec") is not None:
+            low, high = limits
+            try:
+                seconds = float(self.input["duration_sec"])
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "invalid_duration: duration_sec must be a number"
+                ) from None
+            if not low <= seconds <= high:
+                raise ValueError(
+                    f"duration_out_of_range: {self.task} makes {low:g} to {high:g} "
+                    f"seconds; {seconds:g} is outside that"
+                )
         if self.task == "music.generate":
             # 歌ありは歌詞が要る。instrumental を false にするだけでは歌にならない。
             #
@@ -178,6 +192,26 @@ class TaskRequest(BaseModel):
 # 間違えた要求は既定値で作られ、頼んだ側からは「頼んだとおりに作られなかった」
 # ようにしか見えない（実測: duration_seconds と書いた 20 秒の依頼が 30 秒で
 # 返った）。schemas/generate-request.json の説明文と対になっている。
+# task ごとに作れる長さが違う。1 つの範囲を全 task で共用していたため、
+# 契約の 1〜300 秒はどちらにも合っていなかった。
+#
+# 音楽（ACE-Step）: 実力は GPU の VRAM 段で決まり、この機械（31.9GB / tier
+# unlimited）では 600 秒。契約が 300 で止めていたので半分が使えなかった。
+# 下限は締めない。ACE-Step が自分で名乗る範囲は 10〜600 だが、下限は出力長の
+# 下限ではなく生成トークン数の見積りに効くだけで、実測では 5 秒を頼むと
+# 5.12 秒が返る。動くものを契約で塞がない（10 秒未満は出来を保証しないという
+# 注意は説明に書く）。
+# 効果音・環境音（Stable Audio）: worker 側が 0.1〜120 秒で受ける。
+# 契約の下限 1 のせいで、0.1〜0.9 秒は画面から入力できても弾かれていた。
+DURATION_LIMITS: dict[str, tuple[float, float]] = {
+    "audio.sfx.generate": (0.1, 120.0),
+    "audio.ambience.generate": (0.1, 120.0),
+    "music.generate": (1.0, 600.0),
+}
+# 契約に書く範囲は全 task の和集合。task ごとの正確な境目は下の検証で見る。
+DURATION_MIN = min(low for low, _ in DURATION_LIMITS.values())
+DURATION_MAX = max(high for _, high in DURATION_LIMITS.values())
+
 # 歌わせられる言語。ACE-Step の VALID_LANGUAGES の部分集合で、"auto" は
 # 「歌詞から推定させる」（worker が "unknown" へ写す）。
 VOCAL_LANGUAGES = frozenset({

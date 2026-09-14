@@ -258,3 +258,61 @@ def test_transcribe_schema_publishes_where_the_audio_comes_from():
     fields = schema["properties"]["input"]["properties"]
     assert {"asset_id", "upload_id", "grant_id"} <= set(fields)
     assert schema["properties"]["input"]["additionalProperties"] is False
+
+
+def test_duration_limits_match_what_each_engine_actually_makes():
+    """長さの範囲は task ごとに違う。1 つの範囲を共用すると、どちらにも合わない。
+
+    契約は 1〜300 秒を全 task で共用していた。実体は音楽（ACE-Step）が 10〜600 秒、
+    効果音（Stable Audio）が 0.1〜120 秒で、上は半分しか使えず、下は画面から
+    入力できる 0.1〜0.9 秒が弾かれていた（実測 2026-09-14: 0.5 秒 → 422）。
+    """
+    import pytest
+
+    from sonicforge.schemas import DURATION_LIMITS, TaskRequest
+
+    assert DURATION_LIMITS["music.generate"] == (1.0, 600.0)
+    assert DURATION_LIMITS["audio.sfx.generate"] == (0.1, 120.0)
+
+    # 音楽は 600 秒まで通る。この機械（31.9GB / tier unlimited）の実力である。
+    ok = TaskRequest.model_validate({
+        "task": "music.generate", "input": {"prompt": "x", "duration_sec": 600},
+    })
+    assert ok.input["duration_sec"] == 600
+    # 効果音は 0.1 秒から通る。
+    assert TaskRequest.model_validate({
+        "task": "audio.sfx.generate", "input": {"prompt": "x", "duration_sec": 0.1},
+    }).input["duration_sec"] == 0.1
+
+    # 5 秒の音楽は通す。モデルの想定より短いが、実測で 5.12 秒が返る——
+    # 動くものを契約で塞がない。
+    assert TaskRequest.model_validate({
+        "task": "music.generate", "input": {"prompt": "x", "duration_sec": 5},
+    }).input["duration_sec"] == 5
+
+    # それぞれの外は理由つきで断る。効果音に 300 秒、音楽に 601 秒は通さない。
+    for task, seconds in (("audio.sfx.generate", 300), ("music.generate", 601)):
+        with pytest.raises(Exception) as error:
+            TaskRequest.model_validate({
+                "task": task, "input": {"prompt": "x", "duration_sec": seconds},
+            })
+        assert "duration_out_of_range" in str(error.value)
+
+
+def test_duration_contract_publishes_the_per_task_ranges():
+    """契約に 1 つの範囲しか無いと、呼ぶ側は task ごとの境目を知りようがない。"""
+    import json
+    from pathlib import Path as P
+
+    from sonicforge.schemas import DURATION_MAX, DURATION_MIN
+
+    field = json.loads(
+        (P(__file__).resolve().parents[1] / "schemas" / "generate-request.json")
+        .read_text(encoding="utf-8")
+    )["properties"]["input"]["properties"]["duration_sec"]
+    # 契約の範囲は全 task の和集合。正確な境目は説明と検証が持つ。
+    assert field["minimum"] == DURATION_MIN and field["maximum"] == DURATION_MAX
+    assert "0.1" in field["description"] and "120" in field["description"]
+    assert "600" in field["description"] and "10 秒未満" in field["description"]
+    # 音楽が 0.2 秒刻みに落ちることも書く。頼んだ長さと違うものが返るため。
+    assert "0.2" in field["description"]

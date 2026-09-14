@@ -54,6 +54,10 @@ const I18N = {
     musicMood: "雰囲気",
     length: "長さ",
     instrumental: "歌なし（BGM）",
+    lengthSecondsMusic: "長さ（10〜600秒）",
+    lengthSecondsSfx: "長さ（0.1〜120秒）",
+    musicDurationHint: "約0.2秒刻みに落ちます（22.5秒を頼むと22.4秒）。10秒未満も作れますが、モデルの想定外なので出来は保証しません。",
+    sfxDurationHint: "頼んだ長さちょうどに出ます。0.1秒刻みで指定できます。",
     loopToggle: "繰り返し用にする（継ぎ目なし）",
     loopHint: "終わりを始まりへ重ねるので、重ねたぶん（約1.5秒）短くなります。",
     lyricsPresets: "歌詞のひな形",
@@ -458,6 +462,10 @@ const I18N = {
     musicMood: "Mood",
     length: "Length",
     instrumental: "Instrumental (BGM)",
+    lengthSecondsMusic: "Length (10–600s)",
+    lengthSecondsSfx: "Length (0.1–120s)",
+    musicDurationHint: "Rounds to about 0.2s steps (asking for 22.5s gives 22.4s). Under 10s works but is outside what the model expects.",
+    sfxDurationHint: "Comes out at exactly the length you ask for, in 0.1s steps.",
     loopToggle: "Make it loop seamlessly",
     loopHint: "The end is blended into the start, so the result is shorter by that overlap (about 1.5s).",
     lyricsPresets: "Lyric templates",
@@ -1687,7 +1695,8 @@ function renderStudio() {
     state.form.musicMood = value;
     renderStudio();
   });
-  renderChips(byId("music-length-chips"), [15, 30, 60, 120].map((s) => ({id: s, text: `${s}s`})),
+  renderChips(byId("music-length-chips"),
+    [15, 30, 60, 120, 300, 600].map((s) => ({id: s, text: s >= 60 ? `${s / 60}m` : `${s}s`})),
     Number(state.form.musicSeconds ?? 30), (value) => {
       state.form.musicSeconds = value;
       renderStudio();

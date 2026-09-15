@@ -73,6 +73,8 @@ def capability_document(session: Session, *, fake_enabled: bool = False) -> dict
                 ),
                 "design": (
                     "声を自然文で注文する。キャラクターごとに違う声が要るならこちら。"
+                    "identity は注文文と見本の本文と seed の三つで決まり、三つを揃えれば"
+                    "同じ声を作り直せる（三つとも sonic.voice.list に載る）。"
                     "感情は作るときに用意した見本から選ぶ形になる。"
                 ),
                 "clone": "手元の音声から複製する。権利の確認と書き起こしが要る。",
@@ -85,7 +87,9 @@ def capability_document(session: Session, *, fake_enabled: bool = False) -> dict
             ),
             "constraints": [
                 "声の感情の見本は作るときに決まる。あとから足せないので、足すには作り直す",
-                "design で作った声は注文文を覚えているが、呼び直しはしない。呼び直すと別人になる",
+                "design は声を作るときに一度だけ呼ぶ。呼び直すと別人になるので、以後は複製で喋る",
+                "作り直すときは description と sample_text と seed を同じにする。一つでも違えば別人になる",
+                "別の人物が欲しいだけなら seed を変える。注文文を書き換えるより声質が保たれる",
             ],
         },
     }

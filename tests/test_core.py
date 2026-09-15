@@ -872,7 +872,7 @@ def test_batch_keeps_the_audio_engine_loaded_and_drops_it_before_reporting_done(
 
     monkeypatch.setattr(jobs_module,"execute",watched)
     with TestClient(m.app) as c:
-        item={"task":"audio.sfx.generate","input":{"prompt":"足音","duration_sec":1},"routing":{"engine":"fake","model":None,"device":"auto"}}
+        item={"task":"audio.sfx.generate","input":{"prompt":"足音","duration_sec":2},"routing":{"engine":"fake","model":None,"device":"auto"}}
         response=c.post('/addon/v1/agent/generate/batch',json={"items":[item,item,item]})
         assert response.status_code==200,response.text
         assert response.json()['succeeded_count']==3,response.text
@@ -897,7 +897,7 @@ def test_a_single_call_does_not_leave_a_transient_engine_loaded(env,monkeypatch)
     monkeypatch.setattr(jobs_module,"execute",watched)
     with TestClient(m.app) as c:
         response=c.post('/addon/v1/agent/generate',json={
-            "input":{"task":"audio.sfx.generate","input":{"prompt":"足音","duration_sec":1},"routing":{"engine":"fake","model":None,"device":"auto"}},
+            "input":{"task":"audio.sfx.generate","input":{"prompt":"足音","duration_sec":2},"routing":{"engine":"fake","model":None,"device":"auto"}},
             "correlation":{"job_id":"host-job"},
         })
         assert response.status_code==200,response.text
@@ -1057,15 +1057,118 @@ def test_a_designed_voice_is_pinned_to_the_sample_it_produced(env):
         # 見本が保存され、以後はその複製で回る。
         assert body['anchored'] is True
         assert body['sample_asset_id']
-        # 複製経路は言い方の指示を受けないので、感情は見本の側で持つ。試験の
-        # engine は 1 本しか返さないため、持っているのは平静だけになる。指定しても
-        # 何も起きない状態なので、効かないと言わなければならない。
-        assert body['emotion_choices'] == ['neutral']
-        assert body['supports_emotion'] is False
+        # 感情別の見本は identity の見本からの複製で作る。design を感情ごとに
+        # 呼ぶと感情ごとに別人になる（実測: 1 回の呼び出しに batch でまとめても
+        # MFCC 平均の余弦は最小 0.703 で、別々に呼んだとき 0.695 と変わらない）。
+        assert body['emotion_choices'] == ['anger','joy','neutral','sorrow']
+        assert body['supports_emotion'] is True
         listed=c.post('/addon/v1/agent/voice/list',json={}).json()['voices']
         mine=next(item for item in listed if item['voice_id']==body['voice_id'])
         assert mine['anchored'] is True and mine['method']=='design'
         assert mine['description']=="落ち着いた三十代の男性。低めの声。"
+
+def test_a_designed_voice_carries_what_it_takes_to_rebuild_it(env):
+    """声を作り直せるようにする。
+
+    design の identity は注文文と本文と seed の三つで決まる。三つが揃えば同じ声が
+    バイト単位で再現し（実測: 同条件で 2 回作り sha256 が一致）、一つでも違えば
+    別人になる（実測: 注文文と seed を固定して本文だけ変えると MFCC 平均の余弦が
+    最小 0.695）。三つを声に残しておかないと、見本の音が失われた時点でその
+    キャラクターは二度と作れない。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        body=c.post('/addon/v1/agent/voice/create',json={
+            "name":"勇者","method":"design","languages":["ja"],
+            "description":"落ち着いた三十代の男性。低めの声。",
+            "sample_text":"はじめまして。","seed":12345}).json()
+        assert body['seed']==12345
+        assert body['anchor_text']=="はじめまして。"
+        assert body['description']=="落ち着いた三十代の男性。低めの声。"
+        listed=c.post('/addon/v1/agent/voice/list',json={}).json()['voices']
+        mine=next(item for item in listed if item['voice_id']==body['voice_id'])
+        assert (mine['seed'],mine['anchor_text'])==(12345,"はじめまして。")
+
+def test_a_designed_voice_gets_a_seed_even_when_none_is_asked_for(env):
+    """seed を省いたのを「再現しなくてよい」と読まない。
+
+    seed を置かないと design は同じ注文文でも別人を返す（実測: 同条件 2 回で
+    波形の相関 0.0073）。省略時に置かないでいると、作った声は二度と戻せない。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        body=c.post('/addon/v1/agent/voice/create',json={
+            "name":"勇者","method":"design","languages":["ja"],
+            "description":"落ち着いた三十代の男性。低めの声。"}).json()
+        from sonicforge import voice_catalog
+        assert body['seed']==voice_catalog.DEFAULT_DESIGN_SEED
+        # 本文も既定が入る。こちらが持っている文なので書き起こしが完全に一致する。
+        assert body['anchor_text']==voice_catalog.anchor_text('ja')
+
+def test_a_design_seed_has_to_be_an_integer_in_range(env):
+    m=load_app()
+    with TestClient(m.app) as c:
+        for bad in ("777", 1.5, True, -1, 2**31):
+            response=c.post('/addon/v1/agent/voice/create',json={
+                "name":"勇者","method":"design","languages":["ja"],
+                "description":"落ち着いた三十代の男性。","seed":bad})
+            assert response.status_code==422,(bad,response.text)
+            assert response.json()['detail']['code']=='invalid_seed',(bad,response.text)
+
+def test_only_the_emotions_that_were_asked_for_are_built(env):
+    """頼まれた感情の見本だけを作り、頼まれたぶんは必ずそろえる。"""
+    m=load_app()
+    with TestClient(m.app) as c:
+        body=c.post('/addon/v1/agent/voice/create',json={
+            "name":"勇者","method":"design","languages":["ja"],
+            "description":"落ち着いた三十代の男性。","emotions":["neutral","anger"]}).json()
+        assert body['emotion_choices']==['anger','neutral']
+        assert body['supports_emotion'] is True
+
+def test_a_voice_is_refused_when_the_samples_do_not_all_arrive(env, monkeypatch):
+    """見本が足りないまま声を作らない。
+
+    黙って平静だけで作ると、使う側は「怒りの見本がある」と思ったまま台詞を書く。
+    足りないことは作った側にしか分からないので、ここで断って作り直させる。
+    """
+    monkeypatch.setenv('SONICFORGE_FAKE_VOICE_DROP_SEGMENT','1')
+    m=load_app()
+    with TestClient(m.app) as c:
+        before={item['voice_id'] for item in
+                c.post('/addon/v1/agent/voice/list',json={}).json()['voices']}
+        response=c.post('/addon/v1/agent/voice/create',json={
+            "name":"足りない声","method":"design","languages":["ja"],
+            "description":"落ち着いた三十代の男性。","emotions":["neutral","anger"]})
+        assert response.status_code==502,response.text
+        assert response.json()['detail']['code']=='voice_sample_incomplete'
+        # 半端な声を残さない。下書きごと消える。
+        after={item['voice_id'] for item in
+               c.post('/addon/v1/agent/voice/list',json={}).json()['voices']}
+        assert after==before
+
+def test_a_voice_designed_from_the_screen_is_anchored_too(env):
+    """画面から作った声も見本を掴む。
+
+    ここは以前 design_instruction を保存するだけだった。喋るたびに design が
+    呼び直されるので、台詞ごとに別人になる（実測: 注文文と seed を固定して本文
+    だけ変えると MFCC 平均の余弦が最小 0.695）。agent 側だけ直しても、画面から
+    作った声は壊れたままになる。
+    """
+    m=load_app()
+    with TestClient(m.app) as c:
+        created=c.post('/addon/v1/voices',json={
+            "name":"画面の勇者","source_type":"design","languages":["ja"],
+            "engine_id":None,"rights_confirmed":False,
+            "recipe":{"design_instruction":"落ち着いた三十代の男性。低めの声。"}})
+        assert created.status_code==200,created.text
+        recipe=created.json()['recipe']
+        # 見本と、作り直すのに要る三つが残っている。
+        assert recipe['reference_audio'] and recipe['reference_text']
+        assert recipe['seed'] and recipe['anchor_text']
+        assert recipe['design_instruction']=="落ち着いた三十代の男性。低めの声。"
+        # 以後は複製で回る。design は呼び直さない。
+        assert created.json()['source_type']=='clone'
+        assert sorted(recipe['references'])==['anger','joy','neutral','sorrow']
 
 def test_speaking_without_a_voice_still_speaks(env):
     """声を選んでいないだけで喋れなくならない。

@@ -274,17 +274,17 @@ def test_duration_limits_match_what_each_engine_actually_makes():
     from sonicforge.schemas import DURATION_LIMITS, TaskRequest
 
     assert DURATION_LIMITS["music.generate"] == (1.0, 600.0)
-    assert DURATION_LIMITS["audio.sfx.generate"] == (0.1, 120.0)
+    assert DURATION_LIMITS["audio.sfx.generate"] == (2.0, 120.0)
 
     # 音楽は 600 秒まで通る。この機械（31.9GB / tier unlimited）の実力である。
     ok = TaskRequest.model_validate({
         "task": "music.generate", "input": {"prompt": "x", "duration_sec": 600},
     })
     assert ok.input["duration_sec"] == 600
-    # 効果音は 0.1 秒から通る。
+    # 効果音は 2 秒から通る（それ未満は雑音しか返らない）。
     assert TaskRequest.model_validate({
-        "task": "audio.sfx.generate", "input": {"prompt": "x", "duration_sec": 0.1},
-    }).input["duration_sec"] == 0.1
+        "task": "audio.sfx.generate", "input": {"prompt": "x", "duration_sec": 2},
+    }).input["duration_sec"] == 2
 
     # 5 秒の音楽は通す。モデルの想定より短いが、実測で 5.12 秒が返る——
     # 動くものを契約で塞がない。
@@ -314,7 +314,7 @@ def test_duration_contract_publishes_the_per_task_ranges():
     )["properties"]["input"]["properties"]["duration_sec"]
     # 契約の範囲は全 task の和集合。正確な境目は説明と検証が持つ。
     assert field["minimum"] == DURATION_MIN and field["maximum"] == DURATION_MAX
-    assert "0.1" in field["description"] and "120" in field["description"]
+    assert "2〜120" in field["description"] and "120" in field["description"]
     assert "600" in field["description"] and "10 秒未満" in field["description"]
     # 音楽が 0.2 秒刻みに落ちることも書く。頼んだ長さと違うものが返るため。
     assert "0.2" in field["description"]
@@ -487,3 +487,64 @@ def test_int8_placement_matches_whether_parts_are_sent_one_at_a_time():
     # 生成側は送り出しを使う道なので、そちらで呼ぶ。
     generation = source[source.index("def _handlers("):source.index("def prepare_int8(")]
     assert "offloading=True" in generation
+
+
+def test_sfx_cannot_be_asked_for_below_two_seconds():
+    """2 秒を切ると、音が立ち上がる前の雑音しか返らない。
+
+    モデルは「指定 + 6 秒」を作ってから先頭の指定秒だけを切り出す。2 秒を
+    下回ると切り出されるのは過渡部分だけで、飽和した矩形波になる。
+    実測 2026-09-14〜15、同じ prompt で 12 件:
+      0.10〜0.80 秒（9 件） 尖頭 1.000・波高率 1.14〜1.25 ＝ 飽和した雑音
+      1.00 秒              尖頭 0.001 ＝ ほぼ無音
+      2.00 秒以上          音は前半で終わり、後ろに無音が残る ＝ 使える
+    実害が出ている（ゲームの sfx_atk_melee が壊れたまま入っていた）。
+    """
+    import pytest
+
+    from sonicforge.schemas import DURATION_LIMITS, TaskRequest
+
+    assert DURATION_LIMITS["audio.sfx.generate"] == (2.0, 120.0)
+    assert DURATION_LIMITS["audio.ambience.generate"] == (2.0, 120.0)
+
+    for seconds in (0.1, 0.55, 1.0, 1.9):
+        with pytest.raises(Exception) as error:
+            TaskRequest.model_validate({
+                "task": "audio.sfx.generate",
+                "input": {"prompt": "sword slash", "duration_sec": seconds},
+            })
+        assert "duration_out_of_range" in str(error.value)
+
+    ok = TaskRequest.model_validate({
+        "task": "audio.sfx.generate",
+        "input": {"prompt": "sword slash", "duration_sec": 2.0},
+    })
+    assert ok.input["duration_sec"] == 2.0
+
+
+def test_the_sfx_worker_trims_the_trailing_silence():
+    """短い効果音は 2 秒で作って、後ろの無音を落として得る。
+
+    実測 2026-09-15: 2 秒指定なら音は 0.45〜1.0 秒に収まり、後ろ 1.00 秒が無音。
+    3 秒指定では 2.40 秒が無音。落とさずに渡すと、鳴らすたびに無駄な尻が付く。
+
+    numpy は core の venv に無いので、ここでは worker の形だけを見る。
+    数値の振る舞いは実機（game-audio-cpu の venv）で確かめる。
+    """
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1] / "worker_packs" / "stable_audio3" / "worker.py"
+    ).read_text(encoding="utf-8")
+    assert "def _trim_trailing_silence(" in source
+    # 書き出す前に落とす。落としてから書かないと、file には尻が残る。
+    trim_at = source.index("audio, trimmed_sec = _trim_trailing_silence(")
+    write_at = source.index("sf.write(out, audio, sample_rate)")
+    assert trim_at < write_at
+    # 頼んだ長さと違うものを返すので、実際の長さと落とした秒数を残す。
+    assert '"duration_sec": round(len(audio) / sample_rate, 3)' in source
+    assert '"trimmed_tail_sec"' in source
+    # 先頭は触らない。鳴らし始めの遅れを黙って変えない。
+    assert "先頭は触らない" in source
+    # 全部無音でも長さ 0 の file を作らない。
+    assert "MIN_KEPT_SEC" in source

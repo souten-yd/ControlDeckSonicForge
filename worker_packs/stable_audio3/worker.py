@@ -12,6 +12,46 @@ from pathlib import Path
 _MODELS: dict[tuple[str, str], object] = {}
 
 
+# 後ろの無音を落とすときの閾値。尖頭に対する比で見る。
+#
+# モデルは「指定 + 6 秒」を作ってから先頭の指定秒を切り出すので、2 秒で頼むと
+# 音は前半で終わり、後ろに無音が残る（実測 2026-09-15: 2 秒指定で 1.00 秒、
+# 3 秒指定で 2.40 秒が無音）。短い効果音は「短く頼む」のではなく、こうして
+# 得る。短く頼むと音が立ち上がる前の過渡部分だけが返り、飽和した雑音になる。
+SILENCE_RATIO = 0.01          # 尖頭の 1%（約 -40 dB）を下回れば無音とみなす
+SILENCE_WINDOW_SEC = 0.01     # 判定の窓
+SILENCE_KEEP_SEC = 0.05       # 減衰を切らないよう、無音の手前を少し残す
+MIN_KEPT_SEC = 0.05           # 全部無音に見えても、これだけは残す
+
+
+def _trim_trailing_silence(audio, sample_rate: int):
+    """後ろの無音を落とす。落とした秒数を返す。
+
+    先頭は触らない。頭の無音は鳴らし始めの遅れになるが、それを落とすかどうかは
+    別の判断（ここで黙って変えない）。
+    """
+    import numpy as np
+
+    mono = audio if getattr(audio, "ndim", 1) == 1 else audio.mean(axis=1)
+    peak = float(np.abs(mono).max()) if mono.size else 0.0
+    if peak <= 0:
+        return audio, 0.0
+    window = max(1, int(SILENCE_WINDOW_SEC * sample_rate))
+    threshold = peak * SILENCE_RATIO
+    end = len(mono)
+    while end > window:
+        block = mono[end - window:end]
+        if float(np.sqrt((block.astype("float64") ** 2).mean())) > threshold:
+            break
+        end -= window
+    keep = min(len(mono), end + int(SILENCE_KEEP_SEC * sample_rate))
+    keep = max(keep, int(MIN_KEPT_SEC * sample_rate))
+    if keep >= len(mono):
+        return audio, 0.0
+    trimmed = (len(mono) - keep) / sample_rate
+    return audio[:keep], trimmed
+
+
 def _emit(event: dict) -> None:
     print(json.dumps(event, ensure_ascii=False), flush=True)
 
@@ -100,11 +140,15 @@ def handle(payload: dict) -> None:
         or getattr(model, "sample_rate", None)
         or 44100
     )
+    audio, trimmed_sec = _trim_trailing_silence(audio, sample_rate)
     out = work / "output.wav"
     sf.write(out, audio, sample_rate)
     normalization = inp.get("_internal_prompt_normalization")
     result_payload = {
         "duration_requested": duration,
+        # 後ろの無音を落としたので、頼んだ長さとは違う。実際の長さを返す。
+        "duration_sec": round(len(audio) / sample_rate, 3),
+        "trimmed_tail_sec": round(trimmed_sec, 3),
         "device": device,
         "sample_rate": sample_rate,
         "filename": "sfx.wav",

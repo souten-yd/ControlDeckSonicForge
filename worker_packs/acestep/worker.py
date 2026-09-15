@@ -28,6 +28,37 @@ def _emit(event: dict) -> None:
 # LLM を降ろせるなら前者が速い。降ろせないなら後者しか道がない。
 FULL_RESIDENCY_BYTES = 20 * 1024**3
 
+
+def _free_vram_bytes(device: str) -> int:
+    """いま実際に空いている VRAM。分からなければ 0。
+
+    枠を渡されない経路がある（画面から直に頼んだとき、ホストの身元が付かない
+    とき）。そのとき「枠の指定が無い ＝ 全部使ってよい」と読むのは誤りで、
+    device には他人が載っていることがある。実測 2026-09-15、LLM が 22.9 GiB を
+    持っている状態で画面から音楽を頼むと、そのまま載せに行って HIP out of
+    memory で落ちた（10.18 GiB まで取ったところで空き 0）。頼んだ側からは
+    「VRAM が使われないまま失敗した」としか見えない。
+
+    申告が無いなら、こちらで見る。
+    """
+    if device not in ("auto", "cuda") and not str(device).startswith("cuda"):
+        return 0
+    try:
+        with redirect_stdout(sys.stderr):
+            import torch
+
+            if not torch.cuda.is_available():
+                return 0
+            index = 0
+            if str(device).startswith("cuda:"):
+                index = int(str(device).split(":", 1)[1])
+            free, _total = torch.cuda.mem_get_info(index)
+        return int(free)
+    except Exception:
+        # 見られないなら、見えなかったことにする。ここで落とすと、GPU の無い
+        # 機械で音楽が作れなくなる。
+        return 0
+
 # int8 にするのは decoder の線形層だけ。ACE-Step 自身の量子化もこの範囲で、
 # 広げると遅くなる（実測: tokenizer まで含めると 30 秒の曲が 147 秒 → 344 秒）。
 QUANT_INCLUDE = ["decoder*"]
@@ -237,7 +268,15 @@ def handle(payload: dict) -> None:
     # 部品ごとに送り出す形へ落とす。載せ方は結果に残す——同じ頼みでも速さが
     # 変わるので、あとから「なぜ遅かったのか」を追えるようにする。
     granted = request.get("_internal_granted_vram_bytes")
-    small_budget = bool(granted) and int(granted) < FULL_RESIDENCY_BYTES
+    if granted:
+        small_budget = int(granted) < FULL_RESIDENCY_BYTES
+        budget_source = "granted"
+    else:
+        # 枠を渡されていない。全部空いている前提で載せに行くと、他人が載って
+        # いる device では OOM で落ちる。実際の空きで決める。
+        free = _free_vram_bytes(device)
+        small_budget = bool(free) and free < FULL_RESIDENCY_BYTES
+        budget_source = "measured" if free else "unknown"
     dit, llm = _handlers(
         project_root, checkpoints, device, dit_model, lm_model, lm_backend, small_budget
     )
@@ -295,6 +334,9 @@ def handle(payload: dict) -> None:
                 "has_lyrics": bool(lyrics.strip()),
                 "vocal_language": language,
                 "placement": "int8_offload" if small_budget else "full_device",
+                # 枠を誰が決めたのか。同じ頼みでも速さが変わるので、あとから
+                # 「なぜ遅かったのか」「なぜ落ちたのか」を追えるようにする。
+                "placement_decided_by": budget_source,
                 "granted_vram_bytes": int(granted) if granted else None,
                 "lm_model": lm_model,
                 "lm_backend": lm_backend,

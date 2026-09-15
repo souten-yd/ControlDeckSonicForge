@@ -872,7 +872,7 @@ def test_batch_keeps_the_audio_engine_loaded_and_drops_it_before_reporting_done(
 
     monkeypatch.setattr(jobs_module,"execute",watched)
     with TestClient(m.app) as c:
-        item={"task":"audio.sfx.generate","input":{"prompt":"足音","duration_sec":1},"routing":{"engine":"fake","model":None,"device":"auto"}}
+        item={"task":"audio.sfx.generate","input":{"prompt":"足音","duration_sec":2},"routing":{"engine":"fake","model":None,"device":"auto"}}
         response=c.post('/addon/v1/agent/generate/batch',json={"items":[item,item,item]})
         assert response.status_code==200,response.text
         assert response.json()['succeeded_count']==3,response.text
@@ -897,7 +897,7 @@ def test_a_single_call_does_not_leave_a_transient_engine_loaded(env,monkeypatch)
     monkeypatch.setattr(jobs_module,"execute",watched)
     with TestClient(m.app) as c:
         response=c.post('/addon/v1/agent/generate',json={
-            "input":{"task":"audio.sfx.generate","input":{"prompt":"足音","duration_sec":1},"routing":{"engine":"fake","model":None,"device":"auto"}},
+            "input":{"task":"audio.sfx.generate","input":{"prompt":"足音","duration_sec":2},"routing":{"engine":"fake","model":None,"device":"auto"}},
             "correlation":{"job_id":"host-job"},
         })
         assert response.status_code==200,response.text

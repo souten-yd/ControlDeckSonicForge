@@ -131,8 +131,36 @@ def _load_int8(handler, cache: Path, target: str, *, offloading: bool) -> None:
                 pass
 
 
-def _handlers(project_root: str, checkpoints: str, device: str, dit_model: str, lm_model: str, lm_backend: str, small_budget: bool = False):
-    key = (project_root, checkpoints, device, dit_model, lm_model, lm_backend, small_budget)
+def _apply_vram_cap(budget_bytes: int) -> int | None:
+    """ACE-Step に「使ってよい VRAM」を伝える。返すのは伝えた GiB。
+
+    ACE-Step はこの値でカードの段（tier）を決め、段ごとに offload・量子化・
+    同時に載せる部品・活性のとり方まで変える。**ここが実際の空きと食い違うと、
+    こちらがどれだけ offload を指定しても効かない。**
+
+    実測 2026-09-15（R9700、同じ 20 秒の曲、どちらも offload 指定つき）:
+      MAX_CUDA_VRAM=20  カード全体で 29.21 GiB（GPU を独占した状態で単独実行）
+      MAX_CUDA_VRAM=9   LLM が 21.28 GiB 常駐のまま、上乗せ 7.4 GiB で完走
+
+    20 は決め打ちで入っていた。LLM が 22.9 GiB を持つと空きは 9 GiB ほどなので、
+    ACE-Step は 20 GiB 使える前提で構成を組み、読み込みの途中で OOM する。
+    利用者からは「VRAM を使わないまま失敗する」としか見えない。
+
+    段の下は 8〜12GB の tier4 で、そこは DiT も VAE も CPU へ置き、量子化を
+    既定で入れる——小さい枠のための道が元から用意されている。使う枠を正しく
+    伝えれば、そちらが選ばれる。
+    """
+    gib = int(budget_bytes // (1024**3))
+    if gib < 4:
+        # 4 未満は ACE-Step の最下段より下で、伝えても意味が無い。触らない。
+        return None
+    os.environ["MAX_CUDA_VRAM"] = str(gib)
+    return gib
+
+
+def _handlers(project_root: str, checkpoints: str, device: str, dit_model: str, lm_model: str, lm_backend: str, small_budget: bool = False, vram_cap_gib: int | None = None):
+    # 段が変われば構成が変わる。載せたものを使い回してよいのは段が同じときだけ。
+    key = (project_root, checkpoints, device, dit_model, lm_model, lm_backend, small_budget, vram_cap_gib)
     cached = _HANDLERS.get(key)
     if cached is not None:
         return cached
@@ -269,16 +297,20 @@ def handle(payload: dict) -> None:
     # 変わるので、あとから「なぜ遅かったのか」を追えるようにする。
     granted = request.get("_internal_granted_vram_bytes")
     if granted:
-        small_budget = int(granted) < FULL_RESIDENCY_BYTES
+        budget = int(granted)
         budget_source = "granted"
     else:
         # 枠を渡されていない。全部空いている前提で載せに行くと、他人が載って
         # いる device では OOM で落ちる。実際の空きで決める。
-        free = _free_vram_bytes(device)
-        small_budget = bool(free) and free < FULL_RESIDENCY_BYTES
-        budget_source = "measured" if free else "unknown"
+        budget = _free_vram_bytes(device)
+        budget_source = "measured" if budget else "unknown"
+    small_budget = bool(budget) and budget < FULL_RESIDENCY_BYTES
+    # 枠が分かっているなら ACE-Step にも同じ枠を伝える。伝えないと、こちらが
+    # offload を指定していても既定の 20 GiB 前提で構成を組まれる。
+    vram_cap_gib = _apply_vram_cap(budget) if budget else None
     dit, llm = _handlers(
-        project_root, checkpoints, device, dit_model, lm_model, lm_backend, small_budget
+        project_root, checkpoints, device, dit_model, lm_model, lm_backend,
+        small_budget, vram_cap_gib,
     )
 
     inp = request.get("input", {})
@@ -337,6 +369,8 @@ def handle(payload: dict) -> None:
                 # 枠を誰が決めたのか。同じ頼みでも速さが変わるので、あとから
                 # 「なぜ遅かったのか」「なぜ落ちたのか」を追えるようにする。
                 "placement_decided_by": budget_source,
+                # ACE-Step に伝えた枠（GiB）。段が変われば速さも VRAM も変わる。
+                "vram_cap_gib": vram_cap_gib,
                 "granted_vram_bytes": int(granted) if granted else None,
                 "lm_model": lm_model,
                 "lm_backend": lm_backend,

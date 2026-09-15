@@ -902,3 +902,21 @@ dialog::backdrop { background: rgba(10, 13, 24, .68); }
   border-radius: 12px;
   font-size: 0.95rem;
 }
+
+/* 選択中は一覧の押し先が「開く」から「選ぶ」へ変わる。同じ場所に別の意味を
+   重ねるので、選択中だと分かる印を必ず出す。 */
+.selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: var(--surface);
+}
+.selection-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.card[aria-selected="true"] { outline: 2px solid var(--accent, #4a8); outline-offset: 2px; }
+.card .pick { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }

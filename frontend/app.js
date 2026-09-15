@@ -162,6 +162,15 @@ const I18N = {
     cancel: "中止",
     makeAnother: "もう一度作る",
     exportAsset: "書き出す",
+    downloadAsset: "ダウンロード",
+    select: "選択",
+    selectStop: "やめる",
+    selectAll: "全部",
+    selectNone: "解除",
+    selectedCount: "件を選択",
+    downloadStarted: "ダウンロードを始めました。",
+    downloadZipping: "1 つの zip にまとめています。始まるまで少しかかります。",
+    downloadTooMany: "一度に落とせるのは 100 件までです。",
     details: "詳細",
     close: "閉じる",
     back: "戻る",
@@ -573,6 +582,15 @@ const I18N = {
     cancel: "Cancel",
     makeAnother: "Make another",
     exportAsset: "Export",
+    downloadAsset: "Download",
+    select: "Select",
+    selectStop: "Cancel",
+    selectAll: "All",
+    selectNone: "None",
+    selectedCount: " selected",
+    downloadStarted: "The download has started.",
+    downloadZipping: "Packing them into one zip. It takes a moment to start.",
+    downloadTooMany: "You can take at most 100 at a time.",
     details: "Details",
     close: "Close",
     back: "Back",
@@ -1018,6 +1036,8 @@ const state = {
   deliveryProfiles: [],
   credentials: null,
   libraryFilter: "all",
+  librarySelecting: false,
+  librarySelected: new Set(),
   exportAssetId: "",
   confirmAction: null,
   /* 入力の持ち物。再描画で消えないようにここに置く。 */
@@ -2557,6 +2577,13 @@ function renderLibrary() {
     meta.textContent = asset.created_at ? new Date(asset.created_at).toLocaleString() : "";
     const actions = document.createElement("div");
     actions.className = "actions";
+    // 「書き出す」の行き先はホストのファイル選択である。手元が携帯だと選ばせる
+    // 相手が別の機械なので、そこでは選べない。押した端末へそのまま落とす道を
+    // 並べて置く。
+    const downloadButton = document.createElement("button");
+    downloadButton.type = "button";
+    downloadButton.textContent = t("downloadAsset");
+    downloadButton.onclick = () => startDownload([asset.id]);
     const exportButton = document.createElement("button");
     exportButton.type = "button";
     exportButton.textContent = t("exportAsset");
@@ -2565,10 +2592,97 @@ function renderLibrary() {
     detailButton.type = "button";
     detailButton.textContent = t("details");
     detailButton.onclick = () => openAssetDetail(asset.id);
-    actions.append(exportButton, detailButton);
+    actions.append(downloadButton, exportButton, detailButton);
+    card.dataset.assetId = asset.id;
+    card.setAttribute("aria-selected", String(state.librarySelected.has(asset.id)));
+    if (state.librarySelecting) {
+      const pick = document.createElement("label");
+      pick.className = "pick";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = state.librarySelected.has(asset.id);
+      box.onchange = () => {
+        if (box.checked) state.librarySelected.add(asset.id);
+        else state.librarySelected.delete(asset.id);
+        renderLibrarySelection();
+      };
+      const label = document.createElement("span");
+      label.textContent = heading.textContent;
+      pick.append(box, label);
+      card.append(pick);
+    }
     card.append(heading, tags, play, player, meta, actions);
     return card;
   }));
+  renderLibrarySelection();
+}
+
+/* ── まとめて落とす ───────────────────────────────────────────────────
+   「書き出す」の行き先はホストのファイル選択で、手元が携帯だと選ばせる相手が
+   別の機械になる。ここは押した端末へそのまま落とす。
+
+   **await を挟まない。** 組み立てを待ってから URL を差し替える形にすると、
+   待つ間に利用者の操作との繋がりが切れ、iOS の Safari はそれをダウンロードと
+   して扱わないことがある。押した先がそのまま中身になるようにする。
+
+   1 件なら zip にしない。1 本だけ欲しい人に zip を渡すと、携帯では展開する
+   手間が増える。 */
+
+const LIBRARY_DOWNLOAD_MAX = 100;
+
+function startDownload(assetIds) {
+  if (!assetIds.length) return;
+  if (assetIds.length > LIBRARY_DOWNLOAD_MAX) return libraryNote(t("downloadTooMany"));
+  const url = assetIds.length === 1
+    ? apiUrl(`/assets/${encodeURIComponent(assetIds[0])}/download`)
+    : apiUrl(`/assets-download?${assetIds
+        .map((id) => `asset_id=${encodeURIComponent(id)}`).join("&")}`);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  /* download 属性は同一生成元でしか効かないが、効かない相手でも
+     Content-Disposition: attachment が付いているので落ちる。 */
+  anchor.download = "";
+  anchor.rel = "noopener";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  libraryNote(assetIds.length === 1 ? t("downloadStarted") : t("downloadZipping"));
+}
+
+function libraryNote(text) {
+  const note = byId("library-note");
+  if (!note) return;
+  note.textContent = text || "";
+  note.hidden = !text;
+}
+
+function setLibrarySelecting(active) {
+  state.librarySelecting = active;
+  if (!active) state.librarySelected.clear();
+  const toggle = byId("library-select");
+  if (toggle) {
+    toggle.setAttribute("aria-pressed", String(active));
+    toggle.textContent = active ? t("selectStop") : t("select");
+  }
+  libraryNote("");
+  renderLibrary();
+}
+
+function renderLibrarySelection() {
+  const bar = byId("library-selection");
+  if (!bar) return;
+  bar.hidden = !state.librarySelecting;
+  // 消えた素材を選んだままにしない。数だけ残ると、押しても何も起きない。
+  const present = new Set(state.assets.map((asset) => asset.id));
+  for (const id of [...state.librarySelected]) if (!present.has(id)) state.librarySelected.delete(id);
+  const count = state.librarySelected.size;
+  byId("library-selection-count").textContent = `${count}${t("selectedCount")}`;
+  const button = byId("library-download");
+  button.disabled = count === 0;
+  button.textContent = count > 1 ? `${count} ${t("downloadAsset")}` : t("downloadAsset");
+  for (const card of byId("library-grid").querySelectorAll(".card")) {
+    card.setAttribute("aria-selected", String(state.librarySelected.has(card.dataset.assetId)));
+  }
 }
 
 function renderRecent() {
@@ -4631,6 +4745,17 @@ byId("locale-toggle").addEventListener("click", () => setLocale(state.locale ===
 for (const button of $$("[data-refresh]")) {
   button.addEventListener("click", () => void reloadAuthoritative());
 }
+byId("library-select").addEventListener("click", () => setLibrarySelecting(!state.librarySelecting));
+byId("library-select-all").addEventListener("click", () => {
+  for (const asset of state.assets) state.librarySelected.add(asset.id);
+  renderLibrary();
+});
+byId("library-select-none").addEventListener("click", () => {
+  state.librarySelected.clear();
+  renderLibrary();
+});
+byId("library-download").addEventListener("click", () => startDownload([...state.librarySelected]));
+
 byId("setup-plan-refresh").addEventListener("click", () => void loadPlan());
 
 async function reloadAuthoritative() {

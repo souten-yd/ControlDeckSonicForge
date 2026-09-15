@@ -180,6 +180,12 @@ def _worker_environment(
         #   MAX_CUDA_VRAM=16（tier6a）16,602 MiB ← INT8 量子化が入るが減らない
         # 16 は量子化のぶん音質を損なうだけで VRAM は 2 MiB しか変わらないので
         # 選ばない。20 は量子化なし（bf16 のまま）で約 3 GB 減り、速度も上がる。
+        #
+        # **ただしこれは GPU を独占できるときの話である。** ここは既定値であって、
+        # 実際に使ってよい枠は要求ごとに違う。worker が枠（broker の貸出、または
+        # 実測した空き）を見て、この値を上書きする。上書きしないままだと、LLM が
+        # 22.9 GiB を持っていても ACE-Step は 20 GiB 使える前提で構成を組み、
+        # 読み込みの途中で OOM する（実測 2026-09-15）。
         env["MAX_CUDA_VRAM"] = "20"
     if engine_id in {"audio.stable-audio-3", "tts.gpt-sovits"}:
         # Provisioning downloads complete snapshots before atomic activation.

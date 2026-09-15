@@ -5,19 +5,22 @@ import logging
 import re
 import shutil
 import sqlite3
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import selectinload
 
+from . import asset_download
 from .capabilities import capability_document
 from .models_catalog import model_document
 from .config import ensure_directories, load_settings
@@ -452,6 +455,78 @@ async def asset_content(asset_id: str):
         target = (settings.data_dir / row.relative_path).resolve()
         if not target.is_relative_to(settings.data_dir.resolve()) or not target.is_file(): raise HTTPException(status_code=404, detail="asset content missing")
         return FileResponse(target, media_type=row.mime_type, filename=target.name)
+
+
+@app.get("/addon/v1/assets/{asset_id}/download")
+async def download_asset(asset_id: str):
+    """音を 1 件、いま見ている端末へ落とす。
+
+    `/content` も attachment で返るが、あちらは画面の再生に使っている経路で、
+    名前は保存名（uuid）のままである。20 件落としたときに見分けが付かないので、
+    落とすための経路は種類の分かる名前を付けて別に置く。
+    """
+    with session_factory() as session:
+        row = session.get(Asset, asset_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail={"code": "asset_not_found"})
+        target = (settings.data_dir / row.relative_path).resolve()
+        if not target.is_relative_to(settings.data_dir.resolve()) or not target.is_file():
+            raise HTTPException(status_code=404, detail={"code": "asset_not_found"})
+        return FileResponse(
+            target,
+            media_type=row.mime_type,
+            filename=asset_download.suggested_name(row),
+            content_disposition_type="attachment",
+        )
+
+
+@app.get("/addon/v1/assets-download")
+async def assets_download(asset_id: list[str] = Query(default_factory=list)):
+    """選んだ音をまとめて 1 つの zip で返す。
+
+    **GET 一本にしてある。** 先に組み立ててから URL を差し替える形だと、
+    組み立てを待つ間に利用者の操作との繋がりが切れ、iOS の Safari は
+    ダウンロードとして扱わないことがある。押した先がそのまま zip であれば、
+    その切れ目が無い。
+
+    作った zip は返し終えたら消す。素材は増減するので、作り置きを持つと古い
+    中身が落ちてくる。
+    """
+    def resolve(value: str):
+        with session_factory() as session:
+            row = session.get(Asset, value)
+            if row is None:
+                raise KeyError(value)
+            target = (settings.data_dir / row.relative_path).resolve()
+            if not target.is_relative_to(settings.data_dir.resolve()):
+                raise KeyError(value)
+            session.expunge(row)
+            return row, target
+
+    try:
+        entries = asset_download.plan(resolve, asset_id)
+    except asset_download.DownloadRefused as exc:
+        raise HTTPException(
+            status_code=404 if exc.code == "asset_not_found" else 422,
+            detail={"code": exc.code, "message": str(exc)[:300]},
+        ) from exc
+    downloads = settings.data_dir / "downloads"
+    await asyncio.to_thread(asset_download.sweep, downloads, time.time())
+    target = downloads / f"{uuid.uuid4().hex}.zip"
+    try:
+        await asyncio.to_thread(asset_download.build, entries, target)
+    except OSError as exc:
+        target.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=500, detail={"code": "download_failed", "message": str(exc)[:300]}
+        ) from exc
+    return FileResponse(
+        target,
+        media_type="application/zip",
+        filename=asset_download.archive_name(),
+        content_disposition_type="attachment",
+        background=BackgroundTask(target.unlink, missing_ok=True),
+    )
 
 
 @app.get("/addon/v1/voices")

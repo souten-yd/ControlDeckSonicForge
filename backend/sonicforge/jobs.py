@@ -18,7 +18,13 @@ from . import audio_loop
 # 実測 2026-09-14（AMD Radeon AI PRO R9700、LLM が 22.9 GiB 常駐のまま）:
 # DiT を int8 にし、部品を順に送る形（offload）で 8.47 GiB。30 秒の曲が
 # 132 秒で完成した。占有で作れば 80 秒なので、待たない代わりに 1.6 倍遅い。
-MUSIC_MINIMUM_VRAM_BYTES = 10 * 1024**3
+#
+# 10 GiB と申告していたが、これは実測 8.47 GiB に 1.5 GiB 余らせた値で、
+# 余らせ過ぎだった。LLM が 22.9 GiB を持つと空きは 9.91 GiB になる——申告が
+# 10 GiB だと、動ける大きさなのに 0.09 GiB 足りずに弾かれる。実測 2026-09-15、
+# その状態で頼んだ曲は 5 分 35 秒待たされ、LLM が退いてからようやく動いた。
+# 下限は「動ける最小」であって「快適な大きさ」ではない。
+MUSIC_MINIMUM_VRAM_BYTES = 9 * 1024**3
 from .audio import inspect_wav
 from .config import Settings
 from . import voice_catalog

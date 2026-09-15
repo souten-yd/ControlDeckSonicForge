@@ -55,9 +55,9 @@ const I18N = {
     length: "長さ",
     instrumental: "歌なし（BGM）",
     lengthSecondsMusic: "長さ（10〜600秒）",
-    lengthSecondsSfx: "長さ（0.1〜120秒）",
+    lengthSecondsSfx: "長さ（2〜120秒）",
     musicDurationHint: "約0.2秒刻みに落ちます（22.5秒を頼むと22.4秒）。10秒未満も作れますが、モデルの想定外なので出来は保証しません。",
-    sfxDurationHint: "頼んだ長さちょうどに出ます。0.1秒刻みで指定できます。",
+    sfxDurationHint: "下限は2秒です。2秒を切ると音が立ち上がる前の雑音しか返りません。短い音が要るときは2秒で作ってください——後ろの無音は自動で落とします。",
     loopToggle: "繰り返し用にする（継ぎ目なし）",
     loopHint: "終わりを始まりへ重ねるので、重ねたぶん（約1.5秒）短くなります。",
     lyricsPresets: "歌詞のひな形",
@@ -256,6 +256,9 @@ const I18N = {
     voiceCloneHint: "手元の音声に似せた声を作ります。利用する権利があることの確認が要ります。",
     voiceSpeaker: "話者",
     voiceInstruction: "声の説明",
+    voiceSeed: "声の番号（任意）",
+    voiceSeedPlaceholder: "空欄なら既定の番号",
+    voiceSeedHint: "同じ説明文でも番号が違えば別人になります。気に入った声を作り直したいときは、この番号と説明文を控えておいてください。別の人物を試したいときは番号だけ変えます。",
     voiceReference: "参照音声",
     voiceReferenceText: "参照音声の書き起こし（任意）",
     voiceLanguages: "使う言語",
@@ -463,9 +466,9 @@ const I18N = {
     length: "Length",
     instrumental: "Instrumental (BGM)",
     lengthSecondsMusic: "Length (10–600s)",
-    lengthSecondsSfx: "Length (0.1–120s)",
+    lengthSecondsSfx: "Length (2–120s)",
     musicDurationHint: "Rounds to about 0.2s steps (asking for 22.5s gives 22.4s). Under 10s works but is outside what the model expects.",
-    sfxDurationHint: "Comes out at exactly the length you ask for, in 0.1s steps.",
+    sfxDurationHint: "The floor is 2s. Below that the model returns noise from before the sound starts. Ask for 2s when you need something short; the trailing silence is trimmed for you.",
     loopToggle: "Make it loop seamlessly",
     loopHint: "The end is blended into the start, so the result is shorter by that overlap (about 1.5s).",
     lyricsPresets: "Lyric templates",
@@ -664,6 +667,9 @@ const I18N = {
     voiceCloneHint: "Match a voice from your own audio. Requires a rights confirmation.",
     voiceSpeaker: "Speaker",
     voiceInstruction: "Voice description",
+    voiceSeed: "Voice number (optional)",
+    voiceSeedPlaceholder: "Leave empty for the default",
+    voiceSeedHint: "The same description with a different number gives a different person. Note the number and the description if you want this voice back. To try someone else, change only the number.",
     voiceReference: "Reference audio",
     voiceReferenceText: "Reference transcript (optional)",
     voiceLanguages: "Languages",
@@ -1685,7 +1691,7 @@ function renderStudio() {
     renderStudio();
     syncAdvanced();
   });
-  renderChips(byId("sfx-length-chips"), [1, 2, 3, 5, 10].map((s) => ({id: s, text: `${s}s`})),
+  renderChips(byId("sfx-length-chips"), [2, 3, 5, 10].map((s) => ({id: s, text: `${s}s`})),
     Number(state.form.sfxSeconds ?? currentSfxKind().seconds), (value) => {
       state.form.sfxSeconds = value;
       renderStudio();
@@ -3273,7 +3279,16 @@ function renderVoiceDialog() {
     area.placeholder = state.locale === "ja"
       ? "落ち着いた低めの女性の声、少しかすれた響き"
       : "A calm, low female voice with a slightly husky tone";
-    fields.append(labelled(t("voiceInstruction"), area));
+    const seed = document.createElement("input");
+    seed.id = "voice-seed";
+    seed.type = "number";
+    seed.min = "0";
+    seed.max = "2147483647";
+    seed.step = "1";
+    seed.placeholder = t("voiceSeedPlaceholder");
+    fields.append(labelled(t("voiceInstruction"), area),
+                  labelled(t("voiceSeed"), seed),
+                  hintNode(t("voiceSeedHint")));
     return;
   }
   const row = document.createElement("div");
@@ -3341,6 +3356,13 @@ async function waitForTranscript(jobId) {
   return "";
 }
 
+function hintNode(text) {
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = text;
+  return hint;
+}
+
 function labelled(text, node) {
   const label = document.createElement("label");
   label.append(document.createTextNode(text), node);
@@ -3365,7 +3387,13 @@ byId("voice-save").addEventListener("click", async () => {
   const recipe = {};
   let rights = false;
   if (state.voiceKind === "built-in") recipe.speaker = byId("voice-speaker")?.value || "Ryan";
-  if (state.voiceKind === "design") recipe.design_instruction = byId("voice-instruction")?.value || "";
+  if (state.voiceKind === "design") {
+    recipe.design_instruction = byId("voice-instruction")?.value || "";
+    /* seed は空なら送らない。既定値を置くのはサーバ側の仕事で、ここで 0 を
+       送ると「0 を指定した」ことになってしまう。 */
+    const seedText = String(byId("voice-seed")?.value || "").trim();
+    if (seedText) recipe.seed = Number(seedText);
+  }
   if (state.voiceKind === "clone") {
     const slot = audioSlot(state.voiceReference);
     if (!slot.uploadId) { showError("voice-dialog-error", t("needAudio")); return; }

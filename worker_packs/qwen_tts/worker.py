@@ -60,6 +60,23 @@ def make_room(cache: "OrderedDict", limit: int, release) -> int:
     return dropped
 
 
+def _seed_everything(seed) -> None:
+    """乱数を置く。置かないと design は同じ注文文でも別人を返す。
+
+    実測: 注文文と本文を固定して 2 回呼び、seed 無しでは長さ 6.08s / 7.04s・
+    波形の相関 0.0073（別人）、seed=777 では sha256 が一致した。声の定義に
+    seed を残しておけば、見本の音が失われても同じ声を作り直せる。
+    """
+    if seed is None:
+        return
+    with redirect_stdout(sys.stderr):
+        import torch
+
+        torch.manual_seed(int(seed))
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(int(seed))
+
+
 def _emit(value: dict) -> None:
     print(json.dumps(value, ensure_ascii=False), flush=True)
 
@@ -184,6 +201,9 @@ def handle(payload: dict) -> None:
             raise ValueError(
                 "voice clone requires reference_text unless x_vector_only_mode is enabled"
             )
+        # 声を作ったときの seed を台詞にも置く。同じ声・同じ台詞なら同じ音が
+        # 返るので、作り直しても素材が入れ替わらない。
+        _seed_everything(recipe.get("seed"))
         wavs, sr = tts.generate_voice_clone(**kwargs)
         mode = "clone"
         speaker = voice.get("name")
@@ -199,18 +219,69 @@ def handle(payload: dict) -> None:
         design_instruction = str(recipe.get("design_instruction") or instruct).strip()
         if not design_instruction:
             raise ValueError("voice design profile requires design_instruction")
+        # identity を決める見本は **一本だけ** 作る。
+        #
+        # design の identity は注文文と本文と乱数で決まる。本文を変えれば別人になり、
+        # 1 回の呼び出しに batch でまとめても変わらない（実測: 感情別の 4 本を 1 回で
+        # まとめて作り、MFCC 平均の余弦は最小 0.703。別々に呼んだとき 0.695 と同じ
+        # 水準だった）。以前ここは batch で感情別に作っていたので、感情ごとに別人の
+        # キャラクターが出来ていた。
+        anchor_text = str(recipe.get("anchor_text") or "").strip() or text
+        seed = recipe.get("seed")
         tts = _model(model_id)
-        _emit({"type": "progress", "progress": 0.55, "message": "Designing and synthesizing voice"})
-        # 見本を複数まとめて作るときは、必ず 1 回の呼び出しで作る。design は
-        # 呼び直すと別人になる（同じ注文文でも耳で聞いて完全に別人だった）ので、
-        # 感情ごとに呼び分けると感情ごとに別のキャラができてしまう。
-        # 注文文は全部同じにする——注文文を変えるのも別人になる道である。
-        texts = [str(item) for item in (sample_texts or [text])]
+        _emit({"type": "progress", "progress": 0.4, "message": "Designing voice"})
+        _seed_everything(seed)
         wavs, sr = tts.generate_voice_design(
-            text=texts,
+            text=[anchor_text],
             language=language,
-            instruct=[design_instruction] * len(texts),
+            instruct=[design_instruction],
         )
+        # 感情別の見本は、確定した identity の見本からの複製で作る。design を
+        # 呼び直さない——呼び直した時点で別人になる。複製は喋り方も写すので、
+        # 感情の乗った文を渡せばその口調の見本になり、identity は複製経路が保つ
+        # （実測: 基準との MFCC 余弦 0.978 〜 0.993）。
+        emotion_texts = [
+            (str(item[0]), str(item[1]))
+            for item in (recipe.get("emotion_texts") or [])
+            if isinstance(item, (list, tuple)) and len(item) == 2
+        ]
+        if emotion_texts:
+            import numpy as np
+
+            clone_model_id = (
+                recipe.get("clone_model_id")
+                or os.environ.get(
+                    "SONICFORGE_QWEN_TTS_CLONE_MODEL",
+                    "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+                )
+            )
+            anchor_wav = np.asarray(wavs[0]).reshape(-1)
+            clone = _model(clone_model_id)
+            # 参照は ICL で渡す。x_vector_only_mode より一致が良く（実測 0.983〜0.992
+            # 対 0.959〜0.983）、見本はこちらが喋らせた文そのものなので書き起こしが
+            # 完全に一致する。
+            prompt = clone.create_voice_clone_prompt(
+                ref_audio=(anchor_wav, sr),
+                ref_text=anchor_text,
+                x_vector_only_mode=False,
+            )
+            for index, (label, spoken) in enumerate(emotion_texts):
+                _emit({
+                    "type": "progress",
+                    "progress": 0.55 + 0.35 * (index / max(1, len(emotion_texts))),
+                    "message": f"Deriving {label} reference",
+                })
+                _seed_everything(seed)
+                extra, extra_sr = clone.generate_voice_clone(
+                    text=[spoken],
+                    language=language,
+                    voice_clone_prompt=prompt,
+                )
+                if extra_sr != sr:
+                    raise ValueError(
+                        f"clone sample rate {extra_sr} does not match design {sr}"
+                    )
+                wavs = list(wavs) + [extra[0]]
         mode = "design"
         speaker = voice.get("name")
     else:
@@ -281,6 +352,9 @@ def handle(payload: dict) -> None:
                 "speaker": speaker,
                 "filename": "speech.wav",
                 "warm_model_cache": False,
+                # 声の定義のうち、作り直しに要るもの。見本の音が失われても
+                # 注文文・本文・seed があれば同じ声に戻せる。
+                "seed": recipe.get("seed"),
                 "segments": segments,
                 "sample_rate": sr,
             },

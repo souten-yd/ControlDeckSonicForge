@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -37,6 +38,35 @@ def handle(payload: dict) -> None:
     output = work / "output.wav"
     write_tone_wav(output)
     result_payload = {"preview": True, "warm_model_cache": True}
+    # 声を作るときは、identity の見本 1 本と感情別の見本を続けて返す約束である。
+    # 本物の engine は 1 ファイルに繋いで切れ目を標本位置で添えるので、ここでも
+    # 同じ形にする。添えないと「頼んだ感情の見本がそろわなかった」と扱われる。
+    voice = (request.get("input") or {}).get("_internal_voice")
+    recipe = (voice or {}).get("recipe") or {}
+    emotion_texts = recipe.get("emotion_texts") or []
+    if recipe.get("method") == "design" and emotion_texts:
+        import wave
+
+        with wave.open(str(output), "rb") as handle:
+            params = handle.getparams()
+            frames = handle.readframes(params.nframes)
+        gap = b"\x00" * (params.sampwidth * params.nchannels * int(params.framerate * 0.4))
+        pieces, segments, cursor = [], [], 0
+        for index in range(1 + len(emotion_texts)):
+            if index:
+                pieces.append(gap)
+                cursor += params.nframes and len(gap) // (params.sampwidth * params.nchannels)
+            segments.append({"start": cursor, "end": cursor + params.nframes})
+            pieces.append(frames)
+            cursor += params.nframes
+        with wave.open(str(output), "wb") as handle:
+            handle.setparams(params._replace(nframes=0))
+            handle.writeframes(b"".join(pieces))
+        # 見本が足りないまま返ってきたときに呼んだ側が気づけるかを試すための栓。
+        # 足りないことは作った側にしか分からないので、試験でしか作れない。
+        if os.environ.get("SONICFORGE_FAKE_VOICE_DROP_SEGMENT") == "1":
+            segments = segments[:-1]
+        result_payload["segments"] = segments
     normalization = (request.get("input") or {}).get("_internal_prompt_normalization")
     if isinstance(normalization, dict):
         result_payload["prompt_normalization"] = normalization

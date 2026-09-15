@@ -463,6 +463,25 @@ async def list_voices():
 async def create_voice(body: VoiceCreate, request: Request):
     if body.source_type in {"clone", "trained", "imported"} and not body.rights_confirmed: raise HTTPException(status_code=400, detail={"code": "voice_rights_confirmation_required", "message": "Voice rights confirmation is required"})
     recipe = dict(body.recipe); identity = await _host_identity(request)
+    if body.source_type == "design":
+        # 画面から作った声も、agent から作った声と同じ手順に通す。
+        #
+        # ここは以前 design_instruction を保存するだけで、見本を掴まなかった。
+        # そうすると台詞のたびに design が呼び直され、**台詞ごとに別人になる**
+        # （実測: 注文文と seed を固定して本文だけ変えると MFCC 平均の余弦が
+        # 最小 0.695 まで落ちた）。手順が二つあると、片方だけ直しても直らない。
+        summary = await _create_voice(
+            "design", body.name, list(body.languages or []),
+            {
+                "description": recipe.get("design_instruction") or recipe.get("description"),
+                "sample_text": recipe.get("sample_text"),
+                "seed": recipe.get("seed"),
+                "emotions": recipe.get("emotions"),
+            },
+            request, identity,
+        )
+        with session_factory() as session:
+            return _voice_dict(session.get(Voice, summary["voice_id"]))
     if body.source_type == "clone":
         # Reference audio recorded or picked in the browser is already here.
         upload_id = recipe.pop("reference_upload", None)
@@ -782,6 +801,11 @@ def _voice_summary(voice: Voice) -> dict[str, Any]:
         "speaker": recipe.get("speaker"),
         "description": recipe.get("design_instruction"),
         "anchored": bool(recipe.get("reference_audio")),
+        # 声を作り直すのに要る三つ。注文文（description）と本文（anchor_text）と
+        # seed が揃えば、見本の音が失われても同じ声に戻せる。どれか一つでも
+        # 違うと別人になる。
+        "seed": recipe.get("seed"),
+        "anchor_text": recipe.get("anchor_text"),
         # この声で出せる感情。preset は instruct に何でも書けるので空で、
         # design と clone は「持っている見本の分だけ」しか出せない。
         "emotion_choices": sorted(recipe.get("references") or {}),
@@ -887,25 +911,29 @@ async def _create_voice(
         })
     language = languages[0] if languages else None
     emotions = _resolve_emotions(value.get("emotions"))
-    sample_text = str(value.get("sample_text") or "").strip() or voice_catalog.emotion_anchor_text(
-        language, "neutral")
-    sample_texts = [
-        sample_text if label == "neutral" else voice_catalog.emotion_anchor_text(language, label)
-        for label in emotions
+    seed = _resolve_design_seed(value.get("seed"))
+    # identity を決める見本は一本だけ。本文が変われば別人になるので、design に
+    # 渡す本文はここで一つに決める（実測: 注文文と seed を固定して本文だけ変えると
+    # MFCC 平均の余弦が最小 0.695 まで落ちた）。
+    anchor = str(value.get("sample_text") or "").strip() or voice_catalog.anchor_text(language)
+    # 感情別の見本は、この見本からの複製で作る。neutral は見本そのものなので
+    # 複製しない。
+    emotion_texts = [
+        [label, voice_catalog.emotion_anchor_text(language, label)]
+        for label in emotions if label != "neutral"
     ]
-    # 注文どおりの声で、感情別の見本をまとめて喋らせる。**1 回の呼び出しで作る**の
-    # が肝心で、design は呼び直すと別人になるため、感情ごとに呼び分けると感情ごとに
-    # 別のキャラができる。この見本が以後の identity になる。
+    # 注文どおりの声で見本を一本作り、その場で感情別の複製まで済ませる。
     # 見本文は下書きの声に載せて運ぶ。`_internal_*` は外から渡せない決まりで、
     # ここは外向きの入口と同じ検証を通るためである。
     draft = _save_voice(name, "design", languages, {
         "method": "design", "design_instruction": description,
-        "sample_texts": sample_texts,
+        "anchor_text": anchor, "seed": seed,
+        "emotion_texts": emotion_texts,
     }, rights_confirmed=False)
     try:
         finished = await _run_task(
             _workflow_body("speech.tts.synthesize", {
-                "input": {"text": sample_text, "voice_id": draft.id},
+                "input": {"text": anchor, "voice_id": draft.id},
                 "content_language": languages[0] if languages else "auto",
             }),
             request, wait=True,
@@ -929,21 +957,33 @@ async def _create_voice(
         segments = list((asset.metadata_json or {}).get("segments") or [])
     # 見本は 1 本に繋がって返る（仕事の出力は 1 ファイルという約束のため）。
     # どこで切るかは worker が標本位置で添えてくるので、無音を探さずに切れる。
+    # そもそもこのモデルは文の切れ目でも無音を置かない（実測: 29.52 秒の見本に
+    # -30dB / 0.10 秒でも無音区間は 0 箇所）ので、探す道は無い。
+    expected = 1 + len(emotion_texts)
+    if len(segments) != expected:
+        _drop_voice(draft.id)
+        raise HTTPException(status_code=502, detail={
+            "code": "voice_sample_incomplete",
+            "message": f"見本が {expected} 本そろいませんでした（{len(segments)} 本）",
+        })
     try:
         cuts = _split_wav(sample_path, segments) if len(segments) > 1 else [sample_path]
     except Exception:
         _drop_voice(draft.id)
         raise HTTPException(status_code=502, detail={"code": "voice_sample_unreadable"})
+    spoken_texts = [anchor] + [item[1] for item in emotion_texts]
+    labels = ["neutral"] + [item[0] for item in emotion_texts]
     references: dict[str, dict[str, str]] = {}
-    for label, piece, spoken in zip(emotions, cuts, sample_texts):
+    for label, piece, spoken in zip(labels, cuts, spoken_texts):
         references[label] = {
             "audio": await _store_voice_reference(piece),
             "text": spoken,
         }
         if piece != sample_path:
             piece.unlink(missing_ok=True)
-    # 見本が取れたので、以後は複製で回す。design を呼び直さない——同じ注文文でも
-    # 同じ声が出る保証が無いため、呼び直した時点で別人になりうる。
+    # 見本が取れたので、以後は複製で回す。design を呼び直さない——注文文・本文・
+    # seed のどれか一つでも違えば別人になるためで、同じものを揃えれば作り直せる。
+    # その三つをここに残す。
     with session_factory() as session:
         row = session.get(Voice, draft.id)
         row.source_type = "clone"
@@ -951,6 +991,8 @@ async def _create_voice(
         row.recipe = {
             "method": "design",
             "design_instruction": description,
+            "anchor_text": anchor,
+            "seed": seed,
             # 単一の参照しか見ない古い経路のために、平静の見本を今までの場所にも置く。
             "reference_audio": references["neutral"]["audio"],
             "reference_text": references["neutral"]["text"],
@@ -963,6 +1005,32 @@ async def _create_voice(
         session.refresh(row)
         session.expunge(row)
     return {**_voice_summary(row), "sample_asset_id": finished["asset_id"]}
+
+
+def _resolve_design_seed(requested: Any) -> int:
+    """design に置く乱数を決める。
+
+    seed を置けば design はバイト単位で再現する（実測: 同じ注文文・同じ本文・
+    seed=777 で 2 回、sha256 一致）。置かないと同じ注文文でも別人になる（同条件
+    で seed 無し 2 回、波形の相関 0.0073）。省略を「再現しなくてよい」とは読まず、
+    既定の seed を置く——声は作り直せることに意味がある。
+    """
+    if requested is None:
+        return voice_catalog.DEFAULT_DESIGN_SEED
+    if isinstance(requested, bool) or not isinstance(requested, int):
+        raise HTTPException(status_code=422, detail={
+            "code": "invalid_seed",
+            "message": "seed は整数です",
+        })
+    if not (voice_catalog.DESIGN_SEED_MIN <= requested <= voice_catalog.DESIGN_SEED_MAX):
+        raise HTTPException(status_code=422, detail={
+            "code": "invalid_seed",
+            "message": (
+                f"seed は {voice_catalog.DESIGN_SEED_MIN}〜"
+                f"{voice_catalog.DESIGN_SEED_MAX} の範囲です"
+            ),
+        })
+    return int(requested)
 
 
 def _resolve_emotions(requested: Any) -> list[str]:

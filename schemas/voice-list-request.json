@@ -5,5 +5,5 @@
   "type": "object",
   "properties": {},
   "additionalProperties": false,
-  "description": "The character voices that exist, plus the built-in preset speakers. Each entry carries the emotions it can produce (emotion_choices) and whether emotion is chosen by name (supports_emotion). Pick the voice_id here before making any line.\n\nIt creates nothing — sonic.voice.create makes a voice, sonic.generate speaks with one."
+  "description": "The character voices that exist, plus the built-in preset speakers. Each entry carries the emotions it can produce (emotion_choices) and whether emotion is chosen by name (supports_emotion). Pick the voice_id here before making any line.\n\nA design voice also carries the three things that define it — description, anchor_text and seed. Give sonic.voice.create the same three and you get the same voice back, byte for byte; change any one of them and you get a different person. Use this to rebuild a character whose sample was lost, or change only the seed to try another person in the same style.\n\nIt creates nothing — sonic.voice.create makes a voice, sonic.generate speaks with one."
 }

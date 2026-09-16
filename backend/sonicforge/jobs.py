@@ -24,6 +24,17 @@ from . import audio_loop
 # 10 GiB だと、動ける大きさなのに 0.09 GiB 足りずに弾かれる。実測 2026-09-15、
 # その状態で頼んだ曲は 5 分 35 秒待たされ、LLM が退いてからようやく動いた。
 # 下限は「動ける最小」であって「快適な大きさ」ではない。
+#
+# 9 GiB でもまだ際どい。**下限が空きを超えると、broker は LLM に退去を頼む。**
+# 27B の LLM は載せ直しに時間がかかるうえ、その間は利用者の会話そのものが
+# 止まるので、音楽 1 本のために降ろす価値は無い。
+#
+#   カード 31.86 GiB − LLM 22.8 GiB = 空き 9.06 GiB
+#   下限 9 GiB では余裕が 0.06 GiB しかなく、少し揺れれば頼みに行く
+#   実測の音楽は 7.4 GiB（2026-09-16、MAX_CUDA_VRAM を枠に合わせた状態）
+#
+# 8 GiB にすると実測に 0.6 GiB 足した値になり、空きに 1 GiB 余る。これで音楽の
+# ために LLM が降りることは無くなる。
 # 失敗の説明として残す長さ。
 #
 # 500 文字で切っていたため、ACE-Step のログ 1〜2 行で埋まり、traceback が
@@ -31,7 +42,7 @@ from . import audio_loop
 # 何が起きたのかは一行も分からなかった。列は Text なので長さの制約は無い。
 FAILURE_MESSAGE_CHARS = 4000
 
-MUSIC_MINIMUM_VRAM_BYTES = 9 * 1024**3
+MUSIC_MINIMUM_VRAM_BYTES = 8 * 1024**3
 from .audio import inspect_wav
 from .config import Settings
 from . import voice_catalog

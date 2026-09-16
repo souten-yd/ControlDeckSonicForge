@@ -383,6 +383,11 @@ def test_music_declares_a_floor_so_it_can_run_beside_a_resident_llm():
     # していたので 0.09 GiB 足りずに弾かれ、5 分 35 秒待たされた。下限は
     # 「動ける最小」であって「快適な大きさ」ではない。
     assert MUSIC_MINIMUM_VRAM_BYTES <= int(9.9 * 1024**3)
+    # **下限が空きを超えると、broker は LLM に退去を頼む。** 27B の LLM は載せ直しに
+    # 時間がかかり、その間は利用者の会話そのものが止まる。音楽 1 本のために降ろす
+    # 価値は無いので、LLM が載ったままの空き（31.86 - 22.8 = 9.06 GiB）に対して
+    # 余裕を持って収まること。実測の音楽は 7.4 GiB（2026-09-16）。
+    assert MUSIC_MINIMUM_VRAM_BYTES <= int(8.5 * 1024**3), "LLM が載ったままの空きに余裕が無い"
 
     # 音声（ASR / TTS）は元から同居できるので、下限は足さない。
     speech = manager._resource_estimate(

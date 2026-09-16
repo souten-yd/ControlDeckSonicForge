@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -129,6 +130,41 @@ def _load_int8(handler, cache: Path, target: str, *, offloading: bool) -> None:
                 setattr(handler, attr, target)
             except Exception:  # noqa: BLE001 - 属性が読み取り専用でも進む
                 pass
+
+
+# 「載らなかった」と判じる手がかり。
+#
+# ROCm も CUDA も、足りないときは同じ言い回しの例外を投げる。型で見分けようと
+# すると torch の版で変わるので、文面で見る。
+_OOM_MARKS = ("out of memory", "outofmemory", "alloc failed", "cannot allocate")
+
+# 載らなかったことを覚えておく長さ（秒）。
+#
+# 一度足りなかったなら、直後に同じ道を試しても同じところで落ちる。読み込みに
+# 数十秒かけてから落ちるので、続けて頼まれるほど損が積み上がる。しばらくは
+# 落とした載せ方から始め、時間が経てばまた全部載せを試す——他の process は
+# 降りることがあるので、諦めたままにはしない。
+_OOM_MEMORY_SEC = 600.0
+_recent_oom: dict[str, float] = {}
+
+
+def _is_out_of_memory(exc: BaseException) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(mark in text for mark in _OOM_MARKS)
+
+
+def _note_out_of_memory(device: str) -> None:
+    _recent_oom[device] = time.monotonic()
+
+
+def _recently_ran_out(device: str) -> bool:
+    moment = _recent_oom.get(device)
+    if moment is None:
+        return False
+    if time.monotonic() - moment >= _OOM_MEMORY_SEC:
+        _recent_oom.pop(device, None)
+        return False
+    return True
 
 
 def _apply_vram_cap(budget_bytes: int) -> int | None:
@@ -305,13 +341,40 @@ def handle(payload: dict) -> None:
         budget = _free_vram_bytes(device)
         budget_source = "measured" if budget else "unknown"
     small_budget = bool(budget) and budget < FULL_RESIDENCY_BYTES
+    if not small_budget and _recently_ran_out(device):
+        # 直前に全部載せようとして足りなかった。空きの見立ては変わっていないはず
+        # なので、同じ道をもう一度試さない。試せば読み込みに数十秒かけたうえで
+        # 同じところで落ちる。
+        small_budget = True
+        budget_source = f"{budget_source}+recent_oom"
     # 枠が分かっているなら ACE-Step にも同じ枠を伝える。伝えないと、こちらが
     # offload を指定していても既定の 20 GiB 前提で構成を組まれる。
     vram_cap_gib = _apply_vram_cap(budget) if budget else None
-    dit, llm = _handlers(
-        project_root, checkpoints, device, dit_model, lm_model, lm_backend,
-        small_budget, vram_cap_gib,
-    )
+    placement_retried = False
+    try:
+        dit, llm = _handlers(
+            project_root, checkpoints, device, dit_model, lm_model, lm_backend,
+            small_budget, vram_cap_gib,
+        )
+    except Exception as exc:
+        # 載らなかった。**諦めずに、載せ方を落として作り直す。**
+        #
+        # 空きの見立ては当てが外れることがある。他の process がちょうど載り始めた、
+        # 断片化していて連続した領域が取れない、といった理由で、見た目の空きが
+        # あっても載らない。そこで job ごと失敗させると、頼んだ側には「音楽が
+        # 作れない」としか見えない。遅くても作れる道があるなら、そちらへ落とす。
+        if small_budget or not _is_out_of_memory(exc):
+            raise
+        _note_out_of_memory(device)
+        _emit({"type": "progress", "progress": 0.04,
+               "message": "Not enough VRAM to hold it all; retrying with offload"})
+        small_budget = True
+        placement_retried = True
+        vram_cap_gib = _apply_vram_cap(budget) if budget else None
+        dit, llm = _handlers(
+            project_root, checkpoints, device, dit_model, lm_model, lm_backend,
+            small_budget, vram_cap_gib,
+        )
 
     inp = request.get("input", {})
     caption = str(inp.get("prompt") or inp.get("description") or "").strip()
@@ -369,6 +432,8 @@ def handle(payload: dict) -> None:
                 # 枠を誰が決めたのか。同じ頼みでも速さが変わるので、あとから
                 # 「なぜ遅かったのか」「なぜ落ちたのか」を追えるようにする。
                 "placement_decided_by": budget_source,
+                # 一度載せ損ねて落とした回か。同じ頼みでも速さが変わるので残す。
+                "placement_retried": placement_retried,
                 # ACE-Step に伝えた枠（GiB）。段が変われば速さも VRAM も変わる。
                 "vram_cap_gib": vram_cap_gib,
                 "granted_vram_bytes": int(granted) if granted else None,

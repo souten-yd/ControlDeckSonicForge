@@ -12,7 +12,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .access import websocket_peer_is_trusted
-from .db import MeetingSegment, MeetingSession, utcnow
+from .db import MeetingSegment, MeetingSession, utcnow, moment
 from .edge_protocol import AudioFrame, EdgeProtocolError, SequenceTracker, STREAM_MIC
 from .host.client import HostApiError, HostIdentity
 from .live_api import _pcm_file_to_wav
@@ -60,8 +60,8 @@ def _meeting_dict(row: MeetingSession) -> dict:
         "summarize": row.summarize,
         "profile": row.profile or {},
         "summary": row.summary or {},
-        "started_at": row.started_at.isoformat() if row.started_at else None,
-        "ended_at": row.ended_at.isoformat() if row.ended_at else None,
+        "started_at": moment(row.started_at),
+        "ended_at": moment(row.ended_at),
         "segments": [
             {
                 "id": item.id,

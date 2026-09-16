@@ -13,6 +13,28 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def moment(value: datetime | None) -> str | None:
+    """外へ出す時刻。**必ず時間帯を付ける。**
+
+    書き込むのは aware（`utcnow`）だが、SQLite は時間帯を保たないので、読み
+    出すと naive で返る。そのまま `isoformat()` すると `2026-09-16T00:17:53`
+    のようにオフセットの無い文字列になる。
+
+    JavaScript はオフセットの無い日時を **その端末の地方時** として読む
+    （ECMAScript の規定）。つまり UTC の時計の針をそのまま地方時として表示
+    するので、日本だと 9 時間前にずれる。実測 2026-09-16: 09:17 JST に作った
+    素材が、ライブラリで 0:17 と出ていた。
+
+    ずれても「それらしい日時」が出るので、画面を見ただけでは気づけない。
+    ここで必ず UTC を付けて、読む側に解釈の余地を残さない。
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
+
+
 class Base(DeclarativeBase):
     pass
 

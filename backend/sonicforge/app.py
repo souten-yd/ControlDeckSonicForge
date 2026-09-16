@@ -24,7 +24,7 @@ from . import asset_download
 from .capabilities import capability_document
 from .models_catalog import model_document
 from .config import ensure_directories, load_settings
-from .db import Asset, Job, LocalizationBatch, LocalizationLine, Provenance, Voice, make_session_factory
+from .db import Asset, Job, LocalizationBatch, LocalizationLine, Provenance, Voice, make_session_factory, moment
 from .events import EventBus
 from .host.client import ControlDeckHostClient, HostApiError, HostIdentity
 from .host.files import read_grant
@@ -61,15 +61,15 @@ setup_tasks: dict[str, asyncio.Task[None]] = {}
 
 
 def _job_dict(job: Job) -> dict[str, Any]:
-    return {"id": job.id, "task": job.task, "state": job.state, "progress": job.progress, "result": job.result or {}, "error_code": job.error_code, "error_message": job.error_message, "cancel_requested": bool(job.cancel_requested), "created_at": job.created_at.isoformat() if job.created_at else None, "updated_at": job.updated_at.isoformat() if job.updated_at else None}
+    return {"id": job.id, "task": job.task, "state": job.state, "progress": job.progress, "result": job.result or {}, "error_code": job.error_code, "error_message": job.error_message, "cancel_requested": bool(job.cancel_requested), "created_at": moment(job.created_at), "updated_at": moment(job.updated_at)}
 
 
 def _asset_dict(asset: Asset) -> dict[str, Any]:
-    return {"id": asset.id, "kind": asset.kind, "mime_type": asset.mime_type, "size_bytes": asset.size_bytes, "sha256": asset.sha256, "duration_ms": asset.duration_ms, "sample_rate": asset.sample_rate, "channels": asset.channels, "job_id": asset.job_id, "provenance_id": asset.provenance_id, "metadata": asset.metadata_json or {}, "created_at": asset.created_at.isoformat() if asset.created_at else None}
+    return {"id": asset.id, "kind": asset.kind, "mime_type": asset.mime_type, "size_bytes": asset.size_bytes, "sha256": asset.sha256, "duration_ms": asset.duration_ms, "sample_rate": asset.sample_rate, "channels": asset.channels, "job_id": asset.job_id, "provenance_id": asset.provenance_id, "metadata": asset.metadata_json or {}, "created_at": moment(asset.created_at)}
 
 
 def _voice_dict(voice: Voice) -> dict[str, Any]:
-    return {"id": voice.id, "name": voice.name, "source_type": voice.source_type, "languages": voice.languages or [], "engine_id": voice.engine_id, "recipe": voice.recipe or {}, "rights_confirmed": bool(voice.rights_confirmed), "created_at": voice.created_at.isoformat() if voice.created_at else None}
+    return {"id": voice.id, "name": voice.name, "source_type": voice.source_type, "languages": voice.languages or [], "engine_id": voice.engine_id, "recipe": voice.recipe or {}, "rights_confirmed": bool(voice.rights_confirmed), "created_at": moment(voice.created_at)}
 
 
 def _host_headers_present(request: Request) -> bool:
@@ -419,13 +419,13 @@ async def list_assets(limit: int = 100, before: str | None = None, task: str | N
         if before:
             created, _, marker = before.partition("|")
             try:
-                moment = datetime.fromisoformat(created)
+                cursor_moment = datetime.fromisoformat(created)
             except ValueError:
                 raise HTTPException(status_code=422, detail={"code": "invalid_cursor"}) from None
             query = query.filter(
                 or_(
-                    Asset.created_at < moment,
-                    and_(Asset.created_at == moment, Asset.id < marker),
+                    Asset.created_at < cursor_moment,
+                    and_(Asset.created_at == cursor_moment, Asset.id < marker),
                 )
             )
         rows = query.order_by(Asset.created_at.desc(), Asset.id.desc()).limit(limit + 1).all()
@@ -433,6 +433,9 @@ async def list_assets(limit: int = 100, before: str | None = None, task: str | N
         rows = rows[:limit]
         return {
             "assets": [_asset_dict(row) for row in rows],
+            # ここは画面に出す時刻ではなく、次の頁を取るための印である。そのまま
+            # `fromisoformat` で読み直して DB の値（SQLite なので naive）と比べる
+            # ので、時間帯を付けない。付けると aware と naive の比較になって壊れる。
             "next_before": f"{rows[-1].created_at.isoformat()}|{rows[-1].id}" if more and rows else None,
         }
 
@@ -897,7 +900,7 @@ def _voice_summary(voice: Voice) -> dict[str, Any]:
         "supports_emotion": (
             voice.source_type == "built-in" or len(recipe.get("references") or {}) > 1
         ),
-        "created_at": voice.created_at.isoformat() if voice.created_at else None,
+        "created_at": moment(voice.created_at),
     }
 
 

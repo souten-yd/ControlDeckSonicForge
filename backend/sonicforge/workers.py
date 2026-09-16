@@ -357,6 +357,65 @@ async def retire_warm_workers() -> None:
     await _retire(list(_warm))
 
 
+# 抱えている engine が GPU に置いている量の目安（バイト）。
+#
+# worker は別の process なので、こちらから正確な量は見えない。ここにあるのは
+# 実測から置いた目安で、**「誰に退いてくれと頼むか」を決めるためだけ** に使う。
+# 空きの判断そのものは ControlDeck が device を直接見て決めており（観測値と
+# 申告値の大きい方を使う）、目安が外れても受け入れが甘くなることはない。
+#
+# 実測:
+#   music  2026-09-15  int8 + offload で 7.4 GiB（LLM 常駐のまま完走）
+#   tts    2026-09-05  Qwen3-TTS 0.6B CustomVoice で 1.5〜2 GiB
+#   sfx    2026-09-14  Stable Audio 3 small で約 3 GiB
+_ENGINE_VRAM_ESTIMATE: dict[str, int] = {
+    "music.ace-step-1.5": 8 * 1024**3,
+    "tts.qwen3": 2 * 1024**3,
+    "tts.gpt-sovits": 3 * 1024**3,
+    "tts.style-bert-vits2": 2 * 1024**3,
+    "audio.stable-audio-3": 3 * 1024**3,
+    "asr.whisper": 2 * 1024**3,
+}
+
+
+def held_engines() -> dict[str, int]:
+    """いま抱えている engine と、その目安の量。走っているものも含む。
+
+    ControlDeck はこれを見て「この add-on に頼めば場所が空くか」を判断する。
+    抱えていないなら何も返さない——空でない申告をしておきながら何も空けられない
+    と、頼む相手を探す側が空回りする。
+    """
+    held: dict[str, int] = {}
+    for key in _warm:
+        engine_id = key[0]
+        held[engine_id] = held.get(engine_id, 0) + _ENGINE_VRAM_ESTIMATE.get(engine_id, 0)
+    return held
+
+
+async def release_idle_now() -> tuple[list[str], int]:
+    """頼まれたので、いま使っていない engine を降ろす。降ろした engine と目安の量を返す。
+
+    時計を待たない。遊休の掃除（WARM_IDLE_SEC）は「誰も欲しがっていない間に
+    片付ける」ためのもので、こちらは「他の誰かが場所を欲しがっている」ときの道で
+    ある。引き金が違うだけで、判断は同じ——**走っている処理は切らない。**
+
+    切らないので、頼まれても空けられないことがある。そのときは空で返す。頼んだ
+    側は待ち直す。使用中のものを取り上げると、取り上げられた側が落ちるだけで、
+    GPU の取り合いが解決しない。
+    """
+    if _hold_all_warm:
+        # 続きがあると宣言されている最中。ここで降ろすと、次の 1 件がまた読み直す。
+        return [], 0
+    idle = [key for key in _warm if key not in _warm_busy]
+    if not idle:
+        return [], 0
+    freed = sum(_ENGINE_VRAM_ESTIMATE.get(key[0], 0) for key in idle)
+    await _retire(idle)
+    for key in idle:
+        _warm_used_at.pop(key, None)
+    return sorted({key[0] for key in idle}), freed
+
+
 async def retire_transient_workers() -> None:
     """batch のあいだだけ抱えていた engine を降ろす。常駐が本業のものは残す。
 

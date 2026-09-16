@@ -21,6 +21,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import selectinload
 
 from . import asset_download
+from . import workers
 from .capabilities import capability_document
 from .models_catalog import model_document
 from .config import ensure_directories, load_settings
@@ -530,6 +531,42 @@ async def assets_download(asset_id: list[str] = Query(default_factory=list)):
         content_disposition_type="attachment",
         background=BackgroundTask(target.unlink, missing_ok=True),
     )
+
+
+@app.get("/addon/v1/resources/residency")
+async def resource_residency():
+    """いま GPU に置いているものを申告する。
+
+    ControlDeck はこれを見て「この add-on に頼めば場所が空くか」を判断する。
+    量は目安である——worker は別の process なので正確な量はこちらから見えない。
+    空きの判断そのものはホストが device を直接見て決めており、目安が外れても
+    受け入れが甘くなることはない（観測値と申告値の大きい方を使う作りのため）。
+    """
+    held = workers.held_engines()
+    return {
+        "device_id": "gpu0",
+        "reserved_bytes": sum(held.values()),
+        "engines": [{"engine_id": key, "reserved_bytes": value} for key, value in sorted(held.items())],
+        "estimated": True,
+    }
+
+
+@app.post("/addon/v1/resources/step-aside")
+async def resource_step_aside():
+    """場所が要るので退いてくれ、という頼みに答える。
+
+    時計を待たずに、いま使っていない engine を降ろす。**走っている処理は切らない**
+    ので、頼まれても空けられないことがある。そのときは released=false で返し、
+    頼んだ側は待ち直す。使用中のものを取り上げても、取り上げられた側が落ちるだけで
+    GPU の取り合いは解決しない。
+    """
+    engines, freed = await workers.release_idle_now()
+    return {
+        "released": bool(engines),
+        "reason": "released" if engines else "in_use_or_empty",
+        "freed_bytes": freed,
+        "engines": engines,
+    }
 
 
 @app.get("/addon/v1/voices")

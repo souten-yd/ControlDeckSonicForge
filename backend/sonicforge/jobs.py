@@ -24,6 +24,13 @@ from . import audio_loop
 # 10 GiB だと、動ける大きさなのに 0.09 GiB 足りずに弾かれる。実測 2026-09-15、
 # その状態で頼んだ曲は 5 分 35 秒待たされ、LLM が退いてからようやく動いた。
 # 下限は「動ける最小」であって「快適な大きさ」ではない。
+# 失敗の説明として残す長さ。
+#
+# 500 文字で切っていたため、ACE-Step のログ 1〜2 行で埋まり、traceback が
+# 一度も残らなかった。実測 2026-09-16: 音楽生成の失敗 12 件を調べても、
+# 何が起きたのかは一行も分からなかった。列は Text なので長さの制約は無い。
+FAILURE_MESSAGE_CHARS = 4000
+
 MUSIC_MINIMUM_VRAM_BYTES = 9 * 1024**3
 from .audio import inspect_wav
 from .config import Settings
@@ -1055,7 +1062,7 @@ class JobManager:
                 state="failed",
                 progress=1.0,
                 error_code="worker_failed",
-                error_message=str(exc)[:500],
+                error_message=str(exc)[:FAILURE_MESSAGE_CHARS],
             )
         except HostApiError as exc:
             await self._set(
@@ -1063,7 +1070,7 @@ class JobManager:
                 state="failed",
                 progress=1.0,
                 error_code=exc.code,
-                error_message=str(exc)[:500],
+                error_message=str(exc)[:FAILURE_MESSAGE_CHARS],
             )
         except Exception as exc:
             await self._set(
@@ -1071,7 +1078,7 @@ class JobManager:
                 state="failed",
                 progress=1.0,
                 error_code="internal_error",
-                error_message=str(exc)[:500],
+                error_message=str(exc)[:FAILURE_MESSAGE_CHARS],
             )
         finally:
             for task in (lease_renew, control_watch):

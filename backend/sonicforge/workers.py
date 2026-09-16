@@ -21,6 +21,13 @@ ProgressCallback = Callable[[float, str], Awaitable[None]]
 MAX_WORKER_OUTPUT_BYTES = 1024 * 1024 * 1024
 MAX_STDERR_TAIL_BYTES = 32 * 1024
 
+# 失敗の説明として残す長さ。
+#
+# 500 文字では ACE-Step のログ 1〜2 行で埋まってしまい、traceback が入らない。
+# 記録に残すものなので、原因が読み切れる長さにする。
+_FAILURE_MESSAGE_CHARS = 4000
+_FAILURE_TAIL_CHARS = 3000
+
 
 @dataclass
 class WorkerResult:
@@ -195,6 +202,44 @@ def _worker_environment(
         env["HF_HUB_OFFLINE"] = "1"
         env["TRANSFORMERS_OFFLINE"] = "1"
     return env
+
+
+# 例外の出どころを示す行。ここから後ろを取れば、何が起きたのかが残る。
+_TRACEBACK_MARK = "Traceback (most recent call last):"
+
+
+def _failure_message(code: int, stderr: bytes) -> str:
+    """worker が落ちた理由を、読める形にして返す。
+
+    以前は stderr の末尾 1000 文字をそのまま返していた。ACE-Step は生成の間じゅう
+    INFO を書き続けるので、**例外が出ていてもその後ろのログに押し出されて消える**。
+    実測 2026-09-16: 音楽生成の失敗 12 件を調べたところ、記録に残っていたのは
+    どれも「model を cpu へ読み込んだ」という INFO 行だけで、何が起きたのかは
+    一行も分からなかった。直す側は毎回あてずっぽうになる。
+
+    そこで二つ変える。
+
+    1. traceback があれば **そこから後ろ** を返す。末尾ではなく原因を残す。
+    2. 終了の仕方を必ず頭に付ける。signal で殺されたのなら traceback は出ない
+       ——出ないこと自体が「例外ではなく殺された」という情報である。それが
+       分からないと、無い例外を探し続けることになる。
+    """
+    text = stderr.decode(errors="replace")
+    if code < 0:
+        # 負の値は signal。SIGKILL なら OOM killer や外からの kill を疑う。
+        try:
+            name = signal.Signals(-code).name
+        except ValueError:
+            name = f"signal {-code}"
+        head = f"worker was killed by {name}"
+    elif code != 0:
+        head = f"worker exited {code}"
+    else:
+        head = "worker ended without a result"
+    mark = text.rfind(_TRACEBACK_MARK)
+    detail = text[mark:] if mark >= 0 else text[-_FAILURE_TAIL_CHARS:]
+    detail = detail.strip()
+    return f"{head}: {detail}"[:_FAILURE_MESSAGE_CHARS] if detail else head
 
 
 async def _stderr_tail(stream: asyncio.StreamReader | None) -> bytes:
@@ -449,9 +494,7 @@ async def execute(
             stderr = await stderr_task
             _close_process_transport(proc)
         if code != 0 or final is None:
-            raise WorkerError(
-                stderr.decode(errors="replace")[-1000:] or f"worker exited {code}"
-            )
+            raise WorkerError(_failure_message(code, stderr))
     except asyncio.CancelledError:
         _warm.pop(key, None)
         await _terminate(proc)

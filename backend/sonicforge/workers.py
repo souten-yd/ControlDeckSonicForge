@@ -291,6 +291,15 @@ _warm: dict[tuple, asyncio.subprocess.Process] = {}
 # 使っていないものを抱え続ける理由が無いだけで、走っている処理は切らない。
 WARM_IDLE_SEC = float(os.environ.get("SONICFORGE_WARM_IDLE_SEC", "180"))
 _warm_used_at: dict[tuple, float] = {}
+# いま要求を処理している常駐。**掃除はここに居るものを触らない。**
+#
+# 「使った時刻」は要求を送る前に一度押すだけだった。走っている間は更新されない
+# ので、180 秒を超える処理は自分の worker を掃除機に殺される。音楽は 1 本が
+# 180〜300 秒かかるので、ほぼ必ず当たる。殺され方は stdin を閉じてからの
+# SIGTERM で、traceback は出ない——記録には ACE-Step のログ行だけが残り、
+# 「なぜ落ちたのか分からない失敗」になる（実測 2026-09-16: 音楽の失敗 12 件が
+# 生存 215.1 秒と 245.1 秒にきれいに分かれていた。差の 30 秒は掃除の周期）。
+_warm_busy: set[tuple] = set()
 _idle_sweeper: asyncio.Task | None = None
 # batch のあいだだけ、使い捨ての engine も抱えておく回数券。
 #
@@ -369,7 +378,8 @@ async def retire_idle_workers(now: float | None = None) -> list[str]:
     current = time.monotonic() if now is None else now
     stale = [
         key for key in _warm
-        if current - _warm_used_at.get(key, current) >= WARM_IDLE_SEC
+        if key not in _warm_busy
+        and current - _warm_used_at.get(key, current) >= WARM_IDLE_SEC
     ]
     if stale:
         await _retire(stale)
@@ -448,6 +458,9 @@ async def execute(
             _warm[key] = proc
     if keep:
         _warm_used_at[key] = time.monotonic()
+        # 走っている間は掃除の対象から外す。時間で決めているのは「いつ降ろすか」
+        # であって「いつ諦めるか」ではない。
+        _warm_busy.add(key)
     assert proc.stdin and proc.stdout
     stderr_task = asyncio.create_task(
         _stderr_tail(proc.stderr), name=f"sonicforge-worker-stderr-{proc.pid}"
@@ -509,6 +522,13 @@ async def execute(
         await asyncio.gather(stderr_task, return_exceptions=True)
         _close_process_transport(proc)
         raise
+    finally:
+        # 処理が終わったら（成功でも失敗でも）掃除の対象へ戻す。遊休の時計は
+        # ここから始める——送った時刻から数えると、長い処理の最中に満了する。
+        if keep:
+            _warm_busy.discard(key)
+            if key in _warm:
+                _warm_used_at[key] = time.monotonic()
 
     output = Path(final["output_path"]).resolve() if final.get("output_path") else None
     if output is not None:
